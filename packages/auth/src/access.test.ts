@@ -18,6 +18,12 @@ describe("Cloudflare Access gate", () => {
     )).resolves.toBeNull();
   });
 
+  it("ignores forged identity headers without a signed Access JWT", async () => {
+    await expect(authenticateAccess(new Request("https://app.example.test/api", {
+      headers: { "Cf-Access-Authenticated-User-Email": "admin@example.test" }
+    }), environment)).resolves.toBeNull();
+  });
+
   it("refuses tokens that are not signed JWTs", async () => {
     await expect(authenticateAccess(
       new Request("https://app.example.test/api", { headers: { "Cf-Access-Jwt-Assertion": "invalid" } }),

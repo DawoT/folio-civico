@@ -8,6 +8,14 @@ describe("API authorization boundary", () => {
     expect(await response.json()).toEqual({ status: "ok" });
   });
 
+  it("denies anonymous uploads even when a caller supplies a forged identity header", async () => {
+    const response = await handleApiRequest(new Request(
+      "https://api.test/api/commissions/c_a/batches/b_a/documents",
+      { method: "POST", headers: { "Cf-Access-Authenticated-User-Email": "admin@example.test" }, body: "%PDF-1.7" }
+    ), {} as never);
+    expect(response.status).toBe(401);
+  });
+
   it("denies unauthenticated commission requests", async () => {
     const response = await handleApiRequest(
       new Request("https://api.test/api/commissions/com_1/summary"),

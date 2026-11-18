@@ -4,9 +4,9 @@ Actualizado: 2026-11-18. Alcance de piloto: municipalidad distrital, obras y con
 
 | Fase | Resultado | Dependencias | Estado |
 | --- | --- | --- | --- |
-| P0 | Monorepo, TypeScript, vitest, CI y documentación | Acceso al repositorio | **En progreso** |
-| P1 | D1, autorización, evidencia, auditoría y contratos | P0; matriz de roles | **Parcial: dominio, consulta, esquema** |
-| P2 | Mesa React, PDF, R2 en cuarentena, checklist y borradores | P1 | Pendiente |
+| P0 | Monorepo, TypeScript, vitest, CI y documentación | Acceso al repositorio | **Completado como fundación** |
+| P1 | D1, autorización, evidencia, auditoría y contratos | P0; matriz de roles | **Parcial: reglas, esquema, ingesta y pruebas de aislamiento** |
+| P2 | Mesa React, PDF, R2 en cuarentena, checklist y borradores | P1 | **Parcial: mesa inicial, listado y carga R2; visor y checklist pendientes** |
 | P3 | Queues/Workflows, extracción, OCR por página e IA supervisada | P2; dataset anónimo | Pendiente |
 | P4 | MCP OAuth y herramientas de lectura/escritura controladas | P1 y Cloudflare Access | **Parcial: servidor de lectura sin despliegue** |
 | P5 | DOCX, E2E, seguridad, retención, medición del ahorro | P2–P4; aprobación legal | Pendiente |
@@ -15,7 +15,7 @@ Actualizado: 2026-11-18. Alcance de piloto: municipalidad distrital, obras y con
 
 Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación mínima; (3) refactorización; (4) tests + typecheck + dry-run build; (5) registro de resultados y riesgos. Las migraciones se verifican en D1 local antes de cualquier aplicación remota.
 
-## Entrega actual: P0/P1a
+## Entrega actual: P0/P1b + P2a
 
 - [x] Tests que rechazan permisos entre comisiones, sujetos incorrectos e inactivos.
 - [x] Dos clases de evidencia documental diferenciadas: página existente y alcance de búsqueda sin resultado; soporte para fuente oficial.
@@ -25,8 +25,16 @@ Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación m
 - [x] API protegida y MCP con una herramienta de solo lectura.
 - [x] Migración inicial en D1 local.
 - [x] Compilación de ambos Workers sin despliegue.
+- [x] Recepción de PDF a R2 privado bajo `quarantine/`, límite 8 MiB, firma, hash y nombre saneado.
+- [x] Claves de idempotencia por comisión; transacción D1 para documento/versión/auditoría y limpieza compensatoria de R2.
+- [x] Listado autorizado de documentos del lote sin exponer las claves de objetos.
+- [x] Mesa React inicial con consulta y carga, empaquetada como Static Assets del mismo Worker API.
+- [x] Pruebas de roles, idempotencia y fallo de almacenamiento con SQLite real y R2 simulado.
 - [ ] Validar protocolo MCP end-to-end con OAuth real en preview protegido.
-- [ ] Probar D1/R2 con recursos de preview exclusivos.
+- [ ] Probar D1/R2 con recursos de preview exclusivos y Access configurado (ningún recurso remoto creado todavía).
+- [ ] Inspección/transformación segura de PDFs antes de habilitar visor, extracción o descargas.
+- [ ] Reconciliación de objetos R2 huérfanos y política de retención/borrado.
+- [ ] Identificación guiada de comisiones y lotes (la pantalla actual requiere sus IDs).
 - [ ] Acordar entidad y checklist/anexo, con revisión normativa y de privacidad.
 - [ ] Ensayar exportación DOCX y reapertura de referencias.
 

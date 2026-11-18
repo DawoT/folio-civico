@@ -10,6 +10,10 @@
 
 `draft` es una propuesta sin validar. La transición a `validated` solo se habilitará mediante servicio y pantalla de revisión con membresía y permiso `validate`, registro de auditoría y evidencias reabiertas.
 
+## Cuarentena documental
+
+Una carga PDF solo prueba recepción e integridad del original. El estado de extracción permanece `pending`: no se genera evidencia por página hasta procesar e inspeccionar el archivo. Los usuarios no pueden descargar desde el bucket mediante la API inicial.
+
 ## Reglas de validación futuras
 
 - Verificar que la versión del documento y su comisión coincidan con la evidencia.

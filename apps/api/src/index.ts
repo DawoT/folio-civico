@@ -1,8 +1,10 @@
 import { authenticateAccess, type AccessConfig } from "@folio/auth";
 import { getCommissionSummary } from "@folio/data";
+import { handleDocumentRequest } from "./document-routes";
 
 export interface ApiEnv extends AccessConfig {
   DB?: D1Database;
+  DOCUMENTS?: R2Bucket;
 }
 
 function json(body: unknown, status: number): Response {
@@ -19,13 +21,19 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
   }
 
   const route = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/summary$/.exec(url.pathname);
-  if (!route) return json({ error: "Not found" }, 404);
-  if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+  const documents = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/batches\/([A-Za-z0-9_-]{1,64})\/documents$/.exec(url.pathname);
+  if (!route && !documents) return json({ error: "Not found" }, 404);
+  if (route && request.method !== "GET") return json({ error: "Method not allowed" }, 405);
 
   const subject = await authenticateAccess(request, env);
   if (!subject) return json({ error: "Unauthorized" }, 401);
   if (!env.DB) return json({ error: "Service not configured" }, 503);
+  if (documents) {
+    return handleDocumentRequest(request, { DB: env.DB, DOCUMENTS: env.DOCUMENTS }, subject,
+      documents[1]!, documents[2]!);
+  }
 
+  if (!route) return json({ error: "Not found" }, 404);
   try {
     const summary = await getCommissionSummary(env.DB, subject, route[1]!);
     // Same response for nonexistent and unauthorized resources.
