@@ -15,7 +15,7 @@ Actualizado: 2026-11-18. Alcance de piloto: municipalidad distrital, obras y con
 
 Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación mínima; (3) refactorización; (4) tests + typecheck + dry-run build; (5) registro de resultados y riesgos. Las migraciones se verifican en D1 local antes de cualquier aplicación remota.
 
-## Entrega actual: P0/P1e + P2d + P4b
+## Entrega actual: P0/P1f + P2e + P4b
 
 - [x] Tests que rechazan permisos entre comisiones, sujetos incorrectos e inactivos.
 - [x] Dos clases de evidencia documental diferenciadas: página existente y alcance de búsqueda sin resultado; soporte para fuente oficial.
@@ -49,7 +49,10 @@ Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación m
 - [ ] Validar protocolo MCP end-to-end con OAuth real en preview protegido.
 - [ ] Probar D1/R2 con recursos de preview exclusivos y Access configurado (ningún recurso remoto creado todavía).
 - [ ] Inspección/transformación segura de PDFs antes de habilitar visor, extracción o descargas.
-- [ ] Reconciliación de objetos R2 huérfanos y política de retención/borrado.
+- [x] Conciliación diagnóstica R2–D1: candidatos huérfanos con antigüedad ≥48 h, referencias ausentes, metadatos SHA-256 incompatibles, paginación/límites explícitos y cero borrados.
+- [x] Restricción SQL de unicidad de claves físicas R2 por versión (`0008`).
+- [x] Manejador `scheduled` interno que solo publica conteos agregados; **sin cron habilitado**.
+- [ ] Plan de reconciliación a escala y corrección aprobada de huérfanos; política institucional de retención y borrado; verificación del SHA-256 real de los bytes.
 - [x] Identificación guiada de comisiones y lotes mediante catálogo autenticado (provisionamiento administrativo de identidades y lotes todavía pendiente).
 - [ ] Acordar entidad y checklist/anexo, con revisión normativa y de privacidad.
 - [ ] Ensayar exportación DOCX y reapertura de referencias.

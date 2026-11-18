@@ -79,6 +79,18 @@ describe("D1 document intake security and idempotency", () => {
     } finally { f.close(); }
   });
 
+  it("rejects one R2 object key attached to two different document versions", async () => {
+    const f = fixture();
+    try {
+      await persistDocumentUpload(f.db,upload);
+      await expect(persistDocumentUpload(f.db,{
+        ...upload,documentId:"doc_2",versionId:"ver_2",idempotencyKey:"upload_req_456"
+      })).rejects.toThrow();
+      expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM document_versions").get()).toMatchObject({n:1});
+      expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM audit_events").get()).toMatchObject({n:1});
+    } finally {f.close();}
+  });
+
   it("does not expose an inaccessible batch on listing", async () => {
     const f = fixture();
     try {

@@ -28,7 +28,7 @@ La recepción es `POST /api/commissions/{id}/batches/{batchId}/documents`. Por a
 - Una comisión cerrada permite lectura autorizada, pero no nuevas cargas.
 - No se habilitan extracción, vista previa, anotación ni descarga de cuarentena antes de crear el paso de inspección y la política de seguridad.
 - No registrar contenido PDF, nombres institucionales ni tokens en logs.
-- El servicio de limpieza de objetos huérfanos y la política de retención deben implementarse y ensayarse antes del piloto con documentación real.
+- Existe una **auditoría de solo lectura** para candidatos huérfanos y referencias R2 ausentes (véase [ADR-006](ADR-006-quarantine-reconciliation.md)). No hay limpieza, política de retención ni borrado automático; deben implementarse y ensayarse antes del piloto con documentación real.
 - Las claves de idempotencia son una garantía de duplicación lógica, **no una garantía de transacción distribuida** entre D1 y R2.
 
 ## Limitaciones que bloquean producción
@@ -36,7 +36,7 @@ La recepción es `POST /api/commissions/{id}/batches/{batchId}/documents`. Por a
 - Faltan Cloudflare Access/Managed OAuth reales, MFA y pruebas E2E contra un entorno protegido.
 - El bucket R2 y la base D1 configurados en Wrangler son referencias de preview aún no creadas.
 - Los originales pueden contener PDF malicioso; la aceptación sintáctica es insuficiente. Se requiere inspección o una política de aislamiento y una transformación segura antes de ofrecer visor o descargas.
-- No hay reconciliación ni eliminación automática de objetos huérfanos o expirados.
+- Hay detección **diagnóstica** de objetos huérfanos y faltantes; no hay aprobación, reconciliación correctiva ni eliminación automática de objetos expirados.
 - Tampoco se ha validado residencia de datos, acuerdos de tratamiento ni condiciones de conservación/destrucción.
 
 ## Pruebas

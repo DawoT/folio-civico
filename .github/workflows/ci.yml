@@ -29,5 +29,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm build
       - run: pnpm test:workers
-      - name: Verify local D1 migration
+      - name: Verify API local D1 migrations
         run: pnpm exec wrangler d1 migrations apply folio-civico-preview --local --config apps/api/wrangler.jsonc
+      - name: Verify MCP local D1 migrations
+        run: pnpm exec wrangler d1 migrations apply folio-civico-preview --local --config apps/mcp/wrangler.jsonc

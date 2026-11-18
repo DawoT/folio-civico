@@ -6,12 +6,12 @@ Folio Cívico es una mesa de revisión documental asistida por IA para comisione
 
 ## Estado real (18 de noviembre de 2026)
 
-- **Implementado:** monorepo TypeScript, reglas de evidencia y permisos, observaciones humanas idempotentes con revisión interna de dos personas, checklist por comisión, migraciones D1, API protegida, ingesta PDF a R2 en cuarentena con SHA-256 e idempotencia, descubrimiento de comisiones/lotes por membresía, mesa React con revisión documental y servidor MCP de **solo lectura**.
+- **Implementado:** monorepo TypeScript, reglas de evidencia y permisos, observaciones humanas idempotentes con revisión interna de dos personas, checklist por comisión, migraciones D1, API protegida, ingesta PDF a R2 en cuarentena con SHA-256 e idempotencia, auditoría no destructiva de objetos R2 huérfanos y referencias D1 ausentes, descubrimiento de comisiones/lotes por membresía, mesa React con revisión documental y servidor MCP de **solo lectura**.
 - **Verificado:** pruebas unitarias y de integración con SQLite real, JWT firmados con JWKS local simulado, llamadas JSON-RPC MCP y aislamiento de comisiones, integración Vitest dentro de workerd (D1/R2 locales), typecheck, compilación React, dry-run de ambos Workers y migraciones D1 locales.
-- **No implementado todavía:** visor del documento, inspección antimalware/escáner PDF, OCR, Workflows, firma o aprobación oficial de observaciones, actualización del checklist, exportación DOCX, onboarding, OAuth/Access configurado, herramientas MCP de escritura ni despliegue. La interfaz web inicial solo lista y registra PDFs; no permite ver originales de cuarentena.
+- **No implementado todavía:** visor del documento, inspección antimalware/escáner PDF, OCR, Workflows, borrado/retención automatizados en R2, verificación física del SHA-256 de originales, firma o aprobación oficial de observaciones, actualización del checklist, exportación DOCX, onboarding, OAuth/Access configurado, herramientas MCP de escritura ni despliegue. La interfaz web inicial solo lista y registra PDFs; no permite ver originales de cuarentena.
 - **Seguridad de arranque:** los endpoints protegidos deniegan acceso si faltan las variables de Cloudflare Access o la membresía activa de la comisión. No se aceptan identidades enviadas por el navegador.
 
-Ver [roadmap](docs/ROADMAP.md), [arquitectura](docs/ADR-001-cloudflare-mcp.md), [decisión de ingesta](docs/ADR-002-r2-intake.md), [autorización y descubrimiento](docs/ADR-003-auth-discovery.md), [borradores con evidencia](docs/ADR-004-human-review.md), [idempotencia y revisión humana](docs/ADR-005-human-decisions.md), [guía de Preview](docs/PREVIEW_CHECKLIST.md) y [modelo de evidencias](docs/EVIDENCE.md).
+Ver [roadmap](docs/ROADMAP.md), [arquitectura](docs/ADR-001-cloudflare-mcp.md), [decisión de ingesta](docs/ADR-002-r2-intake.md), [autorización y descubrimiento](docs/ADR-003-auth-discovery.md), [borradores con evidencia](docs/ADR-004-human-review.md), [idempotencia y revisión humana](docs/ADR-005-human-decisions.md), [conciliación R2–D1](docs/ADR-006-quarantine-reconciliation.md), [guía de Preview](docs/PREVIEW_CHECKLIST.md) y [modelo de evidencias](docs/EVIDENCE.md).
 
 ## Requisitos
 
@@ -66,6 +66,8 @@ pnpm exec wrangler d1 migrations apply folio-civico-preview --local --config app
 - `POST /mcp` (Streamable HTTP), con herramientas de solo lectura `list_my_commissions`, `list_commission_batches`, `get_commission_summary` y `get_checklist_status`, sujetas a la misma identidad y membresía.
 
 La mesa inicial de React está en `apps/web` y se construye como Static Assets dentro del Worker API. Obtiene comisiones y lotes según la identidad autenticada, lista archivos, recibe cargas (si el rol y estado lo permiten), muestra metadatos y permite registrar un borrador de búsqueda de un ítem del checklist con declaración explícita del revisor. Ahora incluye el envío a revisión y una **decisión interna de un segundo miembro/presidente**, con justificación y auditoría. No cambia los estados del checklist, no produce actas oficiales ni afirma que el OCR o la inspección PDF estén operativos.
+
+El Worker API incluye un manejador interno de conciliación programada de cuarentena. **Sin cron configurado, permanece desactivado**: nunca responde por HTTP ni MCP, no elimina objetos y solo registra métricas agregadas. Sus resultados son diagnósticos de metadatos, no un análisis físico de los PDFs; ver [ADR-006](docs/ADR-006-quarantine-reconciliation.md).
 
 El MCP acepta llamadas stateless en el protocolo moderno (cabeceras y sobre `_meta` pertinentes), no expone CORS y deniega solicitudes con `Origin`. Las pruebas JSON-RPC se realizan con una identidad de prueba inyectada y **no acreditan una sesión OAuth real**.
 

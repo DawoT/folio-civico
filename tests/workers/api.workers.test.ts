@@ -1,5 +1,6 @@
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+import { auditQuarantine } from "../../packages/data/src/quarantine-audit";
 
 const runtime = exports as unknown as { default: { fetch(input: string): Promise<Response> } };
 const bindings = env as unknown as { DOCUMENTS: R2Bucket; DB: D1Database };
@@ -29,6 +30,38 @@ describe("real local Workers runtime", () => {
       const response = await runtime.default.fetch("https://worker.test/"+key);
       expect(response.status).toBe(404);
     } finally {
+      await bucket.delete(key);
+    }
+  });
+
+  it("audits an R2 object using workerd LIST/HEAD without deleting or returning its key", async () => {
+    const key="quarantine/workerd-reconciliation-synthetic.pdf";
+    const bucket=bindings.DOCUMENTS;
+    await bucket.put(key,new TextEncoder().encode("%PDF-1.7\n%%EOF"),{
+      customMetadata:{sha256:"a".repeat(64)}
+    });
+    try {
+      const emptyD1={
+        prepare(_sql:string) {
+          return {
+            bind(..._values:unknown[]) {
+              return {
+                first:async()=>null,
+                all:async()=>({results:[]})
+              };
+            }
+          };
+        }
+      } as unknown as D1Database;
+      const report=await auditQuarantine(emptyD1,bucket,{
+        now:new Date(Date.now()+72*60*60*1000),
+        pageSize:100,maxPages:1,maxReferences:10
+      });
+      expect(report.orphanCandidates).toBeGreaterThanOrEqual(1);
+      expect(JSON.stringify(report)).not.toContain(key);
+      expect(report.integrityVerified).toBe(false);
+    } finally {
+      // Test fixture cleanup, not the audit implementation.
       await bucket.delete(key);
     }
   });

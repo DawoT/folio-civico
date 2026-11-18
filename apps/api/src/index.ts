@@ -3,6 +3,7 @@ import { getCommissionSummary, listAccessibleCommissions, listCommissionBatches 
 import { handleDocumentRequest } from "./document-routes";
 import { handleReviewRequest, type ReviewAction } from "./review-routes";
 import { handleTransitionRequest } from "./transition-routes";
+import { runQuarantineAudit } from "./maintenance";
 
 export interface ApiEnv extends AccessConfig {
   DB?: D1Database;
@@ -66,5 +67,11 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
 export default {
   fetch(request: Request, env: ApiEnv) {
     return handleApiRequest(request, env);
+  },
+  scheduled(_controller: ScheduledController, env: ApiEnv, ctx: ExecutionContext) {
+    // Dormant by default: no cron trigger exists in wrangler.jsonc.
+    ctx.waitUntil(runQuarantineAudit(env, (summary) => {
+      console.log(JSON.stringify(summary));
+    }).then(() => undefined));
   }
 } satisfies ExportedHandler<ApiEnv>;
