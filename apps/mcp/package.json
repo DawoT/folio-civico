@@ -1,0 +1,14 @@
+{
+  "name": "@folio/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "wrangler deploy --dry-run --outdir dist" },
+  "dependencies": {
+    "@folio/auth": "workspace:*",
+    "@folio/data": "workspace:*",
+    "@modelcontextprotocol/server": "2.3.1",
+    "agents": "0.33.0",
+    "zod": "^4.0.0"
+  }
+}
