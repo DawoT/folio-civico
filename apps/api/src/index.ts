@@ -1,5 +1,5 @@
 import { authenticateAccess, type AccessConfig } from "@folio/auth";
-import { getCommissionSummary } from "@folio/data";
+import { getCommissionSummary, listAccessibleCommissions, listCommissionBatches } from "@folio/data";
 import { handleDocumentRequest } from "./document-routes";
 
 export interface ApiEnv extends AccessConfig {
@@ -20,14 +20,24 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
     return json({ status: "ok" }, 200);
   }
 
+  const discovery = url.pathname === "/api/commissions";
+  const batches = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/batches$/.exec(url.pathname);
   const route = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/summary$/.exec(url.pathname);
   const documents = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/batches\/([A-Za-z0-9_-]{1,64})\/documents$/.exec(url.pathname);
-  if (!route && !documents) return json({ error: "Not found" }, 404);
-  if (route && request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+  if (!discovery && !batches && !route && !documents) return json({ error: "Not found" }, 404);
+  if ((discovery || batches || route) && request.method !== "GET") return json({ error: "Method not allowed" }, 405);
 
   const subject = await authenticateAccess(request, env);
   if (!subject) return json({ error: "Unauthorized" }, 401);
   if (!env.DB) return json({ error: "Service not configured" }, 503);
+  if (discovery || batches) {
+    try {
+      if (discovery) return json(await listAccessibleCommissions(env.DB, subject), 200);
+      const summary = await getCommissionSummary(env.DB, subject, batches![1]!);
+      if (!summary) return json({ error: "Not found" }, 404);
+      return json(await listCommissionBatches(env.DB, subject, batches![1]!), 200);
+    } catch { return json({ error: "Request could not be completed" }, 503); }
+  }
   if (documents) {
     return handleDocumentRequest(request, { DB: env.DB, DOCUMENTS: env.DOCUMENTS }, subject,
       documents[1]!, documents[2]!);

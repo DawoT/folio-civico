@@ -1,5 +1,5 @@
 import { authenticateAccess, type AccessConfig } from "@folio/auth";
-import { getCommissionSummary } from "@folio/data";
+import { getCommissionSummary, listAccessibleCommissions, listCommissionBatches } from "@folio/data";
 import { createMcpHandler } from "agents/mcp/server";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
@@ -12,6 +12,34 @@ function createServer(subject: string, db: D1Database) {
   const server = new McpServer({
     name: "folio-civico",
     version: "0.1.0"
+  });
+
+  server.registerTool("list_my_commissions", {
+    description: "List only the commissions assigned to the authenticated user.",
+    inputSchema: z.object({})
+  }, async () => {
+    try {
+      const items = await listAccessibleCommissions(db, subject);
+      return { content: [{ type: "text" as const, text: JSON.stringify(items) }] };
+    } catch {
+      return { isError: true, content: [{ type: "text" as const, text: "Unable to list commissions" }] };
+    }
+  });
+
+  server.registerTool("list_commission_batches", {
+    description: "List batches only for a commission assigned to the authenticated user.",
+    inputSchema: z.object({ commissionId: z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/) })
+  }, async ({ commissionId }) => {
+    try {
+      const commission = await getCommissionSummary(db, subject, commissionId);
+      if (!commission) {
+        return { isError: true, content: [{ type: "text" as const, text: "Commission not found or inaccessible" }] };
+      }
+      const batches = await listCommissionBatches(db, subject, commissionId);
+      return { content: [{ type: "text" as const, text: JSON.stringify(batches) }] };
+    } catch {
+      return { isError: true, content: [{ type: "text" as const, text: "Unable to list commission batches" }] };
+    }
   });
 
   server.registerTool("get_commission_summary", {
@@ -41,6 +69,12 @@ export async function handleMcpRequest(
     return new Response("Not found", { status: 404 });
   }
 
+  // The MVP MCP endpoint is server-to-server only. Reject browser Origins and
+  // disable all CORS responses to avoid browser-driven requests with Access cookies.
+  if (request.headers.has("Origin")) return new Response("Forbidden", {
+    status: 403, headers: { "Cache-Control": "no-store" }
+  });
+
   const subject = await authenticateAccess(request, env);
   if (!subject) {
     return new Response("Unauthorized", {
@@ -49,7 +83,10 @@ export async function handleMcpRequest(
   }
   if (!env.DB) return new Response("Service not configured", { status: 503 });
 
-  const handler = createMcpHandler(() => createServer(subject, env.DB!));
+  const handler = createMcpHandler(() => createServer(subject, env.DB!), {
+    corsOptions: false,
+    legacy: "reject"
+  });
   return handler(request, env, context);
 }
 

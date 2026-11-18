@@ -15,7 +15,7 @@ Actualizado: 2026-11-18. Alcance de piloto: municipalidad distrital, obras y con
 
 Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación mínima; (3) refactorización; (4) tests + typecheck + dry-run build; (5) registro de resultados y riesgos. Las migraciones se verifican en D1 local antes de cualquier aplicación remota.
 
-## Entrega actual: P0/P1b + P2a
+## Entrega actual: P0/P1c + P2b + P4a
 
 - [x] Tests que rechazan permisos entre comisiones, sujetos incorrectos e inactivos.
 - [x] Dos clases de evidencia documental diferenciadas: página existente y alcance de búsqueda sin resultado; soporte para fuente oficial.
@@ -30,11 +30,17 @@ Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación m
 - [x] Listado autorizado de documentos del lote sin exponer las claves de objetos.
 - [x] Mesa React inicial con consulta y carga, empaquetada como Static Assets del mismo Worker API.
 - [x] Pruebas de roles, idempotencia y fallo de almacenamiento con SQLite real y R2 simulado.
+- [x] Descubrimiento de comisiones y lotes filtrado por identidad y membresía activa, sin rutas de mutación.
+- [x] Interfaz de selección de comisión/lote por listado autorizado; carga inhibida para rol observador/comisiones cerradas.
+- [x] JWT firmado con JWKS simulado: emisor, audiencia y expiración; caché de claves por Worker.
+- [x] MCP JSON-RPC moderno probado: `tools/list`, catálogo de comisiones, consulta autorizada y acceso cruzado rechazado; CORS deshabilitado y `Origin` bloqueado.
+- [x] Herramientas MCP de solo lectura `list_my_commissions`, `list_commission_batches` y `get_commission_summary`.
+- [x] Suite de integración con `@cloudflare/vitest-plugin` usando runtime workerd local, R2 y D1 locales.
 - [ ] Validar protocolo MCP end-to-end con OAuth real en preview protegido.
 - [ ] Probar D1/R2 con recursos de preview exclusivos y Access configurado (ningún recurso remoto creado todavía).
 - [ ] Inspección/transformación segura de PDFs antes de habilitar visor, extracción o descargas.
 - [ ] Reconciliación de objetos R2 huérfanos y política de retención/borrado.
-- [ ] Identificación guiada de comisiones y lotes (la pantalla actual requiere sus IDs).
+- [x] Identificación guiada de comisiones y lotes mediante catálogo autenticado (provisionamiento administrativo de identidades y lotes todavía pendiente).
 - [ ] Acordar entidad y checklist/anexo, con revisión normativa y de privacidad.
 - [ ] Ensayar exportación DOCX y reapertura de referencias.
 

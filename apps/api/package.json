@@ -9,5 +9,8 @@
     "@folio/data": "workspace:*",
     "@folio/documents": "workspace:*",
     "@folio/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "jose": "^6.2.17"
   }
 }

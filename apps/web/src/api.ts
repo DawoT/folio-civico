@@ -91,3 +91,34 @@ export async function uploadPdf(
   });
   return await expectJson(response) as UploadResult;
 }
+
+
+export interface Commission {
+  id: string;
+  name: string;
+  status: "active" | "closed";
+  role: "president" | "member" | "advisor" | "observer";
+}
+export interface CommissionBatch {
+  id: string;
+  label: string;
+}
+export async function loadCommissions(fetcher: typeof fetch = fetch): Promise<Commission[]> {
+  const response = await fetcher("/api/commissions", {
+    credentials:"same-origin", cache:"no-store"
+  });
+  const body = await expectJson(response);
+  if (!Array.isArray(body)) throw new ApiError(502, "Respuesta inesperada de comisiones.");
+  return body as Commission[];
+}
+export async function loadCommissionBatches(
+  commissionId: string, fetcher: typeof fetch = fetch
+): Promise<CommissionBatch[]> {
+  if (!validId.test(commissionId)) throw new ApiError(400, "Identificador de comisión no válido.");
+  const response = await fetcher(`/api/commissions/${commissionId}/batches`, {
+    credentials:"same-origin", cache:"no-store"
+  });
+  const body = await expectJson(response);
+  if (!Array.isArray(body)) throw new ApiError(502, "Respuesta inesperada de lotes.");
+  return body as CommissionBatch[];
+}

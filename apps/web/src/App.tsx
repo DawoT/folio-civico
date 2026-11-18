@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ApiError, loadDocuments, makeDocumentsPath, uploadPdf, type DocumentRow, type Scope } from "./api";
+import { ApiError, loadCommissions, loadCommissionBatches, loadDocuments, makeDocumentsPath, uploadPdf, type Commission, type CommissionBatch, type DocumentRow, type Scope } from "./api";
 import "./styles.css";
 
 const statusText: Record<DocumentRow["extractionStatus"], string> = {
@@ -25,6 +25,11 @@ export function App() {
   const [commissionId, setCommissionId] = useState(initial?.commissionId ?? "");
   const [batchId, setBatchId] = useState(initial?.batchId ?? "");
   const [scope, setScope] = useState<Scope | null>(initial);
+  const [commissions, setCommissions] = useState<Commission[]>([]);
+  const [batches, setBatches] = useState<CommissionBatch[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [batchesLoading, setBatchesLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState("");
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
@@ -35,6 +40,42 @@ export function App() {
   const fileInput = useRef<HTMLInputElement>(null);
   // Preserve the same key on a retry after network failure, while the File remains selected.
   const pendingUpload = useRef<{ file: File; key: string } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    loadCommissions().then((items) => {
+      if (!active) return;
+      setCommissions(items);
+      if (!items.some((item) => item.id === initial?.commissionId)) {
+        setCommissionId("");
+        setBatchId("");
+        setScope(null);
+      }
+    }).catch((problem: unknown) => {
+      if (active) setCatalogError(problem instanceof Error ? problem.message : "No se pudieron cargar las comisiones.");
+    }).finally(() => { if (active) setCatalogLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!commissionId) {
+      setBatches([]);
+      return;
+    }
+    let active = true;
+    setBatchesLoading(true);
+    loadCommissionBatches(commissionId).then((items) => {
+      if (!active) return;
+      setBatches(items);
+      setBatchId((current) => items.some((item) => item.id === current) ? current : "");
+    }).catch((problem: unknown) => {
+      if (!active) return;
+      setBatches([]);
+      setBatchId("");
+      setCatalogError(problem instanceof Error ? problem.message : "No se pudieron cargar los lotes.");
+    }).finally(() => { if (active) setBatchesLoading(false); });
+    return () => { active = false; };
+  }, [commissionId]);
 
   useEffect(() => {
     if (!scope) return;
@@ -57,11 +98,17 @@ export function App() {
   }, [scope, refresh]);
 
   const selected = documents.find((document) => document.id === selectedId) ?? null;
+  const selectedCommission = commissions.find((item) => item.id === commissionId);
+  const canUpload = selectedCommission?.status === "active" && selectedCommission.role !== "observer";
 
   function connect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
       makeDocumentsPath(commissionId.trim(), batchId.trim());
+      if (!commissions.some((item) => item.id === commissionId.trim())
+        || !batches.some((item) => item.id === batchId.trim())) {
+        throw new ApiError(404, "Selecciona una comisión y un lote autorizados.");
+      }
       const nextScope = { commissionId: commissionId.trim(), batchId: batchId.trim() };
       setScope(nextScope);
       setNotice("");
@@ -81,7 +128,7 @@ export function App() {
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const file = fileInput.current?.files?.[0];
-    if (!scope || !file) return;
+    if (!scope || !file || !canUpload) return;
     setUploading(true);
     setNotice("");
     setError("");
@@ -131,19 +178,33 @@ export function App() {
         <form className="scope-form" onSubmit={connect} aria-label="Conectar comisión y lote">
           <label>
             <span>Comisión</span>
-            <input aria-label="Identificador de comisión" value={commissionId}
-              onChange={(event) => setCommissionId(event.target.value)} placeholder="comision_001"
-              autoComplete="off" required/>
+            <select aria-label="Identificador de comisión" value={commissionId}
+              onChange={(event) => {
+                setCommissionId(event.target.value);
+                setBatchId("");
+                setBatches([]);
+                setScope(null);
+                setDocuments([]);
+                setSelectedId(null);
+                setCatalogError("");
+              }} disabled={catalogLoading} required>
+              <option value="">{catalogLoading ? "Consultando comisiones…" : "Selecciona una comisión"}</option>
+              {commissions.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === "closed" ? " · Cerrada" : ""}</option>)}
+            </select>
           </label>
           <label>
             <span>Lote de expedientes</span>
-            <input aria-label="Identificador de lote" value={batchId}
-              onChange={(event) => setBatchId(event.target.value)} placeholder="lote_001"
-              autoComplete="off" required/>
+            <select aria-label="Identificador de lote" value={batchId}
+              onChange={(event) => setBatchId(event.target.value)} disabled={!commissionId || batchesLoading} required>
+              <option value="">{batchesLoading ? "Consultando lotes…" : "Selecciona un lote"}</option>
+              {batches.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+            </select>
           </label>
-          <button className="button primary" type="submit">Abrir lote</button>
+          <button className="button primary" type="submit" disabled={!commissionId || !batchId || catalogLoading || batchesLoading}>Abrir lote</button>
         </form>
 
+        {catalogError && <div className="message error" role="alert">{catalogError}</div>}
+        {!catalogLoading && !catalogError && commissions.length === 0 && <div className="message" role="status">No tienes comisiones asignadas. Solicita acceso al administrador de la entidad.</div>}
         {(error || notice) && (
           <div className={error ? "message error" : "message success"} role={error ? "alert" : "status"} aria-live="polite">
             {error || notice}
@@ -163,9 +224,9 @@ export function App() {
             <form className="upload-form" onSubmit={upload}>
               <label htmlFor="upload-pdf">Incorporar un expediente PDF</label>
               <input id="upload-pdf" ref={fileInput} type="file" accept=".pdf,application/pdf"
-                disabled={!scope || uploading} required/>
-              <p>Máximo 8 MiB. Se conservará en cuarentena, sin lectura automática.</p>
-              <button className="button primary upload-button" type="submit" disabled={!scope || uploading}>
+                disabled={!scope || !canUpload || uploading} required/>
+              <p>{scope && !canUpload ? "Solo las comisiones activas con rol de revisión pueden cargar archivos. " : ""}Máximo 8 MiB. Se conservará en cuarentena, sin lectura automática.</p>
+              <button className="button primary upload-button" type="submit" disabled={!scope || !canUpload || uploading}>
                 {uploading ? "Registrando…" : "Registrar PDF"}
               </button>
             </form>

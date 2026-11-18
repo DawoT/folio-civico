@@ -1,5 +1,13 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
+// Per-isolate JWKS cache: jose handles key rotation and bounded refresh internally.
+// The fetch reference also varies in isolated tests that mock the key endpoint.
+let cachedKeySet: {
+  issuer: string;
+  fetchRef: typeof fetch;
+  keys: ReturnType<typeof createRemoteJWKSet>;
+} | undefined;
+
 export interface AccessConfig {
   ACCESS_TEAM_DOMAIN?: string;
   ACCESS_AUD?: string;
@@ -21,7 +29,16 @@ export async function authenticateAccess(
     if (issuer.protocol !== "https:" || !issuer.hostname.endsWith(".cloudflareaccess.com")
       || issuer.username || issuer.password || issuer.pathname !== "/") return null;
 
-    const publicKeys = createRemoteJWKSet(new URL("/cdn-cgi/access/certs", issuer));
+    const issuerOrigin = issuer.origin;
+    const fetchRef = fetch;
+    if (!cachedKeySet || cachedKeySet.issuer !== issuerOrigin || cachedKeySet.fetchRef !== fetchRef) {
+      cachedKeySet = {
+        issuer: issuerOrigin,
+        fetchRef,
+        keys: createRemoteJWKSet(new URL("/cdn-cgi/access/certs", issuer))
+      };
+    }
+    const publicKeys = cachedKeySet.keys;
     const { payload } = await jwtVerify(assertion, publicKeys, {
       issuer: issuer.origin,
       audience: config.ACCESS_AUD
