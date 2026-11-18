@@ -31,7 +31,7 @@ describe("signed Access identity to tenant-aware API", () => {
     f.sqlite.exec(`
       INSERT INTO commissions(id,name) VALUES ('c_a','Comisión A'),('c_b','Comisión B');
       INSERT INTO commission_members(commission_id,subject,role,active)
-        VALUES ('c_a','alice','member',1),('c_b','bob','member',1);
+        VALUES ('c_a','alice','member',1),('c_a','eva','president',1),('c_b','bob','member',1);
       INSERT INTO document_batches(id,commission_id,label)
         VALUES ('b_a','c_a','Obras'),('b_b','c_b','Otros');
       INSERT INTO checklist_items(id,commission_id,area,expected_document)
@@ -89,7 +89,7 @@ describe("signed Access identity to tenant-aware API", () => {
     try {
       const {token}=await tokenFor("alice");
       const request=new Request("https://folio.test/api/commissions/c_a/observations/drafts",{
-        method:"POST",headers:{"Content-Type":"application/json","Cf-Access-Jwt-Assertion":token},
+        method:"POST",headers:{"Content-Type":"application/json","Cf-Access-Jwt-Assertion":token,"Idempotency-Key":"draft_signed_001"},
         body:JSON.stringify({title:"Expediente no ubicado",description:"Búsqueda manual realizada en el lote.",checklistItemId:"item_a",batchId:"b_a"})
       });
       const response=await handleApiRequest(request,{DB:f.db,ACCESS_TEAM_DOMAIN:issuer,ACCESS_AUD:audience});
@@ -97,6 +97,39 @@ describe("signed Access identity to tenant-aware API", () => {
       expect(await response.json()).toMatchObject({status:"draft",authorSubject:"alice"});
       expect(f.sqlite.prepare("SELECT count(*) AS n FROM observations").get()).toMatchObject({n:1});
       expect(f.sqlite.prepare("SELECT count(*) AS n FROM observation_evidence").get()).toMatchObject({n:1});
+    } finally {f.close();}
+  });
+
+  it("uses two distinct signed identities for a final human decision", async () => {
+    const f=fixture();
+    try {
+      const {token:author}=await tokenFor("alice");
+      const env={DB:f.db,ACCESS_TEAM_DOMAIN:issuer,ACCESS_AUD:audience};
+      const draftRequest=new Request("https://folio.test/api/commissions/c_a/observations/drafts",{
+        method:"POST",headers:{"Content-Type":"application/json",
+          "Cf-Access-Jwt-Assertion":author,"Idempotency-Key":"signed_draft_321"},
+        body:JSON.stringify({title:"Documento ausente",description:"Búsqueda manual documentada.",
+          checklistItemId:"item_a",batchId:"b_a"})
+      });
+      const created=await handleApiRequest(draftRequest,env);
+      expect(created.status).toBe(201);
+      const {id}=await created.json() as {id:string};
+      const submit=new Request(`https://folio.test/api/commissions/c_a/observations/${id}/actions`,{
+        method:"POST",headers:{"Content-Type":"application/json",
+          "Cf-Access-Jwt-Assertion":author,"Idempotency-Key":"signed_submit_321"},
+        body:JSON.stringify({action:"submit"})
+      });
+      expect((await handleApiRequest(submit,env)).status).toBe(200);
+      const {token:reviewer}=await tokenFor("eva");
+      const review=new Request(`https://folio.test/api/commissions/c_a/observations/${id}/actions`,{
+        method:"POST",headers:{"Content-Type":"application/json",
+          "Cf-Access-Jwt-Assertion":reviewer,"Idempotency-Key":"signed_review_321"},
+        body:JSON.stringify({action:"validate",note:"Revisé de forma independiente el alcance documentado."})
+      });
+      const decision=await handleApiRequest(review,env);
+      expect(decision.status).toBe(200);
+      expect(await decision.json()).toMatchObject({status:"validated",validatedBy:"eva"});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toMatchObject({n:3});
     } finally {f.close();}
   });
 

@@ -20,6 +20,11 @@ export interface SavedObservation {
   validatedBy: string | null;
   createdAt: string;
   evidence: Evidence[];
+  canSubmit?: boolean;
+  canReview?: boolean;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  reviewNote?: string | null;
 }
 
 export class ReviewAccessError extends Error {}
@@ -42,7 +47,9 @@ export async function listChecklist(db: D1Database, subject: string, commissionI
   return result.results;
 }
 
-type ObservationRow = Omit<SavedObservation, "evidence"> & { evidenceJson: string | null };
+type ObservationRow = Omit<SavedObservation, "evidence"> & {
+  evidenceJson: string | null; submitFlag: number; reviewFlag: number;
+};
 
 export async function listObservationDrafts(
   db: D1Database, subject: string, commissionId: string
@@ -51,11 +58,20 @@ export async function listObservationDrafts(
   const result = await db.prepare(`
     SELECT o.id, o.commission_id AS commissionId, o.author_subject AS authorSubject,
       o.title, o.description, o.status, o.validated_by AS validatedBy,
-      o.created_at AS createdAt, e.reference_json AS evidenceJson
+      o.created_at AS createdAt, o.reviewed_by AS reviewedBy,
+      o.reviewed_at AS reviewedAt, o.review_note AS reviewNote,
+      CASE WHEN o.status='draft' AND o.author_subject=m.subject
+        AND m.role IN ('president','member','advisor') AND c.status='active'
+        THEN 1 ELSE 0 END AS submitFlag,
+      CASE WHEN o.status='in_review' AND o.author_subject<>m.subject
+        AND m.role IN ('president','member') AND c.status='active'
+        THEN 1 ELSE 0 END AS reviewFlag,
+      e.reference_json AS evidenceJson
     FROM (SELECT id FROM observations WHERE commission_id = ?
       ORDER BY created_at DESC, id DESC LIMIT 50) pick
     JOIN observations o ON o.id = pick.id
     JOIN commission_members m ON m.commission_id = o.commission_id
+    JOIN commissions c ON c.id = o.commission_id
     LEFT JOIN observation_evidence e ON e.observation_id = o.id
     WHERE o.commission_id = ? AND m.subject = ? AND m.active = 1
     ORDER BY o.created_at DESC, o.id DESC, e.created_at ASC, e.id ASC
@@ -68,7 +84,10 @@ export async function listObservationDrafts(
       record = {
         id: item.id, commissionId: item.commissionId, authorSubject: item.authorSubject,
         title: item.title, description: item.description, status: item.status,
-        validatedBy: item.validatedBy, createdAt: item.createdAt, evidence: []
+        validatedBy: item.validatedBy, createdAt: item.createdAt,
+        reviewedBy: item.reviewedBy ?? null, reviewedAt:item.reviewedAt ?? null,
+        reviewNote:item.reviewNote ?? null,
+        canSubmit:item.submitFlag===1,canReview:item.reviewFlag===1,evidence: []
       };
       grouped.set(item.id, record);
     }
@@ -112,7 +131,8 @@ async function assertEvidenceReady(
 
 export async function persistDraftObservation(
   db: D1Database,
-  input: ObservationDraftInput
+  input: ObservationDraftInput,
+  idempotency?: { key: string; payloadHash: string }
 ): Promise<SavedObservation> {
   const draft = createObservationDraft(input);
   if (!validText(draft.title, 160) || !validText(draft.description, 4000)
@@ -132,13 +152,14 @@ export async function persistDraftObservation(
   const id = crypto.randomUUID();
   const statements = [
     db.prepare(`
-      INSERT INTO observations(id,commission_id,author_subject,title,description,status)
-      SELECT ?,c.id,m.subject,?,?,'draft'
+      INSERT INTO observations(id,commission_id,author_subject,title,description,status,draft_request_key,draft_payload_sha256)
+      SELECT ?,c.id,m.subject,?,?,'draft',?,?
       FROM commissions c JOIN commission_members m ON m.commission_id = c.id
       WHERE c.id = ? AND c.status = 'active'
         AND m.subject = ? AND m.active = 1
         AND m.role IN ('president','member','advisor')
-    `).bind(id, draft.title, draft.description, draft.commissionId, draft.authorSubject),
+    `).bind(id, draft.title, draft.description, idempotency?.key ?? null,
+      idempotency?.payloadHash ?? null, draft.commissionId, draft.authorSubject),
     ...draft.evidence.map((item) =>
       db.prepare(`
         INSERT INTO observation_evidence(id,observation_id,type,reference_json)
@@ -161,4 +182,65 @@ export async function persistDraftObservation(
     title: draft.title, description: draft.description, status: "draft",
     validatedBy: null, createdAt: new Date().toISOString(), evidence: draft.evidence
   };
+}
+
+/** Only the verified author may replay this key. Never return another user's draft. */
+export async function findIdempotentDraft(
+  db: D1Database, subject: string, commissionId: string, key: string
+): Promise<{payloadHash: string; observation: SavedObservation} | null> {
+  if (!subject || !commissionId || !key) return null;
+  const row = await db.prepare(`
+    SELECT o.id,o.commission_id AS commissionId,o.author_subject AS authorSubject,
+      o.title,o.description,o.status,o.validated_by AS validatedBy,
+      o.created_at AS createdAt,o.draft_payload_sha256 AS payloadHash
+    FROM observations o
+    JOIN commission_members m ON m.commission_id=o.commission_id
+    WHERE o.commission_id=? AND o.author_subject=?
+      AND o.draft_request_key=? AND m.subject=? AND m.active=1
+    LIMIT 1
+  `).bind(commissionId,subject,key,subject).first<
+    Omit<SavedObservation,"evidence"> & {payloadHash:string}
+  >();
+  if (!row) return null;
+  const evidenceRows = await db.prepare(`
+    SELECT reference_json AS referenceJson FROM observation_evidence
+    WHERE observation_id=? ORDER BY created_at,id
+  `).bind(row.id).all<{referenceJson:string}>();
+  const {payloadHash,...base}=row;
+  return {
+    payloadHash,
+    observation:{...base,evidence:evidenceRows.results.map(v=>JSON.parse(v.referenceJson) as Evidence)}
+  };
+}
+
+export interface ReviewMetadata {
+  submittedBy: string | null;
+  submittedAt: string | null;
+  submitRequestKey: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  reviewRequestKey: string | null;
+}
+
+export async function getObservationForMember(
+  db: D1Database, subject: string, commissionId: string, observationId: string
+): Promise<(SavedObservation & ReviewMetadata) | null> {
+  if (!subject || !commissionId || !observationId) return null;
+  const row=await db.prepare(`
+    SELECT o.id,o.commission_id AS commissionId,o.author_subject AS authorSubject,
+      o.title,o.description,o.status,o.validated_by AS validatedBy,
+      o.created_at AS createdAt,o.submitted_by AS submittedBy,
+      o.submitted_at AS submittedAt,o.submit_request_key AS submitRequestKey,
+      o.reviewed_by AS reviewedBy,o.reviewed_at AS reviewedAt,
+      o.review_note AS reviewNote,o.review_request_key AS reviewRequestKey
+    FROM observations o JOIN commission_members m ON m.commission_id=o.commission_id
+    WHERE o.id=? AND o.commission_id=? AND m.subject=? AND m.active=1
+  `).bind(observationId,commissionId,subject).first<Omit<SavedObservation,"evidence"> & ReviewMetadata>();
+  if (!row) return null;
+  const evidenceRows=await db.prepare(`
+    SELECT reference_json AS referenceJson FROM observation_evidence
+    WHERE observation_id=? ORDER BY created_at,id
+  `).bind(row.id).all<{referenceJson:string}>();
+  return {...row,evidence:evidenceRows.results.map(v=>JSON.parse(v.referenceJson) as Evidence)};
 }

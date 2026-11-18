@@ -169,6 +169,14 @@ h1 { margin: 0; font-size: clamp(29px, 3.2vw, 42px); letter-spacing: -.05em; lin
   .review-grid { grid-template-columns: 1fr; }
 }
 
+.decision-panel { margin-top: 13px; padding: 15px; border: 1px solid #cbded8; border-radius: 10px; background: #f8fbf9; }
+.decision-panel > label:not(.attestation) { display: block; font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+.decision-panel textarea { width: 100%; min-height: 94px; resize: vertical; padding: 11px;
+  border: 1px solid #9ebbb5; border-radius: 8px; background: #fff; color: #172740; font: inherit; }
+.decision-panel .attestation { display: flex; align-items: flex-start; gap: 10px; margin: 13px 0;
+  font-size: 12px; line-height: 1.5; color: #40545a; }
+.decision-panel textarea:focus-visible { outline: 3px solid #0f7771; outline-offset: 2px; }
+.decision-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 @media (prefers-reduced-motion: reduce) {
   .button { transition: none; }
 }

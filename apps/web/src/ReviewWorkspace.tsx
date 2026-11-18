@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   loadChecklist, loadObservationDrafts, submitSearchScopeDraft,
+  transitionObservation as requestTransition,
   type ChecklistRow, type ObservationRow, type Scope
 } from "./api";
 
@@ -21,6 +22,12 @@ export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: bool
   const [error,setError] = useState("");
   const [notice,setNotice] = useState("");
   const [reload,setReload] = useState(0);
+  const pendingDraft=useRef<{fingerprint:string;key:string}|null>(null);
+  const pendingTransition=useRef<{fingerprint:string;key:string}|null>(null);
+  const [activeReviewId,setActiveReviewId]=useState<string|null>(null);
+  const [reviewNote,setReviewNote]=useState("");
+  const [reviewConfirmed,setReviewConfirmed]=useState(false);
+  const [transitionBusy,setTransitionBusy]=useState(false);
 
   useEffect(() => {
     let active = true;
@@ -46,16 +53,46 @@ export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: bool
     if (!canDraft || !attested || !itemId || busy) return;
     setBusy(true); setError(""); setNotice("");
     try {
+      const fingerprint=JSON.stringify([scope.commissionId,scope.batchId,itemId,title.trim(),description.trim()]);
+      const key=pendingDraft.current?.fingerprint===fingerprint
+        ? pendingDraft.current.key : crypto.randomUUID();
+      pendingDraft.current={fingerprint,key};
       await submitSearchScopeDraft({
         commissionId:scope.commissionId,batchId:scope.batchId,
         checklistItemId:itemId,title,description
-      });
+      },fetch,()=>key);
+      pendingDraft.current=null;
       setNotice("Se registró un borrador de búsqueda con revisor y fecha. Requiere revisión humana.");
       setTitle(""); setDescription(""); setAttested(false);
       setReload((value) => value + 1);
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : "No se pudo registrar el borrador.");
     } finally { setBusy(false); }
+  }
+
+  async function changeStatus(record:ObservationRow,action:"submit"|"validate"|"dismiss") {
+    if(transitionBusy || (action!=="submit" && (!reviewConfirmed || reviewNote.trim().length<15))) return;
+    setTransitionBusy(true);setError("");setNotice("");
+    try {
+      const note=action==="submit"?undefined:reviewNote.trim();
+      const fingerprint=JSON.stringify([scope.commissionId,record.id,action,note]);
+      const key=pendingTransition.current?.fingerprint===fingerprint
+        ? pendingTransition.current.key : crypto.randomUUID();
+      pendingTransition.current={fingerprint,key};
+      await requestTransition({
+        commissionId:scope.commissionId,observationId:record.id,action,note
+      },fetch,()=>key);
+      pendingTransition.current=null;
+      setNotice(action==="submit"
+        ? "Borrador enviado a revisión. Aún no ha sido validado."
+        : action==="validate"
+          ? "Un revisor diferente del autor validó internamente el registro."
+          : "Observación descartada tras revisión humana.");
+      setActiveReviewId(null);setReviewNote("");setReviewConfirmed(false);
+      setReload(v=>v+1);
+    } catch(problem) {
+      setError(problem instanceof Error?problem.message:"No se pudo registrar la decisión.");
+    } finally {setTransitionBusy(false);}
   }
 
   return (
@@ -120,7 +157,11 @@ export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: bool
           observations.length === 0 ? <p>La comisión todavía no tiene observaciones registradas.</p> :
           <ul className="observation-items">
             {observations.map((record) => <li key={record.id}>
-              <div className="observation-heading"><strong>{record.title}</strong><span>{record.status === "draft" ? "Borrador" : record.status}</span></div>
+              <div className="observation-heading"><strong>{record.title}</strong><span>{
+                record.status==="draft"?"Borrador":
+                record.status==="in_review"?"En revisión":
+                record.status==="validated"?"Validación interna":"Descartada"
+              }</span></div>
               <p>{record.description}</p>
               {record.evidence.map((proof,index) =>
                 <p className="proof-reference" key={index}>
@@ -130,6 +171,41 @@ export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: bool
                     proof.type === "DOCUMENT_PAGE" ? `Versión ${String(proof.documentVersionId)} · Página ${String(proof.page)}` :
                       String(proof.source)}
                 </p>
+              )}
+              {record.reviewedBy && (
+                <p className="review-note">Decisión de {record.reviewedBy}: {record.reviewNote}</p>
+              )}
+              {record.canSubmit && <button type="button" className="button secondary"
+                disabled={transitionBusy} onClick={()=>void changeStatus(record,"submit")}>
+                Enviar a revisión
+              </button>}
+              {record.canReview && activeReviewId!==record.id && (
+                <button type="button" className="button secondary" disabled={transitionBusy}
+                  onClick={()=>{setActiveReviewId(record.id);setReviewNote("");setReviewConfirmed(false);}}>
+                  Revisar registro
+                </button>
+              )}
+              {record.canReview && activeReviewId===record.id && (
+                <div className="decision-panel">
+                  <label htmlFor={`review-note-${record.id}`}>Justificación de la decisión humana</label>
+                  <textarea id={`review-note-${record.id}`} rows={3} maxLength={1000}
+                    value={reviewNote} disabled={transitionBusy}
+                    onChange={event=>setReviewNote(event.target.value)}
+                    placeholder="Describe la comprobación independiente realizada (mínimo 15 caracteres)."/>
+                  <label className="attestation">
+                    <input type="checkbox" checked={reviewConfirmed} disabled={transitionBusy}
+                      onChange={event=>setReviewConfirmed(event.target.checked)}/>
+                    <span>Confirmo que revisé la evidencia, soy distinto del autor y asumo esta decisión de la comisión.</span>
+                  </label>
+                  <div className="decision-actions">
+                    <button type="button" className="button primary"
+                      disabled={transitionBusy || !reviewConfirmed || reviewNote.trim().length<15}
+                      onClick={()=>void changeStatus(record,"validate")}>Validar internamente</button>
+                    <button type="button" className="button secondary"
+                      disabled={transitionBusy || !reviewConfirmed || reviewNote.trim().length<15}
+                      onClick={()=>void changeStatus(record,"dismiss")}>Descartar</button>
+                  </div>
+                </div>
               )}
             </li>)}
           </ul>}

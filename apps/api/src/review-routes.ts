@@ -1,5 +1,5 @@
 import {
-  getCommissionSummary, listChecklist, listObservationDrafts, persistDraftObservation,
+  getCommissionSummary, listChecklist, listObservationDrafts, persistDraftObservation, findIdempotentDraft,
   ReviewAccessError, ReviewEvidenceError
 } from "@folio/data";
 
@@ -83,15 +83,45 @@ export async function handleReviewRequest(
 
     const origin = request.headers.get("Origin");
     if (origin && origin !== new URL(request.url).origin) return json({error:"Forbidden"},403);
+    const key=request.headers.get("Idempotency-Key");
+    if (!key || !/^[A-Za-z0-9_-]{8,96}$/.test(key)) {
+      return json({error:"Valid Idempotency-Key required"},400);
+    }
     const body = await readInput(request);
-    const saved = await persistDraftObservation(env.DB, {
-      commissionId, authorSubject: subject, title: body.title!, description: body.description!,
-      evidence: [{
-        type:"SEARCH_SCOPE",commissionId,checklistItemId:body.checklistItemId!,
-        batchId:body.batchId!, reviewerId:subject,searchedAt:new Date().toISOString()
-      }]
-    });
-    return json(saved,201);
+    const canonical=JSON.stringify([
+      body.title!.trim(),body.description!.trim(),body.checklistItemId!,body.batchId!
+    ]);
+    const bytes=new TextEncoder().encode(canonical);
+    const sha=await crypto.subtle.digest("SHA-256",bytes);
+    const payloadHash=Array.from(new Uint8Array(sha),b=>b.toString(16).padStart(2,"0")).join("");
+
+    async function existingResponse(): Promise<Response | null> {
+      const previous=await findIdempotentDraft(env.DB,subject,commissionId,key!);
+      if (!previous) return null;
+      if (previous.payloadHash !== payloadHash) return json({error:"Idempotency key already used for another draft"},409);
+      return json(previous.observation,200);
+    }
+    const existing=await existingResponse();
+    if (existing) return existing;
+
+    try {
+      const saved = await persistDraftObservation(env.DB, {
+        commissionId, authorSubject: subject, title: body.title!, description: body.description!,
+        evidence: [{
+          type:"SEARCH_SCOPE",commissionId,checklistItemId:body.checklistItemId!,
+          batchId:body.batchId!, reviewerId:subject,searchedAt:new Date().toISOString()
+        }]
+      },{key,payloadHash});
+      return json(saved,201);
+    } catch (error) {
+      // A concurrent request may have claimed the same unique key during D1.batch.
+      // Requery after the failed transaction, but never hide unrelated failures.
+      if (!(error instanceof ReviewAccessError) && !(error instanceof ReviewEvidenceError)) {
+        const concurrent=await existingResponse();
+        if (concurrent) return concurrent;
+      }
+      throw error;
+    }
   } catch (error) {
     if (error instanceof RequestError) return json({error:error.message},error.status);
     if (error instanceof ReviewEvidenceError) return json({error:"Evidence is not available in this commission"},422);

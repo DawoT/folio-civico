@@ -5,8 +5,8 @@ Actualizado: 2026-11-18. Alcance de piloto: municipalidad distrital, obras y con
 | Fase | Resultado | Dependencias | Estado |
 | --- | --- | --- | --- |
 | P0 | Monorepo, TypeScript, vitest, CI y documentación | Acceso al repositorio | **Completado como fundación** |
-| P1 | D1, autorización, evidencia, auditoría y contratos | P0; matriz de roles | **Parcial: evidencia persistente, auditoría, permisos y comprobaciones de procedencia SQL; validación pendiente** |
-| P2 | Mesa React, PDF, R2 en cuarentena, checklist y borradores | P1 | **Parcial: mesa, carga, checklist de consulta y borradores humanos; visor y transición de estados pendientes** |
+| P1 | D1, autorización, evidencia, auditoría y contratos | P0; matriz de roles | **Parcial: evidencia persistente, idempotencia, auditoría y validación interna de dos personas; entorno real pendiente** |
+| P2 | Mesa React, PDF, R2 en cuarentena, checklist y borradores | P1 | **Parcial: mesa, cuarentena R2, checklist, borradores y decisiones humanas; visor/PDF seguro pendientes** |
 | P3 | Queues/Workflows, extracción, OCR por página e IA supervisada | P2; dataset anónimo | Pendiente |
 | P4 | MCP OAuth y herramientas de lectura/escritura controladas | P1 y Cloudflare Access | **Parcial: servidor de lectura sin despliegue** |
 | P5 | DOCX, E2E, seguridad, retención, medición del ahorro | P2–P4; aprobación legal | Pendiente |
@@ -15,7 +15,7 @@ Actualizado: 2026-11-18. Alcance de piloto: municipalidad distrital, obras y con
 
 Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación mínima; (3) refactorización; (4) tests + typecheck + dry-run build; (5) registro de resultados y riesgos. Las migraciones se verifican en D1 local antes de cualquier aplicación remota.
 
-## Entrega actual: P0/P1d + P2c + P4b
+## Entrega actual: P0/P1e + P2d + P4b
 
 - [x] Tests que rechazan permisos entre comisiones, sujetos incorrectos e inactivos.
 - [x] Dos clases de evidencia documental diferenciadas: página existente y alcance de búsqueda sin resultado; soporte para fuente oficial.
@@ -41,6 +41,11 @@ Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación m
 - [x] Migraciones D1 `0003`/`0004` que rechazan referencias cruzadas, cambios a evidencias guardadas, páginas sin extraer, fuentes oficiales sin respaldo y búsquedas sobre ítems ya ubicados/observados.
 - [x] Confirmación humana explícita de alcance en la pantalla React; estados del checklist siguen sin mutación automática.
 - [x] MCP agrega `get_checklist_status` de solo lectura con pruebas de aislamiento.
+- [x] Borradores con `Idempotency-Key`: reintentos repetidos o concurrentes generan una sola observación, evidencia y auditoría por comisión/autor/clave; distinto payload = 409.
+- [x] Flujo `draft → in_review → validated|dismissed`, sin autovalidación ni firma oficial. Decisiones de miembro/presidente diferentes del autor, con justificación registrada.
+- [x] Transiciones optimistas e idempotentes: reintentos idénticos son seguros; carreras, claves distintas o estados inválidos generan 409.
+- [x] Triggers D1 `0005`–`0007`: origen solo draft, autenticación y rol válidos en cada transición, auditoría atómica, evidencia inmutable y revalidación antes de aceptar.
+- [x] Controles de envío y decisión interna en React habilitados desde capacidades calculadas por API y confirmación humana.
 - [ ] Validar protocolo MCP end-to-end con OAuth real en preview protegido.
 - [ ] Probar D1/R2 con recursos de preview exclusivos y Access configurado (ningún recurso remoto creado todavía).
 - [ ] Inspección/transformación segura de PDFs antes de habilitar visor, extracción o descargas.

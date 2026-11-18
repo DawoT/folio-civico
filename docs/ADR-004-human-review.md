@@ -2,6 +2,7 @@
 
 **Estado:** implementado y probado localmente; operación institucional pendiente.
 **Fecha:** 2026-11-18
+**Evolución:** la [ADR-005](ADR-005-human-decisions.md) implementa la idempotencia y la revisión humana de dos personas, que figuraban como pendientes en esta decisión inicial.
 
 ## Problema
 

@@ -8,7 +8,7 @@
 
 ## Estados
 
-`draft` es una propuesta sin validar. La transición a `validated` solo se habilitará mediante servicio y pantalla de revisión con membresía y permiso `validate`, registro de auditoría y evidencias reabiertas.
+`draft` es una propuesta sin validar; el autor puede enviarla a `in_review`. Otro miembro o presidente de la comisión, distinto del autor, puede registrar una decisión `validated` o `dismissed` con justificación. La decisión es **interna**, auditada e idempotente; no constituye firma ni acta oficial. Para `validated`, D1 vuelve a comprobar que las referencias de checklist y páginas no se han vuelto inválidas.
 
 ## Cuarentena documental
 
@@ -24,4 +24,4 @@ Las migraciones `0003_review_evidence.sql` y `0004_review_status_guard.sql` impi
 - Habilitar extracción/OCR seguro y visor para comprobar folios y páginas.
 - Para fuentes oficiales, conservar captura, fecha de obtención, fecha de corte y versión de regla aplicada.
 - Definir política de retención y destrucción compatible con la inmutabilidad actual del registro.
-- Guardar historial inmutable de cambios de estado y autor de cada transición.
+- Diseñar enmiendas de propuestas y reconsideración de decisiones sin sobrescribir el historial de auditoría ya inmutable.

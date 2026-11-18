@@ -149,6 +149,11 @@ export interface ObservationRow {
   validatedBy: string | null;
   createdAt: string;
   evidence: ObservationEvidence[];
+  canSubmit?: boolean;
+  canReview?: boolean;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  reviewNote?: string | null;
 }
 
 export interface SearchScopeDraftInput {
@@ -184,8 +189,36 @@ export async function loadObservationDrafts(
   return body as ObservationRow[];
 }
 
+export interface ObservationTransitionInput {
+  commissionId: string;
+  observationId: string;
+  action: "submit" | "validate" | "dismiss";
+  note?: string;
+}
+export async function transitionObservation(
+  input: ObservationTransitionInput,
+  fetcher: typeof fetch = fetch,
+  makeKey: () => string = () => crypto.randomUUID()
+): Promise<ObservationRow & {replayed:boolean}> {
+  if (!validId.test(input.observationId)) throw new ApiError(400,"Identificador de observación no válido.");
+  if(input.action !== "submit"
+    && (!input.note?.trim() || input.note.trim().length<15 || input.note.length>1000)) {
+    throw new ApiError(400,"La decisión requiere una justificación de al menos 15 caracteres.");
+  }
+  const path=commissionPath(input.commissionId)+`/observations/${input.observationId}/actions`;
+  const body=input.action==="submit" ? {action:input.action}
+    : {action:input.action,note:input.note?.trim()};
+  const response=await fetcher(path,{
+    method:"POST",credentials:"same-origin",cache:"no-store",
+    headers:{"Content-Type":"application/json","Idempotency-Key":makeKey()},
+    body:JSON.stringify(body)
+  });
+  return await expectJson(response) as ObservationRow & {replayed:boolean};
+}
+
 export async function submitSearchScopeDraft(
-  input: SearchScopeDraftInput, fetcher: typeof fetch = fetch
+  input: SearchScopeDraftInput, fetcher: typeof fetch = fetch,
+  makeKey: () => string = () => crypto.randomUUID()
 ): Promise<ObservationRow> {
   if (!validId.test(input.batchId) || !validId.test(input.checklistItemId)
     || !input.title.trim() || input.title.length > 160
@@ -194,7 +227,7 @@ export async function submitSearchScopeDraft(
   }
   const response = await fetcher(commissionPath(input.commissionId)+"/observations/drafts", {
     method:"POST",credentials:"same-origin",cache:"no-store",
-    headers:{"Content-Type":"application/json"},
+    headers:{"Content-Type":"application/json","Idempotency-Key":makeKey()},
     body:JSON.stringify({
       title:input.title,
       description:input.description,
