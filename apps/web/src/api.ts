@@ -122,3 +122,85 @@ export async function loadCommissionBatches(
   if (!Array.isArray(body)) throw new ApiError(502, "Respuesta inesperada de lotes.");
   return body as CommissionBatch[];
 }
+
+
+export interface ChecklistRow {
+  id: string;
+  area: "works" | "procurement";
+  expectedDocument: string;
+  status: "pending" | "located" | "not_located" | "observed";
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+}
+
+export interface ObservationEvidence {
+  type: "SEARCH_SCOPE" | "DOCUMENT_PAGE" | "OFFICIAL_SOURCE";
+  commissionId: string;
+  [key: string]: unknown;
+}
+
+export interface ObservationRow {
+  id: string;
+  commissionId: string;
+  authorSubject: string;
+  title: string;
+  description: string;
+  status: "draft" | "in_review" | "validated" | "dismissed";
+  validatedBy: string | null;
+  createdAt: string;
+  evidence: ObservationEvidence[];
+}
+
+export interface SearchScopeDraftInput {
+  commissionId: string;
+  checklistItemId: string;
+  batchId: string;
+  title: string;
+  description: string;
+}
+
+function commissionPath(commissionId: string): string {
+  if (!validId.test(commissionId)) throw new ApiError(400,"Identificador de comisión no válido.");
+  return `/api/commissions/${commissionId}`;
+}
+
+export async function loadChecklist(commissionId: string, fetcher: typeof fetch = fetch): Promise<ChecklistRow[]> {
+  const response = await fetcher(commissionPath(commissionId)+"/checklist", {
+    credentials:"same-origin",cache:"no-store"
+  });
+  const body=await expectJson(response);
+  if (!Array.isArray(body)) throw new ApiError(502,"Respuesta inesperada del checklist.");
+  return body as ChecklistRow[];
+}
+
+export async function loadObservationDrafts(
+  commissionId: string, fetcher: typeof fetch = fetch
+): Promise<ObservationRow[]> {
+  const response = await fetcher(commissionPath(commissionId)+"/observations", {
+    credentials:"same-origin",cache:"no-store"
+  });
+  const body=await expectJson(response);
+  if (!Array.isArray(body)) throw new ApiError(502,"Respuesta inesperada de las observaciones.");
+  return body as ObservationRow[];
+}
+
+export async function submitSearchScopeDraft(
+  input: SearchScopeDraftInput, fetcher: typeof fetch = fetch
+): Promise<ObservationRow> {
+  if (!validId.test(input.batchId) || !validId.test(input.checklistItemId)
+    || !input.title.trim() || input.title.length > 160
+    || !input.description.trim() || input.description.length > 4000) {
+    throw new ApiError(400,"Completa una búsqueda documental válida.");
+  }
+  const response = await fetcher(commissionPath(input.commissionId)+"/observations/drafts", {
+    method:"POST",credentials:"same-origin",cache:"no-store",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      title:input.title,
+      description:input.description,
+      checklistItemId:input.checklistItemId,
+      batchId:input.batchId
+    })
+  });
+  return await expectJson(response) as ObservationRow;
+}

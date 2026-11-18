@@ -32,6 +32,10 @@ describe("signed Access identity to tenant-aware API", () => {
       INSERT INTO commissions(id,name) VALUES ('c_a','Comisión A'),('c_b','Comisión B');
       INSERT INTO commission_members(commission_id,subject,role,active)
         VALUES ('c_a','alice','member',1),('c_b','bob','member',1);
+      INSERT INTO document_batches(id,commission_id,label)
+        VALUES ('b_a','c_a','Obras'),('b_b','c_b','Otros');
+      INSERT INTO checklist_items(id,commission_id,area,expected_document)
+        VALUES ('item_a','c_a','works','Expediente de obra'),('item_b','c_b','procurement','Contrato B');
     `);
     return f;
   }
@@ -77,6 +81,22 @@ describe("signed Access identity to tenant-aware API", () => {
     try {
       const {token}=await tokenFor("alice",{iss:"https://other.cloudflareaccess.com"});
       expect((await call(f.db,token)).status).toBe(401);
+    } finally {f.close();}
+  });
+
+  it("routes a signed human draft with real tenant checks and an auditable record", async () => {
+    const f=fixture();
+    try {
+      const {token}=await tokenFor("alice");
+      const request=new Request("https://folio.test/api/commissions/c_a/observations/drafts",{
+        method:"POST",headers:{"Content-Type":"application/json","Cf-Access-Jwt-Assertion":token},
+        body:JSON.stringify({title:"Expediente no ubicado",description:"Búsqueda manual realizada en el lote.",checklistItemId:"item_a",batchId:"b_a"})
+      });
+      const response=await handleApiRequest(request,{DB:f.db,ACCESS_TEAM_DOMAIN:issuer,ACCESS_AUD:audience});
+      expect(response.status).toBe(201);
+      expect(await response.json()).toMatchObject({status:"draft",authorSubject:"alice"});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM observations").get()).toMatchObject({n:1});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM observation_evidence").get()).toMatchObject({n:1});
     } finally {f.close();}
   });
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, loadCommissions, loadCommissionBatches, loadDocuments, makeDocumentsPath, uploadPdf, type Commission, type CommissionBatch, type DocumentRow, type Scope } from "./api";
 import "./styles.css";
+import { ReviewWorkspace } from "./ReviewWorkspace";
 
 const statusText: Record<DocumentRow["extractionStatus"], string> = {
   pending: "En cuarentena", processing: "Procesando", ready: "Texto disponible",
@@ -283,6 +284,7 @@ export function App() {
             )}
           </section>
         </div>
+        {scope && <ReviewWorkspace key={scope.commissionId+":"+scope.batchId} scope={scope} canDraft={Boolean(canUpload)}/>}
         <footer className="page-footer">Folio Cívico · Herramienta de apoyo técnico-administrativo · Las decisiones corresponden a la comisión.</footer>
       </main>
     </div>

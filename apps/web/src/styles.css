@@ -131,6 +131,44 @@ h1 { margin: 0; font-size: clamp(29px, 3.2vw, 42px); letter-spacing: -.05em; lin
   .evidence-detail { padding: 18px; }
   .evidence-detail dl div { grid-template-columns: 1fr; gap: 6px; }
 }
+
+/* Commission-specific review panel: accessible, responsive, no document previews. */
+.review-area { margin-top: 24px; }
+.review-heading { padding: 11px 1px 19px; }
+.review-heading h2 { font-size: 25px; margin: 0 0 8px; letter-spacing: -.035em; }
+.review-heading > p:not(.eyebrow) { margin: 0; font-size: 14px; color: #536773; }
+.review-grid { display: grid; grid-template-columns: minmax(290px, 1fr) minmax(320px,1fr); gap: 22px; align-items: stretch; }
+.review-card { background: #fff; border: 1px solid #dce4e1; padding: 23px; border-radius: 16px; }
+.review-card h3 { margin: 0 0 17px; font-size: 18px; letter-spacing: -.03em; }
+.review-card > p:not(.review-note) { font-size: 14px; color: #536773; line-height: 1.7; }
+.review-note { font-size: 12px; color: #536773; line-height: 1.6; }
+.checklist-items,.observation-items { list-style: none; padding: 0; margin: 0; }
+.checklist-items li { display: grid; gap: 7px; padding: 13px 0; border-bottom: 1px solid #ebf0ed; }
+.checklist-items strong { font-size: 14px; overflow-wrap: anywhere; }
+.checklist-area { font-size: 11px; color: #075c57; font-weight: 750; text-transform: uppercase; }
+.checklist-status { display: inline-flex; width: fit-content; background: #eef3f1; padding: 5px 8px; border-radius: 5px; color: #435b58; font-size: 12px; }
+.review-form { display: flex; flex-direction: column; gap: 10px; }
+.review-form > label:not(.attestation) { font-size: 13px; font-weight: 700; margin-top: 5px; }
+.review-form input:not([type="checkbox"]), .review-form select, .review-form textarea {
+  padding: 11px 12px; border: 1px solid #aebfbc; border-radius: 8px;
+  color: #172740; background: #fff; min-height: 44px; width: 100%;
+}
+.review-form textarea { min-height: 110px; resize: vertical; }
+.review-form .attestation { display: flex; gap: 10px; align-items: flex-start; margin: 8px 0; color: #3d555c; font-size: 12px; line-height: 1.6; }
+.attestation input { margin-top: 3px; flex: 0 0 auto; accent-color: #075c57; width: 16px; height: 16px; }
+.review-form button { align-self: stretch; }
+.review-form input:focus-visible,.review-form select:focus-visible,.review-form textarea:focus-visible { outline: 3px solid #0f7771; outline-offset: 2px; }
+.observations-card { margin-top: 22px; }
+.observation-items li { padding: 15px 0; border-top: 1px solid #e7efeb; }
+.observation-heading { display: flex; justify-content: space-between; gap: 12px; }
+.observation-heading strong { font-size: 14px; }
+.observation-heading > span { font-size: 11px; background: #fff3d4; color: #854600; border-radius: 6px; padding: 5px 9px; }
+.observation-items p { font-size: 13px; color: #536773; line-height: 1.6; overflow-wrap: anywhere; }
+.proof-reference { font-family: ui-monospace, Consolas, monospace; font-size: 11px !important; color: #075c57 !important; }
+@media (max-width: 850px) {
+  .review-grid { grid-template-columns: 1fr; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .button { transition: none; }
 }

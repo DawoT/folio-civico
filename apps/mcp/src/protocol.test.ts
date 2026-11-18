@@ -40,6 +40,8 @@ describe("MCP protocol and tenant permissions", () => {
       INSERT INTO commissions(id,name) VALUES('c_a','Comisión A'),('c_b','Comisión B');
       INSERT INTO commission_members(commission_id,subject,role,active)
         VALUES('c_a','alice','member',1),('c_b','bob','member',1);
+      INSERT INTO checklist_items(id,commission_id,area,expected_document)
+        VALUES('item_a','c_a','works','Expediente de obra'),('item_b','c_b','procurement','Contrato reservado');
     `);
     return f;
   }
@@ -65,6 +67,7 @@ describe("MCP protocol and tenant permissions", () => {
       expect(tools.status, await tools.clone().text()).toBe(200);
       const listBody=await tools.text();
       expect(listBody).toContain("get_commission_summary");
+      expect(listBody).toContain("get_checklist_status");
       expect(listBody).toContain("list_my_commissions");
       expect(listBody).toContain("list_commission_batches");
       const myCommissions = await handleMcpRequest(
@@ -83,6 +86,17 @@ describe("MCP protocol and tenant permissions", () => {
       const payload=await blocked.text();
       expect(payload).toContain("Commission not found or inaccessible");
       expect(payload).not.toContain("Comisión B");
+
+      const checklist = await handleMcpRequest(
+        rpc(5,"tools/call",{name:"get_checklist_status",arguments:{commissionId:"c_a"}}),env,{} as never);
+      expect(checklist.status).toBe(200);
+      expect(await checklist.text()).toContain("Expediente de obra");
+      const deniedChecklist = await handleMcpRequest(
+        rpc(6,"tools/call",{name:"get_checklist_status",arguments:{commissionId:"c_b"}}),env,{} as never);
+      expect(deniedChecklist.status).toBe(200);
+      const deniedBody=await deniedChecklist.text();
+      expect(deniedBody).toContain("Commission not found or inaccessible");
+      expect(deniedBody).not.toContain("Contrato reservado");
     } finally {f.close();}
   });
 });

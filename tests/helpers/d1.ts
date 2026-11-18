@@ -7,6 +7,8 @@ export function makeD1(): { db: D1Database; sqlite: DatabaseSync; close(): void 
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec(readFileSync(new URL("../../migrations/0001_initial.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../../migrations/0002_upload_intake.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../../migrations/0003_review_evidence.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../../migrations/0004_review_status_guard.sql", import.meta.url), "utf8"));
 
   class SqlStatement {
     constructor(readonly sql: string, readonly params: Arg[] = []) {}

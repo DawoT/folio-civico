@@ -2,9 +2,9 @@
 
 ## Tipos
 
-- `DOCUMENT_PAGE`: documento, versión exacta, SHA-256 de la versión y página (folio si existe como metadato adicional). Requiere existencia real en R2/D1 antes de crear observaciones persistentes.
-- `SEARCH_SCOPE`: ítem esperado de checklist, lote, revisor y fecha de consulta. No equivale a afirmar una irregularidad.
-- `OFFICIAL_SOURCE`: fuente pública, identificador de registro, fecha consultada y fecha de corte. Debe conservarse fuente y versión de regla si se compara.
+- `DOCUMENT_PAGE`: identificador de versión, SHA-256 y página. El repositorio D1 exige versión y página en estado `ready`, hash coincidente, página dentro del rango y objeto fuera de cuarentena. La interfaz aún no permite crear estas citas porque no existe procesamiento seguro.
+- `SEARCH_SCOPE`: ítem esperado de checklist, lote, revisor y fecha. Ya se puede guardar como borrador humano: el servidor fija revisor y hora, comprueba pertenencia del ítem/lote a la misma comisión y no modifica el checklist. **No equivale a afirmar una irregularidad.**
+- `OFFICIAL_SOURCE`: especificación de fuente pública, identificador de registro y fechas de consulta/corte. **No se puede persistir todavía**: falta un almacén de capturas oficiales verificadas con fuente y versión de regla.
 
 ## Estados
 
@@ -14,11 +14,14 @@
 
 Una carga PDF solo prueba recepción e integridad del original. El estado de extracción permanece `pending`: no se genera evidencia por página hasta procesar e inspeccionar el archivo. Los usuarios no pueden descargar desde el bucket mediante la API inicial.
 
-## Reglas de validación futuras
+## Controles ya implementados
 
-- Verificar que la versión del documento y su comisión coincidan con la evidencia.
-- Comparar la huella almacenada con la carga íntegra en R2.
-- Rechazar páginas fuera del rango `1..page_count`.
-- Para faltantes, verificar lote/checklist dentro de la misma comisión y vinculación del revisor.
-- Para fuente oficial, conservar fecha de obtención, fecha de corte y versión de la regla aplicada.
+Las migraciones `0003_review_evidence.sql` y `0004_review_status_guard.sql` impiden referencias a otra comisión, búsqueda con ítem/lote/revisor ajenos, fuentes oficiales no verificadas y citas a páginas aún no extraídas. Las evidencias insertadas son inmutables y se crea un evento de auditoría junto con la observación en una sola transacción D1.
+
+## Controles aún pendientes
+
+- Verificar la huella física reabriendo el objeto R2 una vez autorizado el procesamiento (hoy solo se valida el hash registrado en D1).
+- Habilitar extracción/OCR seguro y visor para comprobar folios y páginas.
+- Para fuentes oficiales, conservar captura, fecha de obtención, fecha de corte y versión de regla aplicada.
+- Definir política de retención y destrucción compatible con la inmutabilidad actual del registro.
 - Guardar historial inmutable de cambios de estado y autor de cada transición.

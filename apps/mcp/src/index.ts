@@ -1,5 +1,5 @@
 import { authenticateAccess, type AccessConfig } from "@folio/auth";
-import { getCommissionSummary, listAccessibleCommissions, listCommissionBatches } from "@folio/data";
+import { getCommissionSummary, listAccessibleCommissions, listCommissionBatches, listChecklist } from "@folio/data";
 import { createMcpHandler } from "agents/mcp/server";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
@@ -39,6 +39,22 @@ function createServer(subject: string, db: D1Database) {
       return { content: [{ type: "text" as const, text: JSON.stringify(batches) }] };
     } catch {
       return { isError: true, content: [{ type: "text" as const, text: "Unable to list commission batches" }] };
+    }
+  });
+
+  server.registerTool("get_checklist_status", {
+    description: "Read only the checklist for an assigned commission. A pending item is not a finding of irregularity.",
+    inputSchema: z.object({commissionId:z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/)})
+  }, async ({commissionId}) => {
+    try {
+      const commission=await getCommissionSummary(db,subject,commissionId);
+      if (!commission) return {
+        isError:true,content:[{type:"text" as const,text:"Commission not found or inaccessible"}]
+      };
+      const items=await listChecklist(db,subject,commissionId);
+      return {content:[{type:"text" as const,text:JSON.stringify({commissionId,items})}]};
+    } catch {
+      return {isError:true,content:[{type:"text" as const,text:"Unable to retrieve checklist"}]};
     }
   });
 
