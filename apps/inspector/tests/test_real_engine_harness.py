@@ -18,7 +18,8 @@ from preflight import (
 )
 from smoke_real_engines import (scanner_test_sample, main as smoke_main,
                                 exercise_real_engines, parse_pgm, assert_no_pdf_text,
-                                require_visible_synthetic_ink)
+                                require_visible_synthetic_ink,
+                                verify_encrypted_rejection_before_poppler)
 from inspector import ReviewRequired
 import preflight
 from smoke_http_real import main as http_smoke_main
@@ -163,6 +164,26 @@ class PreflightPolicyTests(unittest.TestCase):
                        args=["pdftotext"], returncode=0, stdout=b"\n\f")):
             assert_no_pdf_text(scanned_pdf())
 
+    def test_real_smoke_qpdf_preflight_forbids_poppler_on_encrypted_input(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            for database in ("daily.cld", "main.cvd", "bytecode.cvd"):
+                (root/database).write_bytes(b"synthetic fixture")
+            calls=[]
+            def fake_command(argv,cwd):
+                calls.append(tuple(argv))
+                if argv[:2] == ["qpdf","--is-encrypted"]:
+                    raise ReviewRequired("Encrypted PDF")
+                if argv[0] == "clamscan" and "--version" in argv:
+                    return "ClamAV 1.5.5"
+                if argv[0] in ("pdfdetach","pdfinfo","pdftotext","pdftoppm"):
+                    self.fail("Poppler invoked before encryption gate")
+                return ""
+            with patch("smoke_real_engines.command",side_effect=fake_command):
+                verify_encrypted_rejection_before_poppler(scanned_pdf(), root)
+            self.assertTrue(any(c[:2]==("qpdf","--is-encrypted") for c in calls))
+            self.assertFalse(any(c[0] == "pdfdetach" for c in calls))
+
     def test_real_smoke_refuses_antivirus_that_does_not_detect_eicar(self):
         def simulated_inspector(pdf, version, expected_hash, *, signatures):
             if version in ("synthetic_bad", "synthetic_encrypted", "synthetic_embedded_file"):
@@ -177,6 +198,7 @@ class PreflightPolicyTests(unittest.TestCase):
                  patch("smoke_real_engines.build_scanned_fixture", return_value=scanned_pdf()), \
                  patch("smoke_real_engines.assert_no_pdf_text"), \
                  patch("smoke_real_engines.build_negative_fixtures", return_value=[("encrypted",scanned_pdf()),("embedded_file",scanned_pdf())]), \
+                 patch("smoke_real_engines.verify_encrypted_rejection_before_poppler"), \
                  patch("smoke_real_engines.subprocess.run",
                        return_value=subprocess.CompletedProcess(
                            args=["clamscan"], returncode=0)):
@@ -198,13 +220,14 @@ class PreflightPolicyTests(unittest.TestCase):
                  patch("smoke_real_engines.build_scanned_fixture", return_value=scanned_pdf()), \
                  patch("smoke_real_engines.assert_no_pdf_text"), \
                  patch("smoke_real_engines.build_negative_fixtures", return_value=[("encrypted",scanned_pdf()),("embedded_file",scanned_pdf())]), \
+                 patch("smoke_real_engines.verify_encrypted_rejection_before_poppler"), \
                  patch("smoke_real_engines.subprocess.run",
                        return_value=subprocess.CompletedProcess(
                            args=["clamscan"], returncode=1)):
                 self.assertEqual(exercise_real_engines(Path(scratch)), {
                     "native": "passed", "ocr": "passed", "malformed": "rejected",
-                    "encrypted":"rejected", "embedded_file":"rejected",
-                    "antivirus_test": "detected"
+                    "encrypted":"rejected", "encrypted_before_poppler":"passed",
+                    "embedded_file":"rejected", "antivirus_test": "detected"
                 })
 
     def test_real_http_smoke_never_exposes_parser_details_on_failure(self):

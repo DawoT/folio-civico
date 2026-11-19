@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 
 from fixtures import native_pdf, scanned_pdf, malformed_pdf
-from inspector import inspect_pdf, ReviewRequired
+from inspector import inspect_pdf, ReviewRequired, command
 from preflight import inspect_host
 
 
@@ -141,9 +141,36 @@ def build_negative_fixtures() -> list[tuple[str, bytes]]:
         return results
 
 
+def verify_encrypted_rejection_before_poppler(encrypted: bytes, database: Path) -> None:
+    """Exercise real qpdf/AV, proving the encrypted fixture never enters Poppler."""
+    preflight_seen = False
+
+    def guarded(argv: list[str], cwd: Path) -> str:
+        nonlocal preflight_seen
+        if argv[:2] == ["qpdf", "--is-encrypted"]:
+            preflight_seen = True
+        elif argv[0] in {"pdfdetach", "pdfinfo", "pdftotext", "pdftoppm"} or (
+                argv[:2] == ["qpdf", "--check"]):
+            raise AssertionError("An encrypted PDF reached an unauthorized parser")
+        return command(argv, cwd)
+
+    try:
+        inspect_pdf(
+            encrypted, "synthetic_encrypted_preflight",
+            hashlib.sha256(encrypted).hexdigest(),
+            signatures=database, run=guarded,
+        )
+    except ReviewRequired:
+        if not preflight_seen:
+            raise AssertionError("Encrypted rejection bypassed the qpdf preflight")
+    else:
+        raise AssertionError("Encrypted PDF passed the preflight")
+
+
 def exercise_real_engines(database: Path) -> dict[str, str]:
     expected = {"native": "passed", "ocr": "passed",
                 "malformed": "rejected", "encrypted": "rejected",
+                "encrypted_before_poppler": "passed",
                 "embedded_file": "rejected", "antivirus_test": "detected"}
 
     native = native_pdf()
@@ -184,6 +211,8 @@ def exercise_real_engines(database: Path) -> dict[str, str]:
             pass
         else:
             raise AssertionError("Unsupported synthetic PDF unexpectedly passed inspection")
+        if name == "encrypted":
+            verify_encrypted_rejection_before_poppler(rejected_pdf, database)
 
     with tempfile.TemporaryDirectory(prefix="folio-av-test-") as temporary:
         sample = Path(temporary) / "eicar-test-only.txt"

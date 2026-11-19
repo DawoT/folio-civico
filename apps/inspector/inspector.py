@@ -80,6 +80,7 @@ def require_fresh_signatures(directory: Path, now: float | None = None) -> None:
 
 MAX_ENGINE_OUTPUT_BYTES = 2 * 1024 * 1024
 MIN_CLAMAV_RELEASE = (1, 5, 5)
+QPDF_UNENCRYPTED = "not_encrypted"
 
 
 def verify_clamav_version(raw: str) -> None:
@@ -108,6 +109,15 @@ def command(argv: list[str], cwd: Path, seconds: int = MAX_PROCESS_SECONDS) -> s
             )
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as error:
             raise ScannerUnavailable("Required inspector engine unavailable") from error
+        # qpdf --is-encrypted has intentionally nonstandard exit codes:
+        # 0 = encrypted, 2 = NOT encrypted; 1/3/signals = indeterminate.
+        # This check is mandatory BEFORE any Poppler parser touches the PDF.
+        if argv[:2] == ["qpdf", "--is-encrypted"] and len(argv) == 3:
+            if result.returncode == 2:
+                return QPDF_UNENCRYPTED
+            if result.returncode == 0:
+                raise ReviewRequired("Encrypted PDFs are not supported")
+            raise ScannerUnavailable("PDF encryption preflight unavailable")
         if result.returncode != 0:
             # ClamAV uses 1 for a detection, 2 for engine/database failures.
             # A broken antivirus must be retried, never classified as a document finding.
@@ -148,6 +158,10 @@ def inspect_pdf(
             # ClamAV return code 1 is NOT CLEAN and must never be admitted.
             # A nonzero exit or unavailable database fails closed.
             run(["clamscan", "--no-summary", "--database", str(signatures), str(source)], directory)
+            # Rejection by qpdf precedes Poppler's pdfdetach/pdfinfo/parser
+            # paths, including Decrypt::revision6Hash for encrypted AESV3/R6.
+            if run(["qpdf", "--is-encrypted", str(source)], directory) != QPDF_UNENCRYPTED:
+                raise ScannerUnavailable("PDF encryption status could not be verified")
             run(["qpdf", "--check", str(source)], directory)
             attachments = run(["pdfdetach", "-list", str(source)], directory)
             if not re.search(r"^0 embedded files?\s*$", attachments, re.MULTILINE | re.IGNORECASE):
