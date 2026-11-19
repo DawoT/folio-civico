@@ -16,7 +16,7 @@
 
 | ID | Valor de producto | Criterio medible | Estado |
 | --- | --- | --- | --- |
-| **F1** | Búsqueda documentada → dos revisores → resultado visible en checklist | Solo observaciones `SEARCH_SCOPE` validadas proyectan ausencia; se muestra revisor y referencia; sin mutar checklist original; pruebas API/UI y tenant isolation | **Implementado localmente; en integración a main** |
+| **F1** | Búsqueda documentada → dos revisores → resultado visible en checklist | Solo observaciones `SEARCH_SCOPE` validadas proyectan ausencia; se muestra revisor y referencia; sin mutar checklist original; pruebas API/UI y tenant isolation | **Completado: integrado en `main` (commit `33fb29d`) y CI local aprobado** |
 | **F2** | Historial y navegación entre checklist, observaciones y documento | Localizar siempre una observación aunque tenga más de 50 registros; permisos y paginación verificadas | Pendiente |
 | **F3** | Exportación verificable de hallazgos manuales | Informe con fuentes, estado humano, identidad y fecha; prueba de integridad sin afirmar carácter oficial | Pendiente |
 | **F4** | Onboarding y administración básica de piloto | Comisiones, lotes, permisos y checklist en flujo administrativo auditable | Pendiente |
@@ -61,3 +61,4 @@ Registrar aquí los commits de cada entrega, las pruebas efectivamente ejecutada
 | --- | --- | --- |
 | 2026-11-19 | R0 | `main` creada y publicada mediante avance lineal sin force-push desde el commit `bc5dd86`; `sh scripts/ci.sh` exit 0: 4 tests del runner, 173 Vitest, 58 Python y 5 workerd, typecheck, build y 13 migraciones D1 locales verificadas en API/MCP/Processor. Auditoría CVE sigue bloqueada; no se desplegó. |
 | 2026-11-19 | R1.1 | Reaplicado sobre `main` el triaje de CVE de la rama independiente y ejecutado `sh scripts/ci.sh` (4+173+69+5 pruebas y build/migraciones, exit 0); `bash apps/inspector/audit_image.sh --triage` devolvió **exit 2 esperado** por 1 CRITICAL, 149 HIGH y 19 UNKNOWN. Sin autorización de despliegue. |
+| 2026-11-19 | F1 | Búsqueda manual validada por segundo revisor visible como ausencia confirmada internamente, con revisor y observación exacta; ninguna escritura al checklist institucional ni activación del scanner. TDD Red/Green documentado, CI local con 178 Vitest + 69 Python + 5 workerd + 4 contrato, typecheck, build y D1 local: exit 0. Integración fast-forward `33fb29d`. |
