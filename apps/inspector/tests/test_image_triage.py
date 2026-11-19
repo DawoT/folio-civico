@@ -49,6 +49,15 @@ def inventory(*, unmapped: int = 0) -> dict:
     }
 
 
+def source_inventory():
+    return {
+        "source":"folio-local-elf-provenance-v1",
+        "mode":"validation",
+        "components":[],
+        "source_cve_coverage":"not_applicable",
+    }
+
+
 class TriageTests(unittest.TestCase):
     def test_real_link_is_prioritized_but_never_classifies_as_non_affected(self):
         report = prioritize_findings(
@@ -59,7 +68,7 @@ class TriageTests(unittest.TestCase):
                 finding("some-runtime-package", "HIGH", "CVE-2026-70002"),
                 finding("libc6", "UNKNOWN", "CVE-2026-70003"),
                 finding("libtesseract5", "LOW", "CVE-2026-70004"),
-            ), sbom(), inventory(), IMAGE,
+            ), sbom(), inventory(), IMAGE, source_inventory(),
         )
         self.assertEqual(report["status"], "blocked")
         self.assertEqual(report["total_blocking_findings"], 5)
@@ -79,19 +88,19 @@ class TriageTests(unittest.TestCase):
         original = inventory()
         del original["engines"]["tesseract"]
         with self.assertRaises(ValueError):
-            prioritize_findings(scan(), sbom(), original, IMAGE)
+            prioritize_findings(scan(), sbom(), original, IMAGE, source_inventory())
         original = inventory()
         original["engines"]["qpdf"] = ["../../private"]
         with self.assertRaises(ValueError):
-            prioritize_findings(scan(), sbom(), original, IMAGE)
+            prioritize_findings(scan(), sbom(), original, IMAGE, source_inventory())
         original = inventory(unmapped=-1)
         with self.assertRaises(ValueError):
-            prioritize_findings(scan(), sbom(), original, IMAGE)
+            prioritize_findings(scan(), sbom(), original, IMAGE, source_inventory())
 
     def test_unknown_and_unmapped_are_never_auto_suppressed(self):
         result = prioritize_findings(
             scan(finding("dynamic-parser", "UNKNOWN", "CVE-2026-70001")),
-            sbom(), inventory(unmapped=2), IMAGE
+            sbom(), inventory(unmapped=2), IMAGE, source_inventory()
         )
         self.assertEqual(result["status"], "blocked")
         self.assertEqual(result["unknown_dependency_owners"], 2)
@@ -102,8 +111,8 @@ class TriageTests(unittest.TestCase):
     def test_output_is_bounded_and_deterministic(self):
         issues = [finding("library-" + str(i), "HIGH", "CVE-2026-" + str(10000 + i))
                   for i in range(60)]
-        one = prioritize_findings(scan(*issues), sbom(), inventory(), IMAGE)
-        two = prioritize_findings(scan(*issues), sbom(), inventory(), IMAGE)
+        one = prioritize_findings(scan(*issues), sbom(), inventory(), IMAGE, source_inventory())
+        two = prioritize_findings(scan(*issues), sbom(), inventory(), IMAGE, source_inventory())
         self.assertEqual(one, two)
         self.assertEqual(one["total_packages"], 60)
         self.assertEqual(one["returned_packages"], 15)
@@ -117,6 +126,7 @@ class TriageTests(unittest.TestCase):
                 "triage_image.py", "--vulnerabilities", str(base / "missing.json"),
                 "--sbom", str(base / "missing-sbom.json"),
                 "--inventory", str(base / "missing-inventory.json"),
+                "--source-inventory", str(base / "missing-native.json"),
                 "--image", IMAGE,
             ]
             with patch.object(sys, "argv", arguments), patch("builtins.print") as emitted:

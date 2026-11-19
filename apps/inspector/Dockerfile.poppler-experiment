@@ -1,0 +1,77 @@
+# NON-DEPLOYABLE research image; base candidate and validation tags are immutable inputs.
+# Experiment with Debian-patched Poppler 25.03.0, disabling network/PDF signature
+# backend features unused by the isolated local-PDF parser.
+FROM debian:trixie-slim AS poppler_builder
+
+ARG POPPLER_DEBIAN_VERSION=25.03.0-5+deb13u4
+RUN test "$(dpkg --print-architecture)" = "amd64"
+# Debian source archives are checked against the signed Debian APT Release.
+# Never build a vanilla upstream 25.03.0 tarball without stable security patches.
+RUN set -eux; \
+    sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/debian.sources; \
+    grep -q 'Types: deb deb-src' /etc/apt/sources.list.d/debian.sources; \
+    apt-get update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ca-certificates build-essential cmake ninja-build dpkg-dev pkg-config \
+      libfontconfig-dev libfreetype-dev libjpeg-dev libpng-dev \
+      libopenjp2-7-dev liblcms2-dev zlib1g-dev; \
+    mkdir -p /src; \
+    cd /src; \
+    apt-get source "poppler=$POPPLER_DEBIAN_VERSION"; \
+    test "$(dpkg-parsechangelog -l /src/poppler-25.03.0/debian/changelog -S Version)" = "$POPPLER_DEBIAN_VERSION"; \
+    rm -rf /var/lib/apt/lists/*
+
+RUN cmake -S /src/poppler-25.03.0 -B /tmp/poppler-build -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=/opt/folio-poppler \
+      -DCMAKE_INSTALL_LIBDIR=lib \
+      -DBUILD_SHARED_LIBS=ON \
+      -DENABLE_LIBCURL=OFF \
+      -DENABLE_GPGME=OFF \
+      -DENABLE_NSS3=OFF \
+      -DENABLE_CPP=OFF \
+      -DENABLE_GLIB=OFF \
+      -DENABLE_QT5=OFF \
+      -DENABLE_QT6=OFF \
+      -DENABLE_CAIRO=OFF \
+      -DENABLE_LIBTIFF=OFF \
+      -DENABLE_BOOST=OFF \
+      -DENABLE_UTILS=ON \
+    && cmake --build /tmp/poppler-build --parallel 4 \
+    && cmake --install /tmp/poppler-build \
+    && test -x /opt/folio-poppler/bin/pdftotext \
+    && test -x /opt/folio-poppler/bin/pdftoppm \
+    && test -x /opt/folio-poppler/bin/pdfdetach \
+    && test -x /opt/folio-poppler/bin/pdfattach \
+    && test -r /opt/folio-poppler/lib/libpoppler.so.147 \
+    && printf '{"name":"poppler","debian_source_version":"%s","curl":false,"gpgme":false,"nss3":false}\n' \
+         "$POPPLER_DEBIAN_VERSION" > /opt/folio-poppler/source-provenance.json
+
+# Intentionally inherit the local candidate rather than modifying its Dockerfile
+# or replacing the existing candidate/validation image tags.
+FROM folio-civico-inspector:ocr-integrated
+USER root
+COPY --from=poppler_builder /opt/folio-poppler /opt/folio-poppler
+# The Debian binaries depend on libcurl -> Kerberos. Remove ONLY the known
+# packages from the experimental image. Never auto-remove other PDF/OCR libs.
+RUN set -eux; \
+    apt-get purge -y poppler-utils libpoppler147 libcurl3t64-gnutls \
+      libgssapi-krb5-2 libk5crypto3 libkrb5-3 libkrb5support0; \
+    printf '%s\n' /opt/folio-poppler/lib > /etc/ld.so.conf.d/folio-poppler.conf; \
+    ldconfig; \
+    for binary in pdftotext pdftoppm pdfinfo pdfdetach pdfattach; do \
+      test -x "/opt/folio-poppler/bin/$binary"; \
+      linked="$(ldd "/opt/folio-poppler/bin/$binary")"; \
+      ! printf '%s\n' "$linked" | grep -E 'not found|libcurl|libgssapi|libkrb5|libk5crypto|libgpgme|libnss3'; \
+    done; \
+    for package in poppler-utils libpoppler147 libcurl3t64-gnutls \
+        libgssapi-krb5-2 libk5crypto3 libkrb5-3 libkrb5support0; do \
+      status="$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null)" \
+        || { code="$?"; test "$code" -eq 1; status=''; }; \
+      test "$status" != 'install ok installed'; \
+    done; \
+    test -r /opt/folio-poppler/source-provenance.json
+
+ENV PATH="/opt/folio-poppler/bin:${PATH}"
+USER 65534:65534
+CMD ["python3", "-I", "/srv/folio-inspector/inspector.py"]

@@ -6,12 +6,60 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 IMAGE="folio-civico-inspector:validation"
-# Optional additive prioritization. Never changes the vulnerability gate.
-if [[ "$#" -gt 1 ]] || { [[ "$#" -eq 1 ]] && [[ "$1" != "--triage" ]]; }; then
+IMAGE_MODE="validation"
+# --candidate/--experiment can be combined with --triage and/or
+# --advisories. Informational reports never override the same CVE gate.
+TRIAGE_MODE=""
+ADVISORIES_MODE=0
+CANDIDATE_MODE=0
+EXPERIMENT_MODE=0
+if [[ "$#" -gt 3 ]]; then
   printf '{"status":"error","reason":"unsupported_audit_option"}\n'
   exit 3
 fi
-TRIAGE_MODE="${1:-}"
+for option in "$@"; do
+  case "$option" in
+    --triage)
+      if [[ -n "$TRIAGE_MODE" ]]; then
+        printf '{"status":"error","reason":"duplicate_audit_option"}\n'
+        exit 3
+      fi
+      TRIAGE_MODE="--triage"
+      ;;
+    --advisories)
+      if [[ "$ADVISORIES_MODE" -eq 1 ]]; then
+        printf '{"status":"error","reason":"duplicate_audit_option"}\n'
+        exit 3
+      fi
+      ADVISORIES_MODE=1
+      ;;
+    --candidate)
+      if [[ "$CANDIDATE_MODE" -eq 1 || "$EXPERIMENT_MODE" -eq 1 ]]; then
+        printf '{"status":"error","reason":"conflicting_audit_option"}\n'
+        exit 3
+      fi
+      CANDIDATE_MODE=1
+      ;;
+    --experiment)
+      if [[ "$EXPERIMENT_MODE" -eq 1 || "$CANDIDATE_MODE" -eq 1 ]]; then
+        printf '{"status":"error","reason":"conflicting_audit_option"}\n'
+        exit 3
+      fi
+      EXPERIMENT_MODE=1
+      ;;
+    *)
+      printf '{"status":"error","reason":"unsupported_audit_option"}\n'
+      exit 3
+      ;;
+  esac
+done
+if [[ "$CANDIDATE_MODE" -eq 1 ]]; then
+  IMAGE="folio-civico-inspector:ocr-integrated"
+  IMAGE_MODE="candidate"
+elif [[ "$EXPERIMENT_MODE" -eq 1 ]]; then
+  IMAGE="folio-civico-inspector:poppler-experiment"
+  IMAGE_MODE="experiment"
+fi
 command -v docker >/dev/null
 command -v trivy >/dev/null
 # Repo and Docker daemon must have adequate space, and the daemon must be local.
@@ -28,6 +76,15 @@ trivy image --scanners vuln --format json --output "$OUTPUT/vulns.json" \
 trivy image --scanners vuln --format cyclonedx --output "$OUTPUT/sbom.json" \
   --no-progress --image-src docker "$IMAGE"
 
+# Trivy may not discover source-built Poppler/Tesseract. Measure their REAL
+# executable and library hashes in the same immutable image ID, with no
+# network, host mounts, or parsing of user PDFs. This is not a CVE waiver.
+docker run --rm --network none --read-only --cap-drop ALL \
+  --security-opt no-new-privileges --pids-limit 64 \
+  --memory 4g --memory-swap 4g --entrypoint python3 "$BEFORE" \
+  -I -c "$(cat apps/inspector/source_inventory.py)" --mode "$IMAGE_MODE" \
+  > "$OUTPUT/source-inventory.json"
+
 AFTER="$(docker image inspect "$IMAGE" --format '{{.Id}}')"
 if [[ "$BEFORE" != "$AFTER" ]]; then
   printf '{"status":"error","reason":"image_changed_during_audit"}\n'
@@ -39,9 +96,23 @@ fi
 AUDIT_EXIT=0
 python3 apps/inspector/audit_image.py \
   --vulnerabilities "$OUTPUT/vulns.json" \
-  --sbom "$OUTPUT/sbom.json" --image "$IMAGE" || AUDIT_EXIT=$?
+  --sbom "$OUTPUT/sbom.json" \
+  --source-inventory "$OUTPUT/source-inventory.json" \
+  --image "$IMAGE" || AUDIT_EXIT=$?
 if [[ "$AUDIT_EXIT" -ne 0 && "$AUDIT_EXIT" -ne 2 ]]; then
   exit "$AUDIT_EXIT"
+fi
+
+if [[ "$ADVISORIES_MODE" -eq 1 ]]; then
+  ADVISORIES_EXIT=0
+  python3 apps/inspector/advisory_inventory.py \
+    --vulnerabilities "$OUTPUT/vulns.json" --sbom "$OUTPUT/sbom.json" \
+    --source-inventory "$OUTPUT/source-inventory.json" \
+    --image "$IMAGE" || ADVISORIES_EXIT=$?
+  if [[ "$ADVISORIES_EXIT" -ne "$AUDIT_EXIT" ]]; then
+    printf '{"status":"error","reason":"advisory_gate_mismatch"}\n'
+    exit 3
+  fi
 fi
 
 if [[ "$TRIAGE_MODE" == "--triage" ]]; then
@@ -62,7 +133,9 @@ if [[ "$TRIAGE_MODE" == "--triage" ]]; then
   TRIAGE_EXIT=0
   python3 apps/inspector/triage_image.py \
     --vulnerabilities "$OUTPUT/vulns.json" --sbom "$OUTPUT/sbom.json" \
-    --inventory "$OUTPUT/runtime-inventory.json" --image "$IMAGE" || TRIAGE_EXIT=$?
+    --inventory "$OUTPUT/runtime-inventory.json" \
+    --source-inventory "$OUTPUT/source-inventory.json" \
+    --image "$IMAGE" || TRIAGE_EXIT=$?
   if [[ "$TRIAGE_EXIT" -ne "$AUDIT_EXIT" ]]; then
     printf '{"status":"error","reason":"triage_gate_mismatch"}\n'
     exit 3
