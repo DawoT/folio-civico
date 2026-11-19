@@ -18,3 +18,22 @@ declararlos correcciones CVE sin revisión independiente.**
 
 Toda verificación, SHA y sus límites están en
 [el informe R1.13](../../../docs/SECURITY_POPPLER_SEMANTIC_PROTOTYPES_2026-11-19.md).
+
+
+## R1.14 · Compilación sanitizada aislada (NO RELEASE)
+
+Los nuevos scripts `build_sanitized_poppler.sh` y
+`check_sanitized_poppler.sh` **no deben ejecutarse directamente en el host**.
+Solo los invoca `../poppler_isolated_sanitizer.py` desde un contenedor
+Poppler builder por digest, `--network none`, rootfs de solo lectura, sin
+capacidades y como `65534:65534`. La ejecución lee hashes y fixtures
+sintéticos montados en solo lectura; aplica cinco parches únicamente en
+`/work` (tmpfs), compila Poppler con ASan/UBSan y no publica imágenes.
+
+`pdftotext` y `pdftoppm` son los dos ejecutables de investigación.
+El enlace ASan/UBSan de `pdfinfo` tiene un problema RTTI pendiente
+(`typeinfo for AnnotLink`); **no declarar todas las utilidades verificadas**.
+El verificador compara los cuatro rasters y dos salidas de texto contra el
+builder Debian original. La investigación mantiene `release_authorized=false`,
+sin VEX, CVE cerrados, recursos remotos ni autorización de procesamiento.
+Véase [dossier R1.14](../../../docs/SECURITY_POPPLER_ASAN_UBSAN_BUILD_2026-11-19.md).
