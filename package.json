@@ -8,6 +8,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:workers": "vitest run --config vitest.workers.config.ts",
+    "test:browser": "playwright test --config=playwright.config.ts",
     "test:inspector": "python3 -m unittest discover -s apps/inspector/tests",
     "test:local-ci": "python3 -m unittest discover -s tests -p test_local_ci.py",
     "test:inspector:real": "python3 apps/inspector/smoke_real_engines.py",
@@ -18,8 +19,10 @@
     "check": "pnpm test && pnpm test:inspector && pnpm typecheck && pnpm build"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@cloudflare/vitest-plugin": "1.8.4",
     "@cloudflare/workers-types": "^5.20261118.1",
+    "@playwright/test": "1.65.1",
     "@types/node": "^24.0.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.0",

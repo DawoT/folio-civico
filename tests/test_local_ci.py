@@ -18,6 +18,7 @@ EXPECTED = [
     "typecheck",
     "build",
     "test:workers",
+    "test:browser",
     "exec wrangler d1 migrations apply folio-civico-preview --local --config apps/api/wrangler.jsonc",
     "exec wrangler d1 migrations apply folio-civico-preview --local --config apps/mcp/wrangler.jsonc",
     "exec wrangler d1 migrations apply folio-civico-preview --local --config apps/processor/wrangler.jsonc",
@@ -68,6 +69,14 @@ class LocalCiContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 47)
         self.assertEqual(self.calls(), EXPECTED[:4])
         self.assertNotIn("CI PASSED", result.stdout)
+
+    def test_browser_failures_block_database_steps_and_success(self):
+        self.env["CI_FAIL_STEP"] = "test:browser"
+        result = self.run_ci()
+        self.assertEqual(result.returncode, 47)
+        self.assertEqual(self.calls(), EXPECTED[:8])
+        self.assertNotIn("CI PASSED", result.stdout)
+        self.assertFalse(any("d1 migrations" in call for call in self.calls()))
 
     def test_rejects_unknown_options_before_running_anything(self):
         result = self.run_ci("--skip-security")

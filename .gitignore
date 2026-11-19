@@ -5,6 +5,9 @@ dist/
 .dev.vars*
 .env*
 coverage/
+/test-results/
+/playwright-report/
+/blob-report/
 .pi/
 .mcp-gpt/
 *.log

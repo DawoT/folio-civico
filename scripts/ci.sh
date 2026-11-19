@@ -41,6 +41,9 @@ pnpm build
 step 'Cloudflare workerd integration tests (local D1/R2)'
 pnpm test:workers
 
+step 'Real Chromium browser E2E and WCAG A/AA checks (synthetic API)'
+pnpm test:browser
+
 for config in \
   apps/api/wrangler.jsonc \
   apps/mcp/wrangler.jsonc \

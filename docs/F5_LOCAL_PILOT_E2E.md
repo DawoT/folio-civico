@@ -39,6 +39,6 @@ sh scripts/ci.sh
 - No se da de alta un usuario en el IdP; los JWT son sintéticos y la identidad operadora sigue desactivada por defecto en cualquier entorno no configurado.
 - Un resultado validado internamente **no es** declaración de irregularidad, acta oficial, firma digital ni validación de una autoridad pública.
 
-## Siguiente barrera hacia el piloto institucional
+La [suite F5.1 de navegador](F5_BROWSER_E2E_ACCESSIBILITY.md) complementa este E2E lógico con Chromium y accesibilidad, pero usa una API sintética interceptada: son dos controles independientes, no un despliegue integrado.\n\n## Siguiente barrera hacia el piloto institucional
 
 Probar la misma secuencia con sesión Access y cuentas sintéticas en **Preview aislado**, después de aprobar infraestructura, gasto, identidad/Access y los gates de seguridad del inspector. Ejecutar pruebas de interfaz con navegador, accesibilidad y recuperación antes de considerar el piloto operativo. Ningún paso de F5 autoriza un despliegue.
