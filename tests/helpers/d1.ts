@@ -13,6 +13,8 @@ export function makeD1(): { db: D1Database; sqlite: DatabaseSync; close(): void 
   sqlite.exec(readFileSync(new URL("../../migrations/0006_human_review_transitions.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../../migrations/0007_review_immutability.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../../migrations/0008_unique_r2_object_keys.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../../migrations/0009_trusted_text_processing.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../../migrations/0010_inspected_reference_immutability.sql", import.meta.url), "utf8"));
 
   class SqlStatement {
     constructor(readonly sql: string, readonly params: Arg[] = []) {}

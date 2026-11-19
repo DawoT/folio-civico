@@ -3,6 +3,29 @@ export interface Scope {
   batchId: string;
 }
 
+export interface DocumentTextPage { page:number; text:string }
+export interface DocumentTextView {
+  versionId:string;
+  sha256:string;
+  pageCount:number;
+  pages:DocumentTextPage[];
+}
+export async function loadDocumentText(
+  commissionId:string,versionId:string,fetcher:typeof fetch=fetch
+):Promise<DocumentTextView> {
+  if(!validId.test(commissionId) || !validId.test(versionId)) {
+    throw new ApiError(400,"Identificador del documento no válido.");
+  }
+  const response=await fetcher(`/api/commissions/${commissionId}/documents/${versionId}/pages`,{
+    credentials:"same-origin",cache:"no-store"
+  });
+  const body=await expectJson(response);
+  if(!body || typeof body!=="object" || !Array.isArray((body as DocumentTextView).pages)) {
+    throw new ApiError(502,"Respuesta de páginas inválida.");
+  }
+  return body as DocumentTextView;
+}
+
 export interface DocumentRow {
   id: string;
   filename: string;
@@ -233,6 +256,36 @@ export async function submitSearchScopeDraft(
       description:input.description,
       checklistItemId:input.checklistItemId,
       batchId:input.batchId
+    })
+  });
+  return await expectJson(response) as ObservationRow;
+}
+
+
+export interface DocumentPageDraftInput {
+  commissionId:string;
+  documentVersionId:string;
+  page:number;
+  title:string;
+  description:string;
+}
+export async function submitDocumentPageDraft(
+  input:DocumentPageDraftInput,
+  fetcher:typeof fetch=fetch,
+  makeKey:()=>string=()=>crypto.randomUUID()
+):Promise<ObservationRow>{
+  if(!validId.test(input.commissionId) || !validId.test(input.documentVersionId)
+    || !Number.isSafeInteger(input.page) || input.page<1 || input.page>100
+    || !input.title.trim() || input.title.length>160
+    || !input.description.trim() || input.description.length>4000) {
+    throw new ApiError(400,"Completa una referencia de página válida.");
+  }
+  const response=await fetcher(commissionPath(input.commissionId)+"/observations/page-drafts",{
+    method:"POST",credentials:"same-origin",cache:"no-store",
+    headers:{"Content-Type":"application/json","Idempotency-Key":makeKey()},
+    body:JSON.stringify({
+      title:input.title,description:input.description,
+      documentVersionId:input.documentVersionId,page:input.page
     })
   });
   return await expectJson(response) as ObservationRow;

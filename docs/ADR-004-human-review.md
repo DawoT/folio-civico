@@ -2,7 +2,7 @@
 
 **Estado:** implementado y probado localmente; operación institucional pendiente.
 **Fecha:** 2026-11-18
-**Evolución:** la [ADR-005](ADR-005-human-decisions.md) implementa la idempotencia y la revisión humana de dos personas, que figuraban como pendientes en esta decisión inicial.
+**Evolución:** la [ADR-005](ADR-005-human-decisions.md) implementa idempotencia y revisión de dos personas; la [ADR-007](ADR-007-inspected-text-gate.md) sustituye la exigencia original de sacar los originales de cuarentena por una constancia de inspección separada, vinculada a versión y SHA-256.
 
 ## Problema
 

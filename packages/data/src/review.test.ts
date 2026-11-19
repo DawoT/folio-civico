@@ -102,10 +102,16 @@ describe("review storage with tenant-scoped provenance", () => {
     try {
       f.sqlite.exec(`
         INSERT INTO documents(id,commission_id,batch_id,filename) VALUES('doc_a','c_a','b_a','test.pdf');
-        INSERT INTO document_versions(id,document_id,version_number,sha256,r2_object_key,page_count,extraction_status)
-          VALUES('ver_a','doc_a',1,'${"a".repeat(64)}','processed/test.pdf',3,'ready');
+        INSERT INTO document_versions(id,document_id,version_number,sha256,r2_object_key)
+          VALUES('ver_a','doc_a',1,'${"a".repeat(64)}','quarantine/test.pdf');
+        INSERT INTO document_processing_reports(
+          document_version_id,scanner_name,scanner_report_id,scanned_at,source_sha256,manifest_sha256,page_count)
+          VALUES('ver_a','trusted-scanner-v1','scan_synthetic_001','2026-11-18T17:30:00.000Z',
+          '${"a".repeat(64)}','${"b".repeat(64)}',3);
         INSERT INTO document_pages(document_version_id,page,extracted_text,extraction_status)
-          VALUES('ver_a',2,'Texto ya procesado','ready');
+          VALUES('ver_a',1,'Primera página','ready'),('ver_a',2,'Texto ya procesado','ready'),
+          ('ver_a',3,'Tercera página','ready');
+        UPDATE document_versions SET page_count=3,extraction_status='ready' WHERE id='ver_a';
       `);
       const proof={type:"DOCUMENT_PAGE" as const,commissionId:"c_a",documentVersionId:"ver_a",
         page:2,sha256:"a".repeat(64)};

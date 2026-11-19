@@ -121,7 +121,10 @@ async function assertEvidenceReady(
     JOIN documents d ON d.id = v.document_id
     JOIN document_pages p ON p.document_version_id = v.id
     WHERE v.id = ? AND d.commission_id = ? AND v.sha256 = ?
-      AND v.extraction_status = 'ready' AND v.r2_object_key NOT LIKE 'quarantine/%'
+      AND v.extraction_status = 'ready' AND EXISTS (
+        SELECT 1 FROM document_processing_reports r WHERE r.document_version_id=v.id
+          AND r.source_sha256=v.sha256 AND r.page_count=v.page_count
+      )
       AND p.page = ? AND p.extraction_status = 'ready'
       AND v.page_count >= p.page
     LIMIT 1

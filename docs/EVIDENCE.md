@@ -2,7 +2,7 @@
 
 ## Tipos
 
-- `DOCUMENT_PAGE`: identificador de versión, SHA-256 y página. El repositorio D1 exige versión y página en estado `ready`, hash coincidente, página dentro del rango y objeto fuera de cuarentena. La interfaz aún no permite crear estas citas porque no existe procesamiento seguro.
+- `DOCUMENT_PAGE`: identificador de versión, SHA-256 y página. D1 exige versión y página `ready`, hash coincidente e **informe de inspección vinculado al original**. El PDF original permanece en cuarentena. La interfaz permite crear estas citas únicamente cuando el texto por página ya ha sido admitido mediante manifiesto firmado. El inspector externo aún no está desplegado.
 - `SEARCH_SCOPE`: ítem esperado de checklist, lote, revisor y fecha. Ya se puede guardar como borrador humano: el servidor fija revisor y hora, comprueba pertenencia del ítem/lote a la misma comisión y no modifica el checklist. **No equivale a afirmar una irregularidad.**
 - `OFFICIAL_SOURCE`: especificación de fuente pública, identificador de registro y fechas de consulta/corte. **No se puede persistir todavía**: falta un almacén de capturas oficiales verificadas con fuente y versión de regla.
 
@@ -12,7 +12,7 @@
 
 ## Cuarentena documental
 
-Una carga PDF solo prueba recepción e integridad del original. El estado de extracción permanece `pending`: no se genera evidencia por página hasta procesar e inspeccionar el archivo. Los usuarios no pueden descargar desde el bucket mediante la API inicial.
+Una carga PDF solo prueba recepción e integridad del original. El estado de extracción permanece `pending` hasta recibir un manifiesto firmado de un inspector externo, comprobar el SHA-256 físico del original y admitir el texto de todas las páginas en una transacción. No se genera evidencia por página antes de ese paso. Los usuarios no pueden descargar desde el bucket mediante la API inicial.
 
 ## Controles ya implementados
 

@@ -4,6 +4,7 @@ import { handleDocumentRequest } from "./document-routes";
 import { handleReviewRequest, type ReviewAction } from "./review-routes";
 import { handleTransitionRequest } from "./transition-routes";
 import { runQuarantineAudit } from "./maintenance";
+import { handleTextRequest } from "./text-routes";
 
 export interface ApiEnv extends AccessConfig {
   DB?: D1Database;
@@ -27,9 +28,10 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
   const batches = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/batches$/.exec(url.pathname);
   const route = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/summary$/.exec(url.pathname);
   const documents = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/batches\/([A-Za-z0-9_-]{1,64})\/documents$/.exec(url.pathname);
-  const review = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/(checklist|observations|observations\/drafts)$/.exec(url.pathname);
+  const review = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/(checklist|observations|observations\/drafts|observations\/page-drafts)$/.exec(url.pathname);
   const transition = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/([A-Za-z0-9_-]{1,64})\/actions$/.exec(url.pathname);
-  if (!discovery && !batches && !route && !documents && !review && !transition) return json({ error: "Not found" }, 404);
+  const textPages = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/documents\/([A-Za-z0-9_-]{1,64})\/pages$/.exec(url.pathname);
+  if (!discovery && !batches && !route && !documents && !review && !transition && !textPages) return json({ error: "Not found" }, 404);
   if ((discovery || batches || route) && request.method !== "GET") return json({ error: "Method not allowed" }, 405);
 
   const subject = await authenticateAccess(request, env);
@@ -47,9 +49,10 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
     return handleDocumentRequest(request, { DB: env.DB, DOCUMENTS: env.DOCUMENTS }, subject,
       documents[1]!, documents[2]!);
   }
+  if (textPages) return handleTextRequest(request,{DB:env.DB},subject,textPages[1]!,textPages[2]!);
   if (transition) return handleTransitionRequest(request,{DB:env.DB},subject,transition[1]!,transition[2]!);
   if (review) {
-    const action: ReviewAction = review[2] === "observations/drafts" ? "drafts"
+    const action: ReviewAction = review[2] === "observations/page-drafts" ? "page-drafts" : review[2] === "observations/drafts" ? "drafts"
       : review[2] === "observations" ? "observations" : "checklist";
     return handleReviewRequest(request, {DB:env.DB},subject,review[1]!,action);
   }

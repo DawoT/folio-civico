@@ -64,7 +64,7 @@ No usar una migración remota desde CI hasta disponer de controles explícitos d
 ## Gate 5 · Requisitos pendientes para documentos institucionales
 
 - Base jurídica y acuerdos de tratamiento/residencia/retención de datos.
-- Inspección antimalware, transformación segura y validación estructural de PDF; visor no debe consumir originales de cuarentena.
+- Conectar un servicio **aislado** de inspección antimalware, transformación y extracción/OCR de PDF que firme el contrato de la ADR-007. Configurar clave de firma como secreto de entorno con rotación, nunca en repositorio. El lector de texto existe, pero no hay inspector externo desplegado y no puede consumir originales de cuarentena.
 - Activar y verificar, solo tras aprobación, el trigger programado para el diagnóstico R2–D1. Hoy está **desactivado**. Acordar política de limpieza, retención, borrado e incidentes; la auditoría no elimina ni certifica el contenido físico.
 - Checklist institucional aprobado, provisión y revocación de usuarios, segregación de funciones.
 - Validación de seguridad de la sesión OAuth/MFA; evidencia de pruebas E2E remotas.

@@ -133,6 +133,50 @@ describe("signed Access identity to tenant-aware API", () => {
     } finally {f.close();}
   });
 
+  it("enforces signed Access identity for text pages and human page citations", async () => {
+    const f=fixture();
+    try {
+      f.sqlite.exec(`
+        INSERT INTO documents(id,commission_id,batch_id,filename)
+          VALUES('doc_a','c_a','b_a','Expediente.pdf');
+        INSERT INTO document_versions(id,document_id,version_number,sha256,r2_object_key)
+          VALUES('ver_a','doc_a',1,'${"a".repeat(64)}','quarantine/private.pdf');
+        INSERT INTO document_processing_reports(document_version_id,scanner_name,scanner_report_id,
+          scanned_at,source_sha256,manifest_sha256,page_count)
+          VALUES('ver_a','test-inspector','test_report_signed_001','2026-11-18T17:30:00.000Z',
+          '${"a".repeat(64)}','${"b".repeat(64)}',1);
+        INSERT INTO document_pages(document_version_id,page,extracted_text,extraction_status)
+          VALUES('ver_a',1,'Texto de expediente comprobado','ready');
+        UPDATE document_versions SET extraction_status='ready',page_count=1 WHERE id='ver_a';
+      `);
+      const {token}=await tokenFor("alice");
+      const path="/api/commissions/c_a/documents/ver_a/pages";
+      const accessible=await call(f.db,token,path);
+      expect(accessible.status).toBe(200);
+      expect(await accessible.json()).toMatchObject({pages:[{page:1,text:"Texto de expediente comprobado"}]});
+      const denied=await handleApiRequest(new Request("https://folio.test"+path),{
+        DB:f.db,ACCESS_TEAM_DOMAIN:issuer,ACCESS_AUD:audience
+      });
+      expect(denied.status).toBe(401);
+      const citation=new Request("https://folio.test/api/commissions/c_a/observations/page-drafts",{
+        method:"POST",headers:{"Cf-Access-Jwt-Assertion":token,"Content-Type":"application/json",
+          "Idempotency-Key":"signed_page_draft_001"},
+        body:JSON.stringify({title:"Referencia documental",
+          description:"Revisé personalmente el texto de esta página.",
+          documentVersionId:"ver_a",page:1})
+      });
+      const response=await handleApiRequest(citation,{
+        DB:f.db,ACCESS_TEAM_DOMAIN:issuer,ACCESS_AUD:audience
+      });
+      expect(response.status).toBe(201);
+      expect(await response.json()).toMatchObject({
+        authorSubject:"alice",evidence:[{
+          type:"DOCUMENT_PAGE",documentVersionId:"ver_a",page:1,sha256:"a".repeat(64)
+        }]
+      });
+    } finally {f.close();}
+  });
+
   it("rejects expired signed tokens", async () => {
     const f=fixture();
     try {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, loadCommissions, loadCommissionBatches, loadDocuments, makeDocumentsPath, uploadPdf, type Commission, type CommissionBatch, type DocumentRow, type Scope } from "./api";
 import "./styles.css";
 import { ReviewWorkspace } from "./ReviewWorkspace";
+import { InspectedTextViewer } from "./InspectedTextViewer";
 
 const statusText: Record<DocumentRow["extractionStatus"], string> = {
   pending: "En cuarentena", processing: "Procesando", ready: "Texto disponible",
@@ -34,6 +35,7 @@ export function App() {
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
+  const [reviewRefresh,setReviewRefresh]=useState(0);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState("");
@@ -269,11 +271,17 @@ export function App() {
                   <div><dt>SHA-256</dt><dd className="mono hash">{selected.sha256}</dd></div>
                   <div><dt>Páginas</dt><dd>{selected.pageCount ?? "Pendiente de extracción"}</dd></div>
                 </dl>
-                <div className="review-placeholder">
-                  <h4>Revisión documental pendiente</h4>
-                  <p>El archivo se conserva de forma privada. El visor y las observaciones con citas por página se habilitarán después de incorporar las verificaciones de seguridad y el procesamiento documental.</p>
-                  <button className="button secondary" disabled title="Función todavía no disponible">Crear observación</button>
-                </div>
+                {selected.extractionStatus==="ready" && scope
+                  ? <InspectedTextViewer key={selected.versionId} scope={scope}
+                      versionId={selected.versionId} sha256={selected.sha256}
+                      canDraft={Boolean(canUpload)}
+                      onDraftCreated={()=>setReviewRefresh(value=>value+1)}/>
+                  : <div className="review-placeholder">
+                    <h4>Revisión documental pendiente</h4>
+                    <p>El PDF original permanece en cuarentena. La consulta por página solo aparece después de verificar su integridad física y recibir un informe firmado de un inspector externo autorizado.</p>
+                    <button className="button secondary" disabled title="El documento aún no ha superado la revisión de seguridad">Crear observación</button>
+                  </div>}
+
               </div>
             ) : (
               <div className="empty-evidence">
@@ -284,7 +292,7 @@ export function App() {
             )}
           </section>
         </div>
-        {scope && <ReviewWorkspace key={scope.commissionId+":"+scope.batchId} scope={scope} canDraft={Boolean(canUpload)}/>}
+        {scope && <ReviewWorkspace key={scope.commissionId+":"+scope.batchId+":"+reviewRefresh} scope={scope} canDraft={Boolean(canUpload)}/>}
         <footer className="page-footer">Folio Cívico · Herramienta de apoyo técnico-administrativo · Las decisiones corresponden a la comisión.</footer>
       </main>
     </div>

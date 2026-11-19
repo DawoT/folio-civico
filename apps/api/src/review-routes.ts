@@ -1,9 +1,11 @@
 import {
-  getCommissionSummary, listChecklist, listObservationDrafts, persistDraftObservation, findIdempotentDraft,
+  getCommissionSummary, getDocumentTextPages,
+  listChecklist, listObservationDrafts, persistDraftObservation, findIdempotentDraft,
   ReviewAccessError, ReviewEvidenceError
 } from "@folio/data";
+import type { Evidence } from "@folio/domain";
 
-export type ReviewAction = "checklist" | "observations" | "drafts";
+export type ReviewAction = "checklist" | "observations" | "drafts" | "page-drafts";
 
 export interface ReviewEnv { DB: D1Database; }
 
@@ -18,12 +20,18 @@ class RequestError extends Error {
 }
 
 const MAX_BODY = 16 * 1024;
+type DraftInput={
+  title:string;description:string;
+  checklistItemId?:string;batchId?:string;
+  documentVersionId?:string;page?:number
+};
 
-async function readInput(request: Request): Promise<Record<string, string>> {
+async function readInput(request: Request, kind:"search"|"page"): Promise<DraftInput> {
   if (request.headers.get("Content-Type")?.toLowerCase() !== "application/json") {
     throw new RequestError(415, "Only application/json is supported");
   }
-  if (Number(request.headers.get("Content-Length") ?? 0) > MAX_BODY) {
+  const declared=request.headers.get("Content-Length");
+  if(declared && (!/^\d+$/.test(declared) || Number(declared)>MAX_BODY)) {
     throw new RequestError(413, "Request body too large");
   }
   if (!request.body) throw new RequestError(400, "Missing request body");
@@ -50,27 +58,48 @@ async function readInput(request: Request): Promise<Record<string, string>> {
   catch { throw new RequestError(400, "Invalid JSON body"); }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new RequestError(400,"Invalid body");
   const value = raw as Record<string, unknown>;
-  const keys = ["title","description","checklistItemId","batchId"];
-  if (Object.keys(value).length !== keys.length || Object.keys(value).some((key) => !keys.includes(key))) {
+  const fields=kind==="search"
+    ? ["title","description","checklistItemId","batchId"]
+    : ["title","description","documentVersionId","page"];
+  if(Object.keys(value).length!==fields.length
+    || Object.keys(value).some(k=>!fields.includes(k))) {
     throw new RequestError(400,"Unexpected request fields");
   }
-  if (keys.some((key) => typeof value[key] !== "string")) throw new RequestError(400,"Invalid fields");
-  const typed = value as Record<string,string>;
-  if (!typed.title?.trim() || typed.title.length > 160
-    || !typed.description?.trim() || typed.description.length > 4000
-    || !/^[A-Za-z0-9_-]{1,64}$/.test(typed.checklistItemId ?? "")
-    || !/^[A-Za-z0-9_-]{1,64}$/.test(typed.batchId ?? "")) {
-    throw new RequestError(400, "Invalid observation fields");
+  if(typeof value.title!=="string" || !value.title.trim() || value.title.length>160
+    || typeof value.description!=="string" || !value.description.trim()
+    || value.description.length>4000) {
+    throw new RequestError(400,"Invalid observation text");
   }
-  return typed;
+  const body:DraftInput={title:value.title,description:value.description};
+  if(kind==="search") {
+    if(typeof value.checklistItemId!=="string"
+      || !/^[A-Za-z0-9_-]{1,64}$/.test(value.checklistItemId)
+      || typeof value.batchId!=="string"
+      || !/^[A-Za-z0-9_-]{1,64}$/.test(value.batchId)) {
+      throw new RequestError(400,"Invalid search scope");
+    }
+    body.checklistItemId=value.checklistItemId;
+    body.batchId=value.batchId;
+  } else {
+    if(typeof value.documentVersionId!=="string"
+      || !/^[A-Za-z0-9_-]{1,64}$/.test(value.documentVersionId)
+      || !Number.isSafeInteger(value.page)
+      || (value.page as number)<1 || (value.page as number)>100) {
+      throw new RequestError(400,"Invalid page citation");
+    }
+    body.documentVersionId=value.documentVersionId;
+    body.page=value.page as number;
+  }
+  return body;
 }
 
 /** Internal route. subject must have been verified against Access JWT by the API Worker. */
 export async function handleReviewRequest(
   request: Request, env: ReviewEnv, subject: string, commissionId: string, action: ReviewAction
 ): Promise<Response> {
-  if ((action === "drafts" && request.method !== "POST")
-    || (action !== "drafts" && request.method !== "GET")) {
+  const isDraft=action==="drafts" || action==="page-drafts";
+  if ((isDraft && request.method !== "POST")
+    || (!isDraft && request.method !== "GET")) {
     return json({error:"Method not allowed"},405);
   }
   try {
@@ -87,12 +116,12 @@ export async function handleReviewRequest(
     if (!key || !/^[A-Za-z0-9_-]{8,96}$/.test(key)) {
       return json({error:"Valid Idempotency-Key required"},400);
     }
-    const body = await readInput(request);
-    const canonical=JSON.stringify([
-      body.title!.trim(),body.description!.trim(),body.checklistItemId!,body.batchId!
-    ]);
-    const bytes=new TextEncoder().encode(canonical);
-    const sha=await crypto.subtle.digest("SHA-256",bytes);
+    const kind=action==="page-drafts"?"page":"search";
+    const body=await readInput(request,kind);
+    const canonical=kind==="page"
+      ? JSON.stringify(["PAGE",body.title.trim(),body.description.trim(),body.documentVersionId,body.page])
+      : JSON.stringify([body.title.trim(),body.description.trim(),body.checklistItemId,body.batchId]);
+    const sha=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(canonical));
     const payloadHash=Array.from(new Uint8Array(sha),b=>b.toString(16).padStart(2,"0")).join("");
 
     async function existingResponse(): Promise<Response | null> {
@@ -104,18 +133,30 @@ export async function handleReviewRequest(
     const existing=await existingResponse();
     if (existing) return existing;
 
+    let evidence:Evidence;
+    if(kind==="search") {
+      evidence={
+        type:"SEARCH_SCOPE",commissionId,checklistItemId:body.checklistItemId!,
+        batchId:body.batchId!,reviewerId:subject,searchedAt:new Date().toISOString()
+      };
+    } else {
+      const ready=await getDocumentTextPages(env.DB,subject,commissionId,body.documentVersionId!);
+      if(!ready || !ready.pages.some(p=>p.page===body.page)) {
+        return json({error:"Page has not passed the trusted processing gate"},422);
+      }
+      evidence={
+        type:"DOCUMENT_PAGE",commissionId,documentVersionId:body.documentVersionId!,
+        page:body.page!,sha256:ready.sha256
+      };
+    }
     try {
       const saved = await persistDraftObservation(env.DB, {
-        commissionId, authorSubject: subject, title: body.title!, description: body.description!,
-        evidence: [{
-          type:"SEARCH_SCOPE",commissionId,checklistItemId:body.checklistItemId!,
-          batchId:body.batchId!, reviewerId:subject,searchedAt:new Date().toISOString()
-        }]
+        commissionId, authorSubject: subject, title: body.title, description: body.description,
+        evidence:[evidence]
       },{key,payloadHash});
       return json(saved,201);
     } catch (error) {
       // A concurrent request may have claimed the same unique key during D1.batch.
-      // Requery after the failed transaction, but never hide unrelated failures.
       if (!(error instanceof ReviewAccessError) && !(error instanceof ReviewEvidenceError)) {
         const concurrent=await existingResponse();
         if (concurrent) return concurrent;
