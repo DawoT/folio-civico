@@ -15,7 +15,7 @@ Actualizado: 2026-11-18. Alcance de piloto: municipalidad distrital, obras y con
 
 Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación mínima; (3) refactorización; (4) tests + typecheck + dry-run build; (5) registro de resultados y riesgos. Las migraciones se verifican en D1 local antes de cualquier aplicación remota.
 
-## Entrega actual: P0/P1h + P2f + P3c + P4b
+## Entrega actual: P0/P1i + P2f + P3d + P4b
 
 - [x] Tests que rechazan permisos entre comisiones, sujetos incorrectos e inactivos.
 - [x] Dos clases de evidencia documental diferenciadas: página existente y alcance de búsqueda sin resultado; soporte para fuente oficial.
@@ -60,6 +60,8 @@ Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación m
 - [x] Generación con stdlib de PDFs sintéticos nativos/escaneados/dañados, smoke real ClamAV+Poppler+Tesseract+EICAR y preflight de disco/memoria/Docker local; sin mocks en modo real (ADR-010).
 - [x] El smoke Docker exige privilegios mínimos, red desconectada, RAM ≥4 GiB, firmas frescas y aborta en host compartido sin 8 GiB libres; comprobado bloqueo efectivo por falta de disco.
 - [x] Refuerzo del inspector: stdout de motores en archivo temporal privado con máximo 2 MiB leídos a memoria; prueba de rechazo de salida excesiva o inválida.
+- [x] Diagnóstico de backlog/outbox (ADR-011) de solo lectura y sin endpoints públicos: pendientes, reintentos vencidos, envíos agotados, rechazos, comisiones cerradas, inconsistencias y versiones sin trabajo; métricas agregadas, límite de lectura, resultado incompleto explícito.
+- [x] Integración del diagnóstico al mantenimiento `scheduled` **sin activar cron**, con índice local D1 `0013` para orden de auditoría; ningún reenvío ni borrado automático.
 - [ ] **Ejecutar** build y smoke del inspector con ClamAV/Poppler/Tesseract y firmas actuales en un host aislado que cumpla requisitos, documentar versiones y evidencia. En host actual se bloqueó; no afirmar validación real.
 - [ ] Aprovisionar Service Binding y Cloudflare Container en entorno autorizado.
 - [ ] Desplegar y verificar DLQ, Queues, cron, Access/MFA y E2E reales de Preview con solo datos sintéticos.

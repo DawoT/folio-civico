@@ -1,4 +1,21 @@
-import { auditQuarantine, type QuarantineAuditOptions } from "@folio/data";
+import { auditQuarantine, auditProcessingBacklog, type QuarantineAuditOptions, type ProcessingBacklogOptions, type ProcessingBacklogReport } from "@folio/data";
+
+export interface ProcessingAuditLog extends ProcessingBacklogReport {
+  kind:"folio.processing.audit";
+}
+
+/** Internal, bounded and privacy-preserving. Does not touch queues or documents. */
+export async function runProcessingAudit(
+  env:Pick<AuditEnv,"DB">,
+  emit:(summary:ProcessingAuditLog)=>void,
+  options:ProcessingBacklogOptions={}
+):Promise<ProcessingAuditLog> {
+  if(!env.DB)throw new Error("Processing audit requires D1 binding");
+  const report=await auditProcessingBacklog(env.DB,options);
+  const summary:ProcessingAuditLog={kind:"folio.processing.audit",...report};
+  emit(summary);
+  return summary;
+}
 
 export interface AuditEnv {
   DB?: D1Database;

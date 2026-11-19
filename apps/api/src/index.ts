@@ -3,7 +3,7 @@ import { getCommissionSummary, listAccessibleCommissions, listCommissionBatches,
 import { handleDocumentRequest } from "./document-routes";
 import { handleReviewRequest, type ReviewAction } from "./review-routes";
 import { handleTransitionRequest } from "./transition-routes";
-import { runQuarantineAudit } from "./maintenance";
+import { runQuarantineAudit, runProcessingAudit } from "./maintenance";
 import { handleTextRequest } from "./text-routes";
 
 export interface ApiEnv extends AccessConfig {
@@ -78,6 +78,11 @@ export default {
     ctx.waitUntil(runQuarantineAudit(env, (summary) => {
       console.log(JSON.stringify(summary));
     }).then(() => undefined));
+    if (env.DB) {
+      ctx.waitUntil(runProcessingAudit(env, (summary) => {
+        console.log(JSON.stringify(summary));
+      }).then(() => undefined));
+    }
     // Dormant by default: neither a cron nor a Queue binding exists in Wrangler.
     if (env.PROCESSING_QUEUE && env.DB) {
       ctx.waitUntil(dispatchProcessingOutbox(env.DB, env.PROCESSING_QUEUE)

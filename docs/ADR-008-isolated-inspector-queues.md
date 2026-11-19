@@ -117,4 +117,6 @@ Los paths `/secure/*` son ejemplos que el operador debe sustituir. La red debe p
 - El scanner no sanea un derivado visual para descarga; el visor seguro PDF sigue pendiente.
 - El Service Binding del Processor apunta al gateway Worker de ADR-009, el cual utiliza un Durable Object y el puerto privado del Container. **Sigue desactivado** hasta contar con una arquitectura de Preview autorizada, secrets reales y firmas vigentes.
 
+**Evolución operativa:** la [ADR-011](ADR-011-processing-backlog-audit.md) incorpora diagnóstico agregado de reintentos agotados, atrasos e inconsistencias, sin activar Queues o reenvíos ni modificar expedientes.
+
 **Referencias:** [ADR-007](ADR-007-inspected-text-gate.md), [roadmap](ROADMAP.md), documentación oficial de [Cloudflare Queues](https://developers.cloudflare.com/queues/configuration/configure-queues/) y [reintentos/DLQ](https://developers.cloudflare.com/queues/configuration/batching-retries/).

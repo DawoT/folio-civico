@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { makeD1 } from "../../../tests/helpers/d1";
 import worker from "./index";
-import { runQuarantineAudit } from "./maintenance";
+import { runQuarantineAudit, runProcessingAudit } from "./maintenance";
 import {persistDocumentUpload} from "@folio/data";
 
 describe("operator-only audit entrypoint", () => {
@@ -30,6 +30,40 @@ describe("operator-only audit entrypoint", () => {
       expect(JSON.stringify(emit.mock.calls)).not.toContain("keyFingerprint");
       expect(f.deleteObject).not.toHaveBeenCalled();
     }finally{f.close();}
+  });
+
+  it("reports processing backlog aggregates without leaking filenames or object paths",async()=>{
+    const f=fixture();
+    const emit=vi.fn();
+    try {
+      f.sqlite.exec(`
+        INSERT INTO commissions(id,name,status) VALUES('c_a','Synthetic','active');
+        INSERT INTO commission_members(commission_id,subject,role) VALUES('c_a','alice','member');
+        INSERT INTO document_batches(id,commission_id,label) VALUES('b_a','c_a','Cases');
+      `);
+      await persistDocumentUpload(f.db,{
+        commissionId:"c_a",batchId:"b_a",subject:"alice",
+        documentId:"doc_a",versionId:"v_test",
+        filename:"PRIVATE_EXAMPLE.pdf",sha256:"a".repeat(64),
+        r2Key:"quarantine/PRIVATE_R2_KEY.pdf",idempotencyKey:"synthetic_upload_002"
+      });
+      f.sqlite.exec("UPDATE document_processing_outbox SET attempts=10,state='sent',last_sent_at='2026-11-18T16:00:00.000Z',created_at='2026-11-18 15:00:00'");
+      const result=await runProcessingAudit({DB:f.db},emit,{now:new Date("2026-11-18T18:00:00.000Z")});
+      expect(result).toMatchObject({kind:"folio.processing.audit",exhausted:1,needsAttention:true,complete:true});
+      expect(emit).toHaveBeenCalledOnce();
+      const serialized=JSON.stringify(result);
+      expect(serialized).not.toContain("PRIVATE_");
+      expect(serialized).not.toContain("doc_a");
+      expect(serialized).not.toContain("v_test");
+      expect(serialized).not.toContain("a".repeat(64));
+      expect(f.deleteObject).not.toHaveBeenCalled();
+    }finally{f.close();}
+  });
+
+  it("refuses processing audits without D1 and never emits a fake healthy result",async()=>{
+    const emit=vi.fn();
+    await expect(runProcessingAudit({},emit)).rejects.toThrow(/D1 binding/);
+    expect(emit).not.toHaveBeenCalled();
   });
 
   it("refuses missing bindings and does not emit a misleading summary",async()=>{
@@ -77,8 +111,9 @@ describe("operator-only audit entrypoint", () => {
       const ctx={waitUntil(p:Promise<unknown>){promises.push(p);}} as unknown as ExecutionContext;
       worker.scheduled({} as ScheduledController,{DB:f.db,DOCUMENTS:f.bucket},ctx);
       await Promise.all(promises);
-      expect(log).toHaveBeenCalledTimes(1);
-      expect(log.mock.calls[0]?.[0]).toContain("folio.quarantine.audit");
+      expect(log).toHaveBeenCalledTimes(2);
+      expect(log.mock.calls.some(args=>String(args[0]).includes("folio.quarantine.audit"))).toBe(true);
+      expect(log.mock.calls.some(args=>String(args[0]).includes("folio.processing.audit"))).toBe(true);
       expect(log.mock.calls[0]?.[0]).not.toContain(f.key);
       expect(f.deleteObject).not.toHaveBeenCalled();
     }finally{log.mockRestore();f.close();}

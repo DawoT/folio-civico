@@ -17,6 +17,7 @@ export function makeD1(): { db: D1Database; sqlite: DatabaseSync; close(): void 
   sqlite.exec(readFileSync(new URL("../../migrations/0010_inspected_reference_immutability.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../../migrations/0011_document_processing_outbox.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../../migrations/0012_processing_outbox_guards.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../../migrations/0013_processing_audit_index.sql", import.meta.url), "utf8"));
 
   class SqlStatement {
     constructor(readonly sql: string, readonly params: Arg[] = []) {}
