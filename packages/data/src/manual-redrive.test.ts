@@ -1,5 +1,7 @@
 import {afterEach,describe,it,expect,vi} from "vitest";
-import type {VerifiedRedriveAuthorization} from "@folio/auth";
+import type {VerifiedRedriveAuthorization,RevocationKind} from "@folio/auth";
+import {revocationFixture} from "../../auth/src/revocation-fixture.test-helper";
+import {registerRedriveRevocation} from "./revocation-registration";
 import {syntheticOperatorAuthorization} from "../../../packages/auth/src/signed-fixture.test-helper";
 afterEach(()=>vi.unstubAllGlobals());
 import {makeD1} from "../../../tests/helpers/d1";
@@ -67,6 +69,20 @@ async function fixture(){
   const row=()=>f.sqlite.prepare("SELECT state,attempts,last_sent_at AS lastSentAt FROM document_processing_outbox WHERE document_version_id='version_a'").get();
   const attempts=()=>f.sqlite.prepare("SELECT state,operator_subject AS operator,request_key AS requestKey,authorization_sha256 AS authorizationDigest FROM processing_manual_redrives").all();
   return {...f,env,input,queue,sent,endorse:endorsed,row,attempts};
+}
+
+async function registerFixtureRevocation(
+  f:Awaited<ReturnType<typeof fixture>>,kind:RevocationKind,
+  target:string,incidentSuffix:string
+):Promise<void>{
+  const approval=await revocationFixture({
+    kind,target,
+    incidentRef:"INC_REVOKE_20261119_"+incidentSuffix,
+    requestKey:"revocation_fixture_"+kind+"_"+incidentSuffix,
+    reason:"Independent synthetic incident approval for private denylist tests."
+  });
+  const proof=await approval.verify();
+  await registerRedriveRevocation(f.db,approval.scope,proof);
 }
 
 describe("R2.5 · one-shot manual redrive, no active API/Cloudflare bindings",()=>{
@@ -336,10 +352,7 @@ describe("R2.5 · one-shot manual redrive, no active API/Cloudflare bindings",()
           approval_key:proof.approvalKeyThumbprint,
           release_key:proof.releaseKeyThumbprint
         }[kind];
-        f.sqlite.prepare(`
-          INSERT INTO processing_redrive_revocations(kind,target,incident_ref)
-          VALUES(?,?,?)
-        `).run(kind,target,"INC_REVOKE_20261119_0001");
+        await registerFixtureRevocation(f,kind,target,"0001");
         await expect(executeOneShotManualRedrive(f.env,f.input(reviewId)))
           .rejects.toBeInstanceOf(ManualRedriveAccessError);
         expect(f.queue.send).not.toHaveBeenCalled();
@@ -361,10 +374,7 @@ describe("R2.5 · one-shot manual redrive, no active API/Cloudflare bindings",()
           const result=await f.db.batch(statements);
           batches++;
           if(batches===1){
-            f.sqlite.prepare(`
-              INSERT INTO processing_redrive_revocations(kind,target,incident_ref)
-              VALUES('release_key',?,?)
-            `).run(proof.releaseKeyThumbprint,"INC_REVOKE_20261119_0002");
+            await registerFixtureRevocation(f,"release_key",proof.releaseKeyThumbprint,"0002");
           }
           return result;
         }
@@ -411,10 +421,7 @@ describe("R2.5 · one-shot manual redrive, no active API/Cloudflare bindings",()
         batch:async(statements:Parameters<D1Database["batch"]>[0])=>{
           batches++;
           if(batches===1) {
-            f.sqlite.prepare(`
-              INSERT INTO processing_redrive_revocations(kind,target,incident_ref)
-              VALUES('image',?,?)
-            `).run(f.env.authorization!.imageDigest,"INC_REVOKE_20261119_0004");
+            await registerFixtureRevocation(f,"image",f.env.authorization!.imageDigest,"0004");
           }
           return f.db.batch(statements);
         }
@@ -459,10 +466,7 @@ describe("R2.5 · one-shot manual redrive, no active API/Cloudflare bindings",()
     try{
       const reviewId=await f.endorse();
       const proof=f.env.authorization!;
-      f.sqlite.prepare(`
-        INSERT INTO processing_redrive_revocations(kind,target,incident_ref)
-        VALUES('attestation',?,?)
-      `).run(proof.attestationDigest,"INC_REVOKE_20261119_0003");
+      await registerFixtureRevocation(f,"attestation",proof.attestationDigest,"0003");
       expect(()=>f.sqlite.exec("UPDATE processing_redrive_revocations SET incident_ref='INC_FORGED_0001'"))
         .toThrow(/REDRIVE_REVOCATION_IMMUTABLE/);
       expect(()=>f.sqlite.exec("DELETE FROM processing_redrive_revocations"))
