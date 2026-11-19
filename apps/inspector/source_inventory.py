@@ -1,7 +1,9 @@
 """Offline runtime provenance inventory for locally compiled OCR/PDF engines.
 
 Executed inside the IMMUTABLE local image ID, without network or host mounts.
-The output provides measured ELF hashes and checks declared source versions.
+The output provides measured ELF hashes, fixed-scope traineddata model
+fingerprints and declared source-version checks. Model hashes demonstrate
+identity, NOT vendor authenticity or immunity to crafted-model CVEs.
 It DOES NOT assess advisories; the security gate must remain blocked until
 there is an explicit, independently approved source-code vulnerability review.
 """
@@ -11,10 +13,13 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import stat
 import subprocess
 
 SOURCE = "folio-local-elf-provenance-v1"
 POPPLER_TOOLS = ("pdfinfo", "pdftotext", "pdftoppm", "pdfdetach", "pdfattach")
+TESSERACT_MODELS = ("eng", "spa")
+MAX_MODEL_BYTES = 32 * 1024 * 1024
 TESSERACT_SOURCE_SHA256 = "a8dbf8b8c8ee427ff6ad1d99116502feaf59440af1adb893caf60a6576826cf4"
 TESSERACT_METADATA = {
     "name": "tesseract", "version": "5.5.4",
@@ -39,6 +44,35 @@ def sha256_elf(root: Path, relative: str) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def fingerprint_ocr_models(root: Path) -> dict[str, str]:
+    """Fingerprint the ONLY two image-owned OCR models under fixed tessdata.
+
+    This confirms identity and rules out links, missing model files, writable
+    inputs or additional traineddata; it does not authenticate Debian signatures
+    or prove that crafted model parsing vulnerabilities are absent.
+    """
+    directory = root / "usr/share/tesseract-ocr/5/tessdata"
+    if (not directory.is_dir() or directory.is_symlink()
+            or directory.stat().st_mode & 0o022):
+        raise ValueError("OCR model directory is missing or mutable")
+    selected = sorted(p.name for p in directory.glob("*.traineddata"))
+    if selected != [f"{name}.traineddata" for name in TESSERACT_MODELS]:
+        raise ValueError("OCR model set differs from approved language scope")
+    hashes: dict[str, str] = {}
+    for name in TESSERACT_MODELS:
+        model = directory / f"{name}.traineddata"
+        info = model.lstat()
+        if (not stat.S_ISREG(info.st_mode) or info.st_mode & 0o022
+                or not 0 < info.st_size <= MAX_MODEL_BYTES):
+            raise ValueError("OCR language model is unsafe or oversized")
+        digest = hashlib.sha256()
+        with model.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        hashes[name] = digest.hexdigest()
+    return hashes
 
 
 def verify_dynamic_links(binary: Path, forbidden: tuple[str, ...]) -> None:
@@ -110,6 +144,7 @@ def inspect_component(root: Path, name: str) -> dict:
     return {
         "name": name, "version": version,
         "tool_sha256": tool_sha256,
+        "model_sha256": fingerprint_ocr_models(root) if name == "tesseract" else {},
         "executable_sha256": sha256_elf(root, f"{base}/{exe}"),
         "library_sha256": sha256_elf(root, f"{base}/{lib}"),
         "provenance_sha256": hashlib.sha256(

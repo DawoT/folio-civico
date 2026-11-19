@@ -48,6 +48,8 @@ En el escaneo de la imagen experimental local: **0 CRITICAL / 70 HIGH / 19 UNKNO
 
 Las pruebas de unidad incluyen manipulación de versiones e identidad, cambio de clase de imagen, pérdida y duplicación de CVE, fuentes candidatas sin Poppler y validación vacía.
 
+**Evidencia posterior R1.10:** [análisis del tarball SHA-pinned Tesseract 5.5.4 y de los modelos OCR](SECURITY_TESSERACT_SOURCE_AND_MODELS_2026-11-19.md). Los marcadores de fuente de 4 CVE relevantes están presentes y los modelos de idioma ya se identifican por SHA-256 en las imágenes locales. Estas pruebas **no convierten automáticamente** los CVE del presente registro a `not_affected`, no sustituyen evaluación independiente y mantienen el gate bloqueado.
+
 ## Criterios para cerrar la deuda
 
 1. Obtener listado actualizado de avisos upstream/OSV/GHSA de los dos proyectos y revisar **cada identificador** contra la versión fuente exacta, compilación y rutas de ejecución.

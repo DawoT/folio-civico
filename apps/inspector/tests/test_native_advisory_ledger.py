@@ -28,6 +28,8 @@ def inventory(mode="experiment", names=("tesseract", "poppler")):
             "tool_sha256": ({tool: "d" * 64 for tool in
                             ("pdfinfo", "pdftotext", "pdftoppm", "pdfdetach", "pdfattach")}
                             if name == "poppler" else {}),
+            "model_sha256": ({"eng": "e" * 64, "spa": "f" * 64}
+                             if name == "tesseract" else {}),
             "cve_assessment": "required",
             "automated_cve_coverage": "not_verified",
         } for name in names]
@@ -49,6 +51,8 @@ class NativeAdvisoryLedgerTests(unittest.TestCase):
         self.assertEqual([c["cve_count"] for c in rows], [14, 10])
         self.assertEqual(report["selected_cve_total"], 24)
         self.assertEqual(rows[0]["executable_sha256"], "a" * 64)
+        self.assertEqual(rows[0]["model_sha256"], {"eng":"e"*64,"spa":"f"*64})
+        self.assertEqual(rows[1]["model_sha256"], {})
         self.assertEqual(rows[1]["library_sha256"], "b" * 64)
         for row in rows:
             self.assertEqual(row["source_build_status"], "unassessed")

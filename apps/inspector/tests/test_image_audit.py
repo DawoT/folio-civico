@@ -125,6 +125,8 @@ class ImageAuditTests(unittest.TestCase):
              "tool_sha256":({name:"d"*64 for name in (
                  "pdfinfo","pdftotext","pdftoppm","pdfdetach","pdfattach")}
                  if name == "poppler" else {}),
+             "model_sha256":({"eng": "e"*64, "spa": "f"*64}
+                             if name == "tesseract" else {}),
              "cve_assessment":"required",
              "automated_cve_coverage":"not_verified"}
             for name,version in (
@@ -144,12 +146,18 @@ class ImageAuditTests(unittest.TestCase):
         self.assertEqual([x["name"] for x in report["native_components"]],
                          ["tesseract","poppler"])
         self.assertEqual(report["native_components"][0]["library_sha256"],"b"*64)
+        self.assertEqual(report["native_components"][0]["model_sha256"],
+                         {"eng":"e"*64,"spa":"f"*64})
         for bad in (
             dict(native,components=[]),
             dict(native,source_cve_coverage="verified"),
             dict(native,mode="candidate"),
             dict(native,components=[components[0],components[0]]),
             dict(native,components=[dict(components[0],library_sha256="not-a-hash"),components[1]]),
+            dict(native,components=[dict(components[0],model_sha256={}),components[1]]),
+            dict(native,components=[dict(components[0],model_sha256={"eng":"a"*64,"spa":"bad"}),components[1]]),
+            dict(native,components=[dict(components[1],name="poppler",model_sha256={"eng":"a"*64}),
+                                    components[0]]),
         ):
             with self.subTest(bad=bad.get("mode")), self.assertRaises(ValueError):
                 evaluate_image_audit(vulnerabilities,bill,image,bad)

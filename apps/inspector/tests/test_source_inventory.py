@@ -34,6 +34,16 @@ def provision(root: Path, name: str):
         path.parent.mkdir(parents=True,exist_ok=True)
         path.write_bytes(b"\x7fELF" + bytes(64))
     (base/"source-provenance.json").write_text(json.dumps(metadata),encoding="utf-8")
+    if name == "tesseract":
+        models = root / "usr/share/tesseract-ocr/5/tessdata"
+        models.mkdir(parents=True, exist_ok=True)
+        models.chmod(0o755)
+        for language in ("eng", "spa"):
+            file = models / f"{language}.traineddata"
+            file.write_bytes(
+                (b"synthetic-official-model-placeholder-" + language.encode()) * 4
+            )
+            file.chmod(0o644)
     return exe,lib
 
 
@@ -69,12 +79,55 @@ class SourceInventoryTests(unittest.TestCase):
                 self.assertEqual(len(row["provenance_sha256"]),64)
                 self.assertEqual(row["cve_assessment"],"required")
                 self.assertEqual(row["automated_cve_coverage"],"not_verified")
+                if row["name"] == "tesseract":
+                    self.assertEqual(set(row["model_sha256"]), {"eng", "spa"})
+                    self.assertTrue(all(len(value) == 64
+                                        for value in row["model_sha256"].values()))
                 if row["name"] == "poppler":
+                    self.assertEqual(row["model_sha256"], {})
                     self.assertEqual(set(row["tool_sha256"]),{
                         "pdfinfo","pdftotext","pdftoppm","pdfdetach","pdfattach"
                     })
                     self.assertTrue(all(len(x) == 64 for x in row["tool_sha256"].values()))
                 self.assertNotIn(str(root),json.dumps(row))
+
+    def test_models_are_required_regular_nonwritable_files_with_bounded_size(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            provision(root,"tesseract")
+            models=root/"usr/share/tesseract-ocr/5/tessdata"
+            with patch("source_inventory.subprocess.run",side_effect=checked_version):
+                normal=inspect_component(root,"tesseract")
+                self.assertEqual(len(normal["model_sha256"]),2)
+                # Changes are detectable even when the filename is unchanged.
+                original=normal["model_sha256"]["spa"]
+                (models/"spa.traineddata").write_bytes(b"different-synthetic-model")
+                (models/"spa.traineddata").chmod(0o644)
+                updated=inspect_component(root,"tesseract")
+                self.assertNotEqual(updated["model_sha256"]["spa"],original)
+                # Each mutation runs against a fresh fixture.
+                for failure in ("missing", "extra", "world_writable", "empty", "symlink",
+                                "mutable_directory"):
+                    with tempfile.TemporaryDirectory() as scratch:
+                        candidate=Path(scratch)
+                        provision(candidate,"tesseract")
+                        model_dir=candidate/"usr/share/tesseract-ocr/5/tessdata"
+                        file=model_dir/"spa.traineddata"
+                        if failure == "missing":
+                            file.unlink()
+                        elif failure == "extra":
+                            (model_dir/"fra.traineddata").write_bytes(b"extra")
+                        elif failure == "world_writable":
+                            file.chmod(0o666)
+                        elif failure == "empty":
+                            file.write_bytes(b"")
+                        elif failure == "symlink":
+                            file.unlink()
+                            file.symlink_to(model_dir/"eng.traineddata")
+                        elif failure == "mutable_directory":
+                            model_dir.chmod(0o777)
+                        with self.subTest(failure=failure),self.assertRaises(ValueError):
+                            inspect_component(candidate,"tesseract")
 
     def test_required_component_missing_or_unexpected_component_fails_closed(self):
         with tempfile.TemporaryDirectory() as folder:
