@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { loadChecklist, loadObservationDrafts, loadObservationDetail, loadVerifiedReviewReport, submitSearchScopeDraft, transitionObservation } from "./api";
+import { loadChecklist, loadObservationDrafts, loadObservationDetail, loadVerifiedReviewReport, createCommissionBatch, createCommissionChecklistItem, submitSearchScopeDraft, transitionObservation } from "./api";
 import { ReviewWorkspace, ChecklistStatus } from "./ReviewWorkspace";
 import type { ChecklistRow } from "./api";
 
@@ -57,6 +57,36 @@ describe("review API client", () => {
       payload:JSON.stringify({...JSON.parse(payload),commission:{id:"c_b"}})}));
     await expect(loadVerifiedReviewReport("c_a",wrongCommission)).rejects.toThrow();
     await expect(loadVerifiedReviewReport("../c_b",fetcher)).rejects.toThrow();
+  });
+
+  it("creates authorized pilot batches and checklist items without supplying actor identity",async()=>{
+    const responses=vi.fn(async (_url:RequestInfo|URL,_options?:RequestInit)=>
+      Response.json({id:"created_1",replayed:false},{status:201}));
+    await createCommissionBatch({commissionId:"c_a",label:"Obras y contratos"},responses,()=> "batch_create_req");
+    await createCommissionChecklistItem({
+      commissionId:"c_a",area:"procurement",expectedDocument:"Contrato adjudicado"
+    },responses,()=> "checklist_create_req");
+    const calls=responses.mock.calls;
+    expect(calls[0]?.[0]).toBe("/api/commissions/c_a/batches");
+    expect(calls[1]?.[0]).toBe("/api/commissions/c_a/checklist/items");
+    for(const [url,options] of calls) {
+      expect(url).toContain("/api/commissions/c_a/");
+      expect(options).toMatchObject({
+        method:"POST",credentials:"same-origin",cache:"no-store",
+        headers:{"Content-Type":"application/json","Idempotency-Key":expect.any(String)}
+      });
+      const data=JSON.parse(options?.body as string);
+      expect(data).not.toHaveProperty("actorSubject");
+      expect(data).not.toHaveProperty("status");
+    }
+  });
+
+  it("renders provisioning only for a president",()=>{
+    const readOnly=renderToStaticMarkup(<ReviewWorkspace scope={{commissionId:"c_a",batchId:"b_a"}} canDraft={true}/>);
+    const president=renderToStaticMarkup(<ReviewWorkspace scope={{commissionId:"c_a",batchId:"b_a"}} canDraft={true} canManage={true}/>);
+    expect(readOnly).not.toContain("Incorporar ítem");
+    expect(president).toContain("Incorporar ítem");
+    expect(president).toContain("Ítem esperado del checklist");
   });
 
   it("submits manual search with no client-supplied reviewer, date or validation status", async () => {

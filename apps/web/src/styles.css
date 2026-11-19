@@ -151,6 +151,19 @@ h1 { margin: 0; font-size: clamp(29px, 3.2vw, 42px); letter-spacing: -.05em; lin
 .checklist-proof code { overflow-wrap: anywhere; }
 .linked-observation-card { margin-top: 22px; }
 .linked-observation-id { overflow-wrap: anywhere; }
+.manage-form {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin: 14px 0 18px; padding: 14px; border-radius: 9px;
+  border: 1px solid #d8e5e1; background: #f7faf9;
+}
+.manage-form label { flex-basis: 100%; font-size: 13px; font-weight: 700; }
+.manage-form input,.manage-form select {
+  flex: 1 1 190px; min-width: 0; min-height: 44px; padding: 10px 12px;
+  background: #fff; color: #172740; border: 1px solid #aebfbc; border-radius: 7px;
+}
+.manage-form input:focus-visible,.manage-form select:focus-visible {
+  outline: 3px solid #0f7771; outline-offset: 2px;
+}
 .review-export { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 16px 0 18px; }
 .review-export > p { margin: 0; }
 .report-digest { overflow-wrap: anywhere; word-break: break-all; }

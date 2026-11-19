@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
-  loadChecklist, loadObservationDrafts, loadObservationDetail, loadVerifiedReviewReport, submitSearchScopeDraft,
+  loadChecklist, loadObservationDrafts, loadObservationDetail, loadVerifiedReviewReport, createCommissionChecklistItem, submitSearchScopeDraft,
   transitionObservation as requestTransition,
   type ChecklistRow, type ObservationRow, type Scope
 } from "./api";
@@ -35,7 +35,7 @@ export function ChecklistStatus({item,onOpenValidation}: {item: ChecklistRow; on
   );
 }
 
-export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: boolean}) {
+export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scope; canDraft: boolean; canManage?:boolean}) {
   const [checklist,setChecklist] = useState<ChecklistRow[]>([]);
   const [observations,setObservations] = useState<ObservationRow[]>([]);
   const [itemId,setItemId] = useState("");
@@ -59,6 +59,10 @@ export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: bool
   const [exportBusy,setExportBusy]=useState(false);
   const [exportError,setExportError]=useState("");
   const [exportHash,setExportHash]=useState("");
+  const [checklistArea,setChecklistArea]=useState<"works"|"procurement">("works");
+  const [expectedDocument,setExpectedDocument]=useState("");
+  const [checklistCreating,setChecklistCreating]=useState(false);
+  const pendingChecklist=useRef<{fingerprint:string;key:string}|null>(null);
   const linkedRequest=useRef(0);
 
   useEffect(() => {
@@ -79,6 +83,27 @@ export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: bool
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [scope.commissionId,reload]);
+
+  async function addChecklistItem(event:FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if(!canManage||checklistCreating||loading) return;
+    setChecklistCreating(true);setError("");setNotice("");
+    try {
+      const fingerprint=JSON.stringify([scope.commissionId,checklistArea,expectedDocument.trim()]);
+      const key=pendingChecklist.current?.fingerprint===fingerprint
+        ? pendingChecklist.current.key:crypto.randomUUID();
+      pendingChecklist.current={fingerprint,key};
+      const created=await createCommissionChecklistItem({
+        commissionId:scope.commissionId,area:checklistArea,expectedDocument
+      },fetch,()=>key);
+      pendingChecklist.current=null;
+      setExpectedDocument("");
+      setNotice(created.replayed?"Ítem existente recuperado por reintento.":"Ítem pendiente incorporado al checklist.");
+      setReload(value=>value+1);
+    }catch(problem){
+      setError(problem instanceof Error?problem.message:"No se pudo incorporar el ítem.");
+    }finally{setChecklistCreating(false);}
+  }
 
   async function saveDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -194,8 +219,29 @@ export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: bool
       <div className="review-grid">
         <div className="review-card">
           <h3>Checklist de constatación</h3>
+          {canManage && (
+            <form className="manage-form" onSubmit={addChecklistItem}
+              aria-label="Incorporar ítem al checklist">
+              <label htmlFor="checklist-area-input">Área del checklist</label>
+              <select id="checklist-area-input" value={checklistArea}
+                disabled={checklistCreating||loading}
+                onChange={event=>setChecklistArea(event.target.value as "works"|"procurement")}>
+                <option value="works">Obras</option>
+                <option value="procurement">Contrataciones</option>
+              </select>
+              <label htmlFor="checklist-expected-document">Ítem esperado del checklist</label>
+              <input id="checklist-expected-document" value={expectedDocument}
+                onChange={event=>setExpectedDocument(event.target.value)}
+                placeholder="Documento o expediente a constatar" maxLength={160}
+                disabled={checklistCreating||loading} required/>
+              <button type="submit" className="button secondary"
+                disabled={checklistCreating||loading||expectedDocument.trim().length<3}>
+                {checklistCreating?"Incorporando…":"Incorporar ítem"}
+              </button>
+            </form>
+          )}
           {loading ? <p>Consultando ítems…</p> :
-            checklist.length === 0 ? <p>No hay ítems configurados. La comisión deberá cargar su checklist aprobado.</p> :
+            checklist.length === 0 ? <p>No hay ítems configurados para esta comisión.</p> :
             <ul className="checklist-items">
               {checklist.map((item) => (
                 <li key={item.id}>

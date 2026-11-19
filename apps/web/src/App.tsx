@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ApiError, loadCommissions, loadCommissionBatches, loadDocuments, makeDocumentsPath, uploadPdf, type Commission, type CommissionBatch, type DocumentRow, type Scope } from "./api";
+import { ApiError, loadCommissions, loadCommissionBatches, loadDocuments, makeDocumentsPath, uploadPdf, createCommissionBatch, type Commission, type CommissionBatch, type DocumentRow, type Scope } from "./api";
 import "./styles.css";
 import { ReviewWorkspace } from "./ReviewWorkspace";
 import { InspectedTextViewer } from "./InspectedTextViewer";
@@ -38,6 +38,9 @@ export function App() {
   const [reviewRefresh,setReviewRefresh]=useState(0);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [newBatchLabel,setNewBatchLabel]=useState("");
+  const [batchCreating,setBatchCreating]=useState(false);
+  const pendingBatch=useRef<{fingerprint:string;key:string}|null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
@@ -103,6 +106,7 @@ export function App() {
   const selected = documents.find((document) => document.id === selectedId) ?? null;
   const selectedCommission = commissions.find((item) => item.id === commissionId);
   const canUpload = selectedCommission?.status === "active" && selectedCommission.role !== "observer";
+  const canManage = selectedCommission?.status === "active" && selectedCommission.role === "president";
 
   function connect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -126,6 +130,26 @@ export function App() {
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : "Identificadores no válidos.");
     }
+  }
+
+  async function createBatch(event:FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if(!canManage||!commissionId||batchCreating||batchesLoading) return;
+    setBatchCreating(true);setError("");setNotice("");
+    try {
+      const fingerprint=JSON.stringify([commissionId,newBatchLabel.trim()]);
+      const key=pendingBatch.current?.fingerprint===fingerprint
+        ? pendingBatch.current.key : crypto.randomUUID();
+      pendingBatch.current={fingerprint,key};
+      const created=await createCommissionBatch({commissionId,label:newBatchLabel},fetch,()=>key);
+      pendingBatch.current=null;
+      setBatches(rows=>[{id:created.id,label:created.label},...rows.filter(row=>row.id!==created.id)]);
+      setBatchId(created.id);
+      setNewBatchLabel("");
+      setNotice(created.replayed?"Lote ya registrado; se recuperó el mismo ID.":"Lote creado y seleccionado. Pulsa «Abrir lote» para continuar.");
+    } catch(problem) {
+      setError(problem instanceof Error?problem.message:"No se pudo crear el lote.");
+    } finally {setBatchCreating(false);}
   }
 
   async function upload(event: FormEvent<HTMLFormElement>) {
@@ -190,6 +214,8 @@ export function App() {
                 setDocuments([]);
                 setSelectedId(null);
                 setCatalogError("");
+                setNewBatchLabel("");
+                pendingBatch.current=null;
               }} disabled={catalogLoading} required>
               <option value="">{catalogLoading ? "Consultando comisiones…" : "Selecciona una comisión"}</option>
               {commissions.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === "closed" ? " · Cerrada" : ""}</option>)}
@@ -205,6 +231,20 @@ export function App() {
           </label>
           <button className="button primary" type="submit" disabled={!commissionId || !batchId || catalogLoading || batchesLoading}>Abrir lote</button>
         </form>
+
+        {canManage && (
+          <form className="manage-form" onSubmit={createBatch} aria-label="Crear lote de expedientes">
+            <label htmlFor="new-batch-label">Nuevo lote de expedientes</label>
+            <input id="new-batch-label" value={newBatchLabel} maxLength={120}
+              onChange={event=>setNewBatchLabel(event.target.value)}
+              placeholder="Obras y contrataciones · 2026" required
+              disabled={batchCreating||batchesLoading}/>
+            <button type="submit" className="button secondary"
+              disabled={batchCreating||batchesLoading||newBatchLabel.trim().length<3}>
+              {batchCreating?"Creando lote…":"Crear lote"}
+            </button>
+          </form>
+        )}
 
         {catalogError && <div className="message error" role="alert">{catalogError}</div>}
         {!catalogLoading && !catalogError && commissions.length === 0 && <div className="message" role="status">No tienes comisiones asignadas. Solicita acceso al administrador de la entidad.</div>}
@@ -292,7 +332,7 @@ export function App() {
             )}
           </section>
         </div>
-        {scope && <ReviewWorkspace key={scope.commissionId+":"+scope.batchId+":"+reviewRefresh} scope={scope} canDraft={Boolean(canUpload)}/>}
+        {scope && <ReviewWorkspace key={scope.commissionId+":"+scope.batchId+":"+reviewRefresh} scope={scope} canDraft={Boolean(canUpload)} canManage={Boolean(canManage)}/>}
         <footer className="page-footer">Folio Cívico · Herramienta de apoyo técnico-administrativo · Las decisiones corresponden a la comisión.</footer>
       </main>
     </div>

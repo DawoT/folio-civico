@@ -1,4 +1,5 @@
 export * from "./commissions";
+export * from "./provisioning";
 export * from "./documents";
 export * from "./review";
 export * from "./review-export";

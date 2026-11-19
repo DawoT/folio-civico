@@ -147,6 +147,48 @@ export async function loadCommissionBatches(
 }
 
 
+export interface CreatedBatch extends CommissionBatch { replayed: boolean }
+export interface CreatedChecklist {
+  id: string; area:"works"|"procurement";expectedDocument:string;
+  status:"pending";replayed:boolean;
+}
+
+export async function createCommissionBatch(
+  input:{commissionId:string;label:string},
+  fetcher:typeof fetch=fetch,
+  makeKey:()=>string=()=>crypto.randomUUID()
+):Promise<CreatedBatch> {
+  const label=input.label.trim();
+  if(label.length<3||label.length>120||/[\u0000-\u001f\u007f]/.test(input.label)) {
+    throw new ApiError(400,"Introduce un nombre de lote válido (3–120 caracteres).");
+  }
+  const response=await fetcher(commissionPath(input.commissionId)+"/batches",{
+    method:"POST",credentials:"same-origin",cache:"no-store",
+    headers:{"Content-Type":"application/json","Idempotency-Key":makeKey()},
+    body:JSON.stringify({label})
+  });
+  return await expectJson(response) as CreatedBatch;
+}
+
+export async function createCommissionChecklistItem(
+  input:{commissionId:string;area:"works"|"procurement";expectedDocument:string},
+  fetcher:typeof fetch=fetch,
+  makeKey:()=>string=()=>crypto.randomUUID()
+):Promise<CreatedChecklist> {
+  const expectedDocument=input.expectedDocument.trim();
+  if((input.area!=="works"&&input.area!=="procurement")
+    || expectedDocument.length<3||expectedDocument.length>160
+    ||/[\u0000-\u001f\u007f]/.test(input.expectedDocument)) {
+    throw new ApiError(400,"Introduce un ítem y un área válidos.");
+  }
+  const response=await fetcher(commissionPath(input.commissionId)+"/checklist/items",{
+    method:"POST",credentials:"same-origin",cache:"no-store",
+    headers:{"Content-Type":"application/json","Idempotency-Key":makeKey()},
+    body:JSON.stringify({area:input.area,expectedDocument})
+  });
+  return await expectJson(response) as CreatedChecklist;
+}
+
 export interface ChecklistRow {
   id: string;
   area: "works" | "procurement";
