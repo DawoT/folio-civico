@@ -18,6 +18,13 @@ RUN set -eux; \
     mkdir -p /src; \
     cd /src; \
     apt-get source "poppler=$POPPLER_DEBIAN_VERSION"; \
+    # Pin the exact original source, Debian quilt stack and signed .dsc to the \
+    # archive content verified on 2026-11-19; no silent package revision swap. \
+    printf '%s  %s\n' \
+      "97da4ff88517a6bbd729529f195f85c8d7a0c3bb4a3d57cb0c685cbb052fe837" "poppler_25.03.0.orig.tar.xz" \
+      "2605b5d7e6ce17a307d067048386deedfc41fdac6f75f81ad76050f517fc0de4" "poppler_25.03.0-5+deb13u4.debian.tar.xz" \
+      "b895e1e28568a486523f93dd5a8707ecb16767c5f134a6e23510b0597114c628" "poppler_25.03.0-5+deb13u4.dsc" \
+      | sha256sum --check -; \
     test "$(dpkg-parsechangelog -l /src/poppler-25.03.0/debian/changelog -S Version)" = "$POPPLER_DEBIAN_VERSION"; \
     rm -rf /var/lib/apt/lists/*
 

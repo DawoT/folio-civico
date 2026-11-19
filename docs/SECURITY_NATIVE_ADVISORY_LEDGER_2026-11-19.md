@@ -50,6 +50,8 @@ Las pruebas de unidad incluyen manipulación de versiones e identidad, cambio de
 
 **Evidencia posterior R1.10:** [análisis del tarball SHA-pinned Tesseract 5.5.4 y de los modelos OCR](SECURITY_TESSERACT_SOURCE_AND_MODELS_2026-11-19.md). Los marcadores de fuente de 4 CVE relevantes están presentes y los modelos de idioma ya se identifican por SHA-256 en las imágenes locales. Estas pruebas **no convierten automáticamente** los CVE del presente registro a `not_affected`, no sustituyen evaluación independiente y mantienen el gate bloqueado.
 
+**Evidencia posterior R1.11:** la [revisión reproducible de la fuente Poppler Debian](SECURITY_POPPLER_SOURCE_PATCHES_2026-11-19.md) contrastó **10/10 CVE** con los estados vulnerables de la suite Trixie y añadió los archivos fuente por CVE al registro, además de fijar el paquete fuente por SHA-256. No prueba que cada fallo sea explotable en el ELF ni da por remediado ninguno; la revisión individual sigue obligatoria.
+
 ## Criterios para cerrar la deuda
 
 1. Obtener listado actualizado de avisos upstream/OSV/GHSA de los dos proyectos y revisar **cada identificador** contra la versión fuente exacta, compilación y rutas de ejecución.

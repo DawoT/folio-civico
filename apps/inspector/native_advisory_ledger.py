@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 
 from audit_image import verify_native_source_inventory
+from poppler_source_patch_probe import CVE_SOURCE_PATHS
 
 SNAPSHOT_DATE = "2026-11-19"
 SOURCE_CVES: dict[str, tuple[str, ...]] = {
@@ -45,7 +46,8 @@ def source_cve_ledger(inventory: dict, image: str) -> dict:
     classifies an individual CVE as fixed, affected, or not affected.
     """
     verify_native_source_inventory(inventory, image)
-    if set(SOURCE_CVES) != set(EXPECTED_CVE_COUNTS):
+    if (set(SOURCE_CVES) != set(EXPECTED_CVE_COUNTS)
+            or set(CVE_SOURCE_PATHS) != set(SOURCE_CVES["poppler"])):
         raise ValueError("Native advisory snapshot is incomplete")
     for name, ids in SOURCE_CVES.items():
         if (not isinstance(ids, tuple) or len(ids) != EXPECTED_CVE_COUNTS[name]
@@ -73,6 +75,12 @@ def source_cve_ledger(inventory: dict, image: str) -> dict:
                 "reference": "https://security-tracker.debian.org/tracker/" + cve,
                 "disposition": "individual_review_required",
                 "source_binary_applicability": "unassessed",
+                **({
+                    "source_path": CVE_SOURCE_PATHS[cve],
+                    # Verified against Debian's Trixie source tracker on
+                    # SNAPSHOT_DATE; not a binary vulnerability verdict.
+                    "debian_trixie_source_status": "vulnerable",
+                } if name == "poppler" else {}),
             } for cve in cves],
         })
     return {
