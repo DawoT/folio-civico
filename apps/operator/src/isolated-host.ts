@@ -2,7 +2,9 @@ import {
   verifyRevocationAuthorization,RevocationAuthorizationError,
   verifyOneShotOperatorAuthorization,OperatorAuthorizationError,
   type RevocationScope,type RevocationAuthorizationConfig,
-  type OperatorPreflightConfig
+  type OperatorPreflightConfig,
+  verifyAsyncIncidentActor,verifyAsyncIncidentApprover,
+  verifyAsyncIncidentDecision,AsyncRevocationAccessError
 } from "../../../packages/auth/src/index";
 import {
   registerRedriveRevocation,RevocationRegistrationAccessError,
@@ -13,9 +15,13 @@ import {
   ManualRedriveConflictError,ManualRedriveInputError
 } from "../../../packages/data/src/manual-redrive";
 import type {ProcessingQueueMessage} from "../../../packages/data/src/processing-outbox";
+import {
+  proposeAsyncRevocation,findAsyncRevocation,approveAsyncRevocation,
+  AsyncRevocationDenied,AsyncRevocationConflict
+} from "../../../packages/data/src/async-revocation";
 
 /**
- * R2.9: a synthetic-only private HTTP adapter, not a Cloudflare Worker.
+ * R2.9/R2.10: a synthetic-only private HTTP adapter, not a Cloudflare Worker.
  *
  * Deliberately no default ExportedHandler, Wrangler config, deployment
  * binding, route registration, secrets, or production hostname. A future
@@ -26,6 +32,8 @@ export interface IsolatedOperatorConfig {
   mode?:"synthetic-offline-only";
   db?:D1Database;
   revocationTrust?:RevocationAuthorizationConfig;
+  /** R2.8 combined-token route is disabled unless explicitly enabled for legacy tests. */
+  allowLegacyCombinedRevocations?:boolean;
   redriveTrust?:OperatorPreflightConfig;
   /** Injected fake Queue in local tests; NEVER a live binding here. */
   queue?:{send(message:ProcessingQueueMessage):Promise<unknown>};
@@ -115,7 +123,8 @@ export async function handleIsolatedOperatorRequest(
   try{
     const url=new URL(request.url);
     if(url.origin!==TEST_ORIGIN || url.search || url.hash
-      || ![PATH+"revocations",PATH+"redrives"].includes(url.pathname))
+      || ![PATH+"revocations",PATH+"redrives",
+        PATH+"revocation-proposals",PATH+"revocation-approvals"].includes(url.pathname))
       return failed(404);
     if(request.method!=="POST")return failed(405);
     if(forbiddenBrowserRequest(request))return failed(403);
@@ -123,7 +132,39 @@ export async function handleIsolatedOperatorRequest(
       request.headers.get("Content-Type")??""
     ))return failed(415);
 
+    // R2.10: only the initiating actor's Access JWT is present in stage 1.
+    if(url.pathname===PATH+"revocation-proposals"){
+      if(request.headers.has("X-Folio-Approver-Access-Jwt")
+        || request.headers.has("X-Folio-Incident-Approval-Jws"))return failed(403);
+      if(!config.revocationTrust)return failed(503);
+      const scope=fields(await jsonBody(request),[
+        "kind","target","incidentRef","requestKey","reason"
+      ]) as unknown as RevocationScope;
+      const actorProof=await verifyAsyncIncidentActor(config.revocationTrust,request);
+      const result=await proposeAsyncRevocation(config.db,scope,actorProof);
+      return response(202,result);
+    }
+    // R2.10: stage 2 receives only the approver's independent Access JWT,
+    // and a signed approval JWS from the incident authority. The actor JWT
+    // is never stored in D1 and is not required in this separate request.
+    if(url.pathname===PATH+"revocation-approvals"){
+      if(request.headers.has("X-Folio-Approver-Access-Jwt"))return failed(403);
+      if(!config.revocationTrust)return failed(503);
+      const {requestId}=fields(await jsonBody(request),["requestId"]);
+      const approverProof=await verifyAsyncIncidentApprover(config.revocationTrust,request);
+      const stored=await findAsyncRevocation(config.db,requestId!);
+      if(!stored)return failed(403);
+      const decision=await verifyAsyncIncidentDecision(
+        config.revocationTrust,approverProof,
+        token(request,"X-Folio-Incident-Approval-Jws"),stored
+      );
+      const result=await approveAsyncRevocation(config.db,stored,decision);
+      return response(200,result);
+    }
+    // Legacy R2.9 combined two-token route remains testable but is OFF by
+    // default. It is not suitable for live human separation of duties.
     if(url.pathname===PATH+"revocations"){
+      if(!config.allowLegacyCombinedRevocations)return failed(404);
       if(!config.revocationTrust)return failed(503);
       const scope=fields(await jsonBody(request),[
         "kind","target","incidentRef","requestKey","reason"
@@ -173,11 +214,14 @@ export async function handleIsolatedOperatorRequest(
     if(error instanceof TooLarge)return failed(413);
     if(error instanceof BadInput || error instanceof ManualRedriveInputError)
       return failed(400);
-    if(error instanceof OperatorAuthorizationError
+    if(error instanceof AsyncRevocationAccessError
+      || error instanceof AsyncRevocationDenied
+      || error instanceof OperatorAuthorizationError
       || error instanceof RevocationAuthorizationError
       || error instanceof RevocationRegistrationAccessError
       || error instanceof ManualRedriveAccessError) return failed(403);
-    if(error instanceof RevocationRegistrationConflictError
+    if(error instanceof AsyncRevocationConflict
+      || error instanceof RevocationRegistrationConflictError
       || error instanceof ManualRedriveConflictError)return failed(409);
     // No exception details, JWT claims, subjects or confidential data in response.
     return failed(503);
