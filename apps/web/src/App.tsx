@@ -4,6 +4,9 @@ import "./styles.css";
 import { ReviewWorkspace } from "./ReviewWorkspace";
 import { InspectedTextViewer } from "./InspectedTextViewer";
 import { CommissionAdminPanel, BootstrapCommissionPanel } from "./CommissionAdmin";
+import { Button } from "./ui/Button";
+import { InlineAlert } from "./ui/InlineAlert";
+import { StatusBadge } from "./ui/StatusBadge";
 
 const statusText: Record<DocumentRow["extractionStatus"], string> = {
   pending: "En cuarentena", processing: "Procesando", ready: "Texto disponible",
@@ -212,7 +215,7 @@ export function App() {
             <h1 id="page-title">Mesa de revisión</h1>
             <p>Recibe expedientes, conserva sus versiones y prepara evidencia para revisión humana.</p>
           </div>
-          <span className="status-label">Sin validación automática</span>
+          <StatusBadge status="warning" className="status-label">Sin validación automática</StatusBadge>
         </section>
 
         {session?.canBootstrap && (
@@ -249,7 +252,7 @@ export function App() {
               {batches.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
             </select>
           </label>
-          <button className="button primary" type="submit" disabled={!commissionId || !batchId || catalogLoading || batchesLoading}>Abrir lote</button>
+          <Button variant="primary" type="submit" disabled={!commissionId || !batchId || catalogLoading || batchesLoading}>Abrir lote</Button>
         </form>
 
         {canManage && (
@@ -273,12 +276,10 @@ export function App() {
         {sessionError && <p role="alert" className="message error">
           La administración no está disponible: {sessionError}
         </p>}
-        {catalogError && <div className="message error" role="alert">{catalogError}</div>}
+        {catalogError && <InlineAlert tone="error">{catalogError}</InlineAlert>}
         {!catalogLoading && !catalogError && !session?.canBootstrap && commissions.length === 0 && <div className="message" role="status">No tienes comisiones asignadas. Solicita acceso al administrador de la entidad.</div>}
         {(error || notice) && (
-          <div className={error ? "message error" : "message success"} role={error ? "alert" : "status"} aria-live="polite">
-            {error || notice}
-          </div>
+          <InlineAlert tone={error ? "error" : "success"}>{error || notice}</InlineAlert>
         )}
 
         <div className="workspace">
@@ -296,9 +297,10 @@ export function App() {
               <input id="upload-pdf" ref={fileInput} type="file" accept=".pdf,application/pdf"
                 disabled={!scope || !canUpload || uploading} required/>
               <p>{scope && !canUpload ? "Solo las comisiones activas con rol de revisión pueden cargar archivos. " : ""}Máximo 8 MiB. Se conservará en cuarentena, sin lectura automática.</p>
-              <button className="button primary upload-button" type="submit" disabled={!scope || !canUpload || uploading}>
+              <Button variant="primary" className="upload-button" type="submit" busy={uploading}
+                disabled={!scope || !canUpload}>
                 {uploading ? "Registrando…" : "Registrar PDF"}
-              </button>
+              </Button>
             </form>
 
             <div className="document-list" aria-live="polite">
