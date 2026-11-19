@@ -76,6 +76,38 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
   border: 1px solid var(--fc-color-border-default);
 }
 
+/* DS-002.2: accessible field and feedback primitives. Keep existing layouts. */
+.fc-card {
+  background: var(--fc-color-surface-base);
+  border: 1px solid var(--fc-color-border-default);
+  border-radius: var(--fc-radius-card);
+}
+.fc-field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: var(--fc-space-2);
+}
+.fc-field-label { color: var(--fc-color-text-primary); font-size: var(--fc-type-label); font-weight: 700; }
+.fc-field-hint, .fc-field-error { font-size: var(--fc-type-caption); line-height: 1.5; }
+.fc-field-hint { color: var(--fc-color-text-secondary); }
+.fc-field-error { color: var(--fc-color-status-error-fg); }
+.review-form .fc-field :is(input:not([type="checkbox"]), select, textarea) {
+  padding: 11px 12px;
+  border: 1px solid var(--fc-color-border-strong);
+  border-radius: 8px;
+  color: var(--fc-color-text-primary);
+  background: var(--fc-color-surface-base);
+  min-height: 44px;
+  width: 100%;
+}
+.review-form .fc-field textarea { min-height: 110px; resize: vertical; }
+.fc-field :is(input, select, textarea)[aria-invalid="true"] {
+  border-color: var(--fc-color-status-error-fg);
+}
+.decision-panel .fc-field-label { margin-bottom: 0; }
+.scope-form .fc-field select { width: 100%; }
+
 .status-label {
   color: var(--fc-color-status-reviewing-fg); background: var(--fc-color-status-warning-bg); border: 1px solid #eed8a5;
   border-radius: 999px; font-size: 12px; padding: 9px 13px; white-space: nowrap;
