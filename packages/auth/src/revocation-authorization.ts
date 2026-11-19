@@ -62,21 +62,26 @@ export type VerifiedRevocationAuthorization=Readonly<{
   readonly [revocationBrand]:true;
 }>;
 
-function validScope(scope:RevocationScope):boolean {
-  if(!scope || !kinds.includes(scope.kind)
-    || typeof scope.target!=="string" || !KEY.test(scope.requestKey)
+export function validRevocationScope(scope:RevocationScope):boolean {
+  if(!scope || !validRevocationTarget(scope.kind,scope.target)
+    || !KEY.test(scope.requestKey)
     || !INCIDENT.test(scope.incidentRef)
     || typeof scope.reason!=="string"
     || scope.reason.trim().length<32 || scope.reason.trim().length>600
     || /[\u0000-\u001f\u007f]/.test(scope.reason))return false;
-  switch(scope.kind) {
-    case "operator":return SUBJECT.test(scope.target);
-    case "approval_ref":return APPROVAL.test(scope.target)
-      && scope.target.length<=64;
-    case "attestation":return SHA.test(scope.target);
-    case "image":return IMAGE.test(scope.target);
+  return true;
+}
+
+export function validRevocationTarget(kind:RevocationScope["kind"],target:string):boolean {
+  if(!kinds.includes(kind) || typeof target!=="string")return false;
+  switch(kind) {
+    case "operator":return SUBJECT.test(target);
+    case "approval_ref":return APPROVAL.test(target)
+      && target.length<=64;
+    case "attestation":return SHA.test(target);
+    case "image":return IMAGE.test(target);
     case "approval_key":
-    case "release_key":return THUMBPRINT.test(scope.target);
+    case "release_key":return THUMBPRINT.test(target);
   }
 }
 
@@ -123,7 +128,7 @@ export async function isVerifiedRevocationAuthorization(
   }
 ):Promise<boolean>{
   if(!value || typeof value!=="object" || !trustedProofs.has(value)
-    || !validScope(expected))return false;
+    || !validRevocationScope(expected))return false;
   const proof=value as VerifiedRevocationAuthorization;
   if(proof[revocationBrand]!==true || !Number.isFinite(proof.expiresAt)
     || proof.expiresAt<=Date.now() || proof.kind!==expected.kind
@@ -142,7 +147,7 @@ export async function verifyRevocationAuthorization(
   evidence:RevocationEvidence,
   scope:RevocationScope
 ):Promise<VerifiedRevocationAuthorization> {
-  if(!validScope(scope)||!validRoot(config)
+  if(!validRevocationScope(scope)||!validRoot(config)
     || !validActor(config.configuredIncidentActorSubject)
     || !validActor(config.configuredIncidentApproverSubject)
     || config.configuredIncidentActorSubject===config.configuredIncidentApproverSubject){
