@@ -1,0 +1,43 @@
+# Experimental OCR-only replacement. NOT a deployment artifact.
+# Build: docker build --file apps/inspector/Dockerfile.ocr-candidate \
+#        --tag folio-civico-inspector:ocr-candidate apps/inspector
+#
+# Debian Trixie Tesseract 5.5.4 source, SHA-256 pinned. Archive/CURL
+# support is optional and unnecessary for OCR over synthetic PNG fixtures.
+FROM debian:trixie-slim AS ocr_builder
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ca-certificates curl cmake build-essential pkg-config libleptonica-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN mkdir /src \
+    && curl --fail --silent --show-error --location --proto '=https' \
+      https://deb.debian.org/debian/pool/main/t/tesseract/tesseract_5.5.4.orig.tar.gz \
+      --output /tmp/tesseract.tar.gz \
+    && echo "a8dbf8b8c8ee427ff6ad1d99116502feaf59440af1adb893caf60a6576826cf4  /tmp/tesseract.tar.gz" | sha256sum --check - \
+    && tar --extract --file /tmp/tesseract.tar.gz --directory /src --strip-components=1 \
+    && rm /tmp/tesseract.tar.gz
+RUN cmake -S /src -B /tmp/tesseract-build \
+      -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/folio-ocr \
+      -DCMAKE_INSTALL_LIBDIR=lib \
+      -DBUILD_SHARED_LIBS=ON \
+      -DBUILD_TRAINING_TOOLS=OFF -DBUILD_TESTS=OFF \
+      -DDISABLE_ARCHIVE=ON -DDISABLE_CURL=ON \
+      -DGRAPHICS_DISABLED=ON -DDISABLED_LEGACY_ENGINE=ON \
+    && cmake --build /tmp/tesseract-build -j 4 \
+    && cmake --install /tmp/tesseract-build
+
+# Reuse only the LOCAL project's image that already passed the signed ClamAV
+# build and isolated 6+4 functional tests. Never push this experiment.
+FROM folio-civico-inspector:validation
+USER root
+RUN apt-get purge -y tesseract-ocr libtesseract5 libarchive13t64 libxml2 \
+    && test ! -e /usr/lib/x86_64-linux-gnu/libxml2.so.2
+COPY --from=ocr_builder /opt/folio-ocr /opt/folio-ocr
+RUN printf '%s\n' /opt/folio-ocr/lib > /etc/ld.so.conf.d/folio-ocr.conf \
+    && ldconfig \
+    && /opt/folio-ocr/bin/tesseract --version \
+    && ! ldd /opt/folio-ocr/bin/tesseract | grep -E '(libarchive|libcurl|libxml2)' \
+    && ! dpkg-query -W libarchive13t64 libxml2 libtesseract5 tesseract-ocr
+ENV PATH="/opt/folio-ocr/bin:${PATH}" \
+    TESSDATA_PREFIX="/usr/share/tesseract-ocr/5/tessdata"
+USER 65534:65534
