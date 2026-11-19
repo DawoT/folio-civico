@@ -5,17 +5,29 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
+if [[ "$#" -gt 1 ]] || { [[ "$#" -eq 1 ]] && [[ "$1" != "--candidate" ]]; }; then
+  printf '{"status":"error","reason":"unsupported_validation_option"}\n'
+  exit 3
+fi
+IMAGE="folio-civico-inspector:validation"
+if [[ "${1:-}" == "--candidate" ]]; then
+  IMAGE="folio-civico-inspector:ocr-integrated"
+fi
 python3 apps/inspector/preflight.py --mode build
 
+# Force a fresh signatures layer even if Docker reuses all code/toolchain
+# layers. The image ID and available signatures must be rechecked afterward.
+REFRESH_EPOCH="$(date -u +%s)"
 docker build --pull \
-  --tag folio-civico-inspector:validation \
+  --build-arg "CLAMAV_SIGNATURE_REFRESH_EPOCH=$REFRESH_EPOCH" \
+  --tag "$IMAGE" \
   apps/inspector
 
 # GPG is required by Poppler in Trixie; curl is build-only. The source-built
 # OCR binary must not reintroduce archive/XML libraries via dynamic links.
 docker run --rm --network none --read-only --cap-drop ALL \
   --security-opt no-new-privileges \
-  --entrypoint /bin/sh folio-civico-inspector:validation \
+  --entrypoint /bin/sh "$IMAGE" \
   -c 'set -eu
       ! command -v curl
       test -r /opt/folio-ocr/source-provenance.json
@@ -40,7 +52,7 @@ docker run --rm \
   --memory-swap 4g \
   --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777 \
   --entrypoint python3 \
-  folio-civico-inspector:validation \
+  "$IMAGE" \
   /srv/folio-inspector/smoke_real_engines.py --database /opt/clamdb
 
 # Exercise the ACTUAL HTTP handler and patched engine on loopback inside
@@ -56,5 +68,20 @@ docker run --rm \
   --memory-swap 4g \
   --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777 \
   --entrypoint python3 \
-  folio-civico-inspector:validation \
+  "$IMAGE" \
   /srv/folio-inspector/smoke_http_real.py
+
+# A logical future clock (not a system-clock change) must make signatures
+# fail closed once the 72-hour freshness cap is exceeded.
+docker run --rm \
+  --network none \
+  --read-only \
+  --cap-drop ALL \
+  --security-opt no-new-privileges \
+  --pids-limit 64 \
+  --cpus 1 \
+  --memory 4g \
+  --memory-swap 4g \
+  --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777 \
+  --entrypoint python3 \
+  "$IMAGE" -c "$(cat apps/inspector/smoke_signature_freshness.py)"

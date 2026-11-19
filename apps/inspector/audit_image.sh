@@ -6,16 +6,38 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 IMAGE="folio-civico-inspector:validation"
-# A separately named candidate can be scanned without overwriting the
-# previously validated image. Both modes execute the exact same CVE gate.
-TRIAGE_MODE="${1:-}"
-if [[ "$#" -gt 1 ]] || { [[ -n "$TRIAGE_MODE" ]] && [[ "$TRIAGE_MODE" != "--triage" && "$TRIAGE_MODE" != "--candidate" ]]; }; then
+# --candidate and --triage may be combined, without changing the CVE gate.
+# The candidate tag is never promoted to the approved validation tag.
+TRIAGE_MODE=""
+CANDIDATE_MODE=0
+if [[ "$#" -gt 2 ]]; then
   printf '{"status":"error","reason":"unsupported_audit_option"}\n'
   exit 3
 fi
-if [[ "$TRIAGE_MODE" == "--candidate" ]]; then
+for option in "$@"; do
+  case "$option" in
+    --triage)
+      if [[ -n "$TRIAGE_MODE" ]]; then
+        printf '{"status":"error","reason":"duplicate_audit_option"}\n'
+        exit 3
+      fi
+      TRIAGE_MODE="--triage"
+      ;;
+    --candidate)
+      if [[ "$CANDIDATE_MODE" -eq 1 ]]; then
+        printf '{"status":"error","reason":"duplicate_audit_option"}\n'
+        exit 3
+      fi
+      CANDIDATE_MODE=1
+      ;;
+    *)
+      printf '{"status":"error","reason":"unsupported_audit_option"}\n'
+      exit 3
+      ;;
+  esac
+done
+if [[ "$CANDIDATE_MODE" -eq 1 ]]; then
   IMAGE="folio-civico-inspector:ocr-integrated"
-  TRIAGE_MODE=""
 fi
 command -v docker >/dev/null
 command -v trivy >/dev/null

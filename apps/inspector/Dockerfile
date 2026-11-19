@@ -119,9 +119,17 @@ ENV PATH="/opt/folio-ocr/bin:${PATH}" \
 COPY --from=clamav_verifier /tmp/clamav-vendor/clamav.deb /tmp/clamav.deb
 RUN dpkg -i /tmp/clamav.deb && rm /tmp/clamav.deb
 
-# Official signatures fetched and validated only at build time.
-# The runtime has no egress, so rebuild before the 72-hour freshness cap.
+# Signatures must be downloaded anew on each explicit build. A time-varying
+# build argument invalidates ONLY this layer and the layers after it; Tesseract
+# and Talos GPG verification can remain cached. Omitted tokens fail closed.
+# Runtime still independently rejects stale signatures (72-hour cap).
+ARG CLAMAV_SIGNATURE_REFRESH_EPOCH
 RUN set -eux; \
+  test -n "$CLAMAV_SIGNATURE_REFRESH_EPOCH"; \
+  case "$CLAMAV_SIGNATURE_REFRESH_EPOCH" in *[!0-9]* ) exit 1 ;; esac; \
+  current_epoch="$(date -u +%s)"; \
+  test "$CLAMAV_SIGNATURE_REFRESH_EPOCH" -le "$current_epoch"; \
+  test "$CLAMAV_SIGNATURE_REFRESH_EPOCH" -ge "$((current_epoch - 3600))"; \
   groupadd --system clamav; \
   useradd --system --gid clamav --no-create-home clamav; \
   mkdir -p /opt/clamdb; \

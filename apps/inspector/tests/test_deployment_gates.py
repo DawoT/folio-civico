@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -65,6 +66,40 @@ class DeploymentActivationGates(unittest.TestCase):
         self.assertIn("zlib1g",dockerfile)
         self.assertIn("dpkg --compare-versions",dockerfile)
         self.assertIn("1:1.3.dfsg+really1.3.1-1+deb13u1",dockerfile)
+
+    def test_invalid_audit_and_candidate_options_reject_before_running_docker(self):
+        for args in (
+            ("--unknown",), ("--candidate", "--candidate"),
+            ("--triage", "--triage"), ("--candidate", "--triage", "--extra"),
+        ):
+            with self.subTest(args=args):
+                result=subprocess.run(
+                    ["bash","apps/inspector/audit_image.sh",*args],
+                    cwd=ROOT,timeout=5,capture_output=True,text=True,
+                    check=False
+                )
+                self.assertEqual(result.returncode,3)
+                self.assertEqual(json.loads(result.stdout)["status"],"error")
+        runner=subprocess.run(
+            ["bash","apps/inspector/validate_real_engines.sh","--invalid"],
+            cwd=ROOT,timeout=5,capture_output=True,text=True,check=False
+        )
+        self.assertEqual(runner.returncode,3)
+
+    def test_clamav_signature_rebuild_avoids_stale_docker_layer_cache(self):
+        dockerfile=(ROOT/"apps/inspector/Dockerfile").read_text(encoding="utf-8")
+        runner=(ROOT/"apps/inspector/validate_real_engines.sh").read_text(encoding="utf-8")
+        self.assertIn("ARG CLAMAV_SIGNATURE_REFRESH_EPOCH",dockerfile)
+        self.assertIn('test -n "$CLAMAV_SIGNATURE_REFRESH_EPOCH"',dockerfile)
+        self.assertIn('date -u +%s',runner)
+        self.assertIn('CLAMAV_SIGNATURE_REFRESH_EPOCH=$REFRESH_EPOCH',runner)
+        self.assertIn('--build-arg',runner)
+        self.assertIn('IMAGE="folio-civico-inspector:ocr-integrated"',runner)
+        self.assertIn('"--candidate"',runner)
+        self.assertLess(
+            dockerfile.index("ARG CLAMAV_SIGNATURE_REFRESH_EPOCH"),
+            dockerfile.index("freshclam --config-file")
+        )
 
     def test_signed_vendor_downloads_have_bounded_timeouts(self):
         source=(ROOT / "apps/inspector/Dockerfile").read_text(encoding="utf-8")
@@ -139,7 +174,7 @@ class DeploymentActivationGates(unittest.TestCase):
 
     def test_optional_runtime_triage_cannot_bypass_original_cve_gate(self):
         source=(ROOT/"apps/inspector/audit_image.sh").read_text(encoding="utf-8")
-        self.assertIn('TRIAGE_MODE="${1:-}"',source)
+        self.assertIn('TRIAGE_MODE=""',source)
         self.assertIn("runtime_inventory.py",source)
         self.assertIn("triage_image.py",source)
         self.assertIn("--network none --read-only --cap-drop ALL",source)
@@ -152,9 +187,12 @@ class DeploymentActivationGates(unittest.TestCase):
         self.assertNotIn("--ignore-unfixed",source)
         self.assertNotIn("--ignorefile",source)
         self.assertNotIn("docker system prune",source)
-        self.assertIn('TRIAGE_MODE="${1:-}"',source)
+        self.assertIn('TRIAGE_MODE=""',source)
         self.assertIn("--candidate", source)
         self.assertIn("folio-civico-inspector:ocr-integrated", source)
+        self.assertIn('for option in "$@"; do', source)
+        self.assertIn('case "$option" in', source)
+        self.assertIn('TRIAGE_MODE="--triage"', source)
 
     def test_local_real_engine_runner_requires_preflight_and_is_offline(self):
         runner=(ROOT / "apps/inspector/validate_real_engines.sh").read_text(
@@ -180,8 +218,9 @@ class DeploymentActivationGates(unittest.TestCase):
         self.assertIn("smoke_real_engines.py", dockerfile)
         self.assertIn("fixtures.py", dockerfile)
         self.assertIn("smoke_http_real.py", dockerfile)
-        self.assertEqual(runner.count("--network none"), 3)
+        self.assertEqual(runner.count("--network none"), 4)
         self.assertIn("/srv/folio-inspector/smoke_http_real.py", runner)
+        self.assertIn("smoke_signature_freshness.py", runner)
         self.assertIn("! command -v curl",runner)
         self.assertIn("/opt/folio-ocr/source-provenance.json", runner)
         self.assertIn("libxml2.so.2", runner)
