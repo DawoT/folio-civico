@@ -46,4 +46,4 @@ Los tests usan D1/SQLite migrado, dos identidades de comisión, un operador exte
 - Configuración y provisión autorizada de Queue/DLQ, acceso a D1 y R2, billing y observabilidad sin PII.
 - E2E con Queue real, concurrencia inter-regional, desconexión después de publicar, recuperación de mensajes retenidos, auditoría de infraestructura y pruebas del inspector real.
 
-**No se debe conectar este módulo al runtime ni emitir o confiar en constancias de release sin autorización expresa y verificación independiente del gate de seguridad.** El desarrollo local no autoriza Preview o producción. La función aún no puede ejecutarse por un usuario final.
+**No se debe conectar este módulo al runtime ni emitir o confiar en constancias de release sin autorización expresa y verificación independiente del gate de seguridad.** El desarrollo local no autoriza Preview o producción. La función aún no puede ejecutarse por un usuario final. El [adaptador R2.9](R2_ISOLATED_OPERATOR_HOST.md) solo permite ensayar el recorrido completo con D1 y Queue **simulados** bajo el origen `operator.local`, sin host, rutas ni recursos operativos.
