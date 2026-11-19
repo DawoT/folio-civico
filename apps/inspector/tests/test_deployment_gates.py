@@ -93,6 +93,23 @@ class DeploymentActivationGates(unittest.TestCase):
                           "--exit-code 0", "|| true", "docker system prune"):
             self.assertNotIn(forbidden,source)
 
+    def test_optional_runtime_triage_cannot_bypass_original_cve_gate(self):
+        source=(ROOT/"apps/inspector/audit_image.sh").read_text(encoding="utf-8")
+        self.assertIn('TRIAGE_MODE="${1:-}"',source)
+        self.assertIn("runtime_inventory.py",source)
+        self.assertIn("triage_image.py",source)
+        self.assertIn("--network none --read-only --cap-drop ALL",source)
+        self.assertIn('--entrypoint python3 "$BEFORE"',source)
+        self.assertIn("image_changed_during_triage",source)
+        self.assertIn('python3 apps/inspector/audit_image.py',source)
+        self.assertLess(source.index("apps/inspector/audit_image.py"),
+                        source.index("apps/inspector/triage_image.py"))
+        self.assertIn("triage_gate_mismatch",source)
+        self.assertNotIn("--ignore-unfixed",source)
+        self.assertNotIn("--ignorefile",source)
+        self.assertNotIn("docker system prune",source)
+        self.assertIn('TRIAGE_MODE="${1:-}"',source)
+
     def test_local_real_engine_runner_requires_preflight_and_is_offline(self):
         runner=(ROOT / "apps/inspector/validate_real_engines.sh").read_text(
             encoding="utf-8"
