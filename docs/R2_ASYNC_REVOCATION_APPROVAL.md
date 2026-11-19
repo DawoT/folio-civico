@@ -56,6 +56,8 @@ pnpm exec vitest run apps/operator/src/async-approval.test.ts apps/operator/src/
 pnpm exec vitest run packages/auth/src/revocation-authorization.test.ts packages/data/src/revocation-registration.test.ts
 pnpm typecheck
 sh scripts/ci.sh
+# En worktrees concurrentes, seleccionar un puerto local libre para Chromium:
+FOLIO_E2E_PORT=42791 sh scripts/ci.sh
 ```
 
 La suite R2.10 prueba solicitudes independientes, caducidad, autoaprobación, JWT ajeno o ausente, JWS alterado, MFA caducada, motivos/objetivos no coincidentes, replay idempotente, colisiones con múltiples propuestas, carrera entre dos aprobaciones con JWS diferentes, inmutabilidad SQL, fallo transaccional sin asientos parciales y denegación HTTP en modo desactivado. Todas las identidades y documentos son sintéticos.
