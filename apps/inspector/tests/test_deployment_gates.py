@@ -66,6 +66,14 @@ class DeploymentActivationGates(unittest.TestCase):
         self.assertIn("dpkg --compare-versions",dockerfile)
         self.assertIn("1:1.3.dfsg+really1.3.1-1+deb13u1",dockerfile)
 
+    def test_signed_vendor_downloads_have_bounded_timeouts(self):
+        source=(ROOT / "apps/inspector/Dockerfile").read_text(encoding="utf-8")
+        verifier=source.split("FROM debian:trixie-slim AS ocr_builder", 1)[0]
+        self.assertEqual(verifier.count("--connect-timeout 15"), 3)
+        self.assertEqual(verifier.count("--max-time 45"), 2)
+        self.assertEqual(verifier.count("--max-time 180"), 1)
+        self.assertLess(verifier.index("clamav.deb.sig"), verifier.index("--verify"))
+
     def test_tesseract_source_is_pinned_and_optional_archive_stack_disabled(self):
         source=(ROOT / "apps/inspector/Dockerfile").read_text(encoding="utf-8")
         for expected in (
@@ -91,7 +99,15 @@ class DeploymentActivationGates(unittest.TestCase):
         self.assertIn("tesseract-ocr-spa tesseract-ocr-eng", runtime)
         self.assertNotIn("tesseract-ocr tesseract-ocr-spa", runtime)
         self.assertIn("libtesseract.so", runtime)
-        self.assertIn("! ldd", runtime)
+        self.assertIn('linked_bin="$(timeout 15s ldd', runtime)
+        self.assertIn('linked_lib="$(timeout 15s ldd', runtime)
+        self.assertIn("gate: forbidden Debian packages", runtime)
+        self.assertIn("TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata", runtime)
+        self.assertIn("OCR language discovery", runtime)
+        self.assertIn('test "$code" -eq 1', runtime)
+        self.assertIn("for package in libxml2 libarchive13t64", runtime)
+        self.assertIn("test \"$status\" != 'install ok installed'", runtime)
+        self.assertNotIn("dpkg-query -W -f=\"\\${Status}", runtime)
         self.assertNotIn("apt-get purge", runtime)
 
     def test_vendor_download_tools_do_not_survive_into_pdf_runtime(self):

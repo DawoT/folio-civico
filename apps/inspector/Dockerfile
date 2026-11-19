@@ -17,12 +17,15 @@ RUN apt-get update \
 RUN set -eux; \
   mkdir -p /tmp/clamav-vendor; \
   curl --fail --silent --show-error --location --proto '=https' \
+    --connect-timeout 15 --max-time 45 \
     https://raw.githubusercontent.com/Cisco-Talos/clamav-documentation/main/src/manual/cisco-talos.gpg \
     --output /tmp/clamav-vendor/talos.asc; \
   curl --fail --silent --show-error --location --proto '=https' \
+    --connect-timeout 15 --max-time 180 \
     "https://github.com/Cisco-Talos/clamav/releases/download/clamav-${CLAMAV_VERSION}/clamav-${CLAMAV_VERSION}.linux.x86_64.deb" \
     --output /tmp/clamav-vendor/clamav.deb; \
   curl --fail --silent --show-error --location --proto '=https' \
+    --connect-timeout 15 --max-time 45 \
     "https://github.com/Cisco-Talos/clamav/releases/download/clamav-${CLAMAV_VERSION}/clamav-${CLAMAV_VERSION}.linux.x86_64.deb.sig" \
     --output /tmp/clamav-vendor/clamav.deb.sig; \
   gpg --batch --no-default-keyring --keyring /tmp/clamav-vendor/talos-keyring.gpg \
@@ -80,18 +83,37 @@ RUN apt-get update \
 # The source-verified OCR executable and shared library do not depend on
 # libarchive/libcurl, removing libxml2 from the Tesseract dependency chain.
 COPY --from=ocr_builder /opt/folio-ocr /opt/folio-ocr
-RUN printf '%s\n' /opt/folio-ocr/lib > /etc/ld.so.conf.d/folio-ocr.conf \
-  && ldconfig \
-  && /opt/folio-ocr/bin/tesseract --version \
-  && ldd /opt/folio-ocr/bin/tesseract \
-  && ldd /opt/folio-ocr/lib/libtesseract.so.5.5.4 \
-  && ! ldd /opt/folio-ocr/bin/tesseract | grep -E '(libarchive|libcurl|libxml2)' \
-  && ! ldd /opt/folio-ocr/lib/libtesseract.so.5.5.4 | grep -E '(libarchive|libcurl|libxml2)' \
-  && ! dpkg-query -W -f='${Status}\n' libxml2 libarchive13t64 libtesseract5 tesseract-ocr 2>/dev/null | grep -q '^install ok installed$' \
-  && test ! -e /lib/x86_64-linux-gnu/libxml2.so.2 \
-  && test ! -e /lib/x86_64-linux-gnu/libarchive.so.13 \
-  && /opt/folio-ocr/bin/tesseract --list-langs | grep -q 'spa'
-ENV PATH="/opt/folio-ocr/bin:${PATH}"
+RUN set -eux; \
+  printf '%s\n' /opt/folio-ocr/lib > /etc/ld.so.conf.d/folio-ocr.conf; \
+  ldconfig; \
+  echo 'gate: OCR version'; \
+  timeout 15s /opt/folio-ocr/bin/tesseract --version; \
+  echo 'gate: dynamic executable libraries'; \
+  linked_bin="$(timeout 15s ldd /opt/folio-ocr/bin/tesseract)"; \
+  printf '%s\n' "$linked_bin"; \
+  ! printf '%s\n' "$linked_bin" | grep -E '(libarchive|libcurl|libxml2)'; \
+  echo 'gate: dynamic shared library dependencies'; \
+  linked_lib="$(timeout 15s ldd /opt/folio-ocr/lib/libtesseract.so.5.5.4)"; \
+  printf '%s\n' "$linked_lib"; \
+  ! printf '%s\n' "$linked_lib" | grep -E '(libarchive|libcurl|libxml2)'; \
+  echo 'gate: forbidden Debian packages'; \
+  for package in libxml2 libarchive13t64 libtesseract5 tesseract-ocr; do \
+    status="$(timeout 5s dpkg-query -W -f='${Status}' "$package" 2>/dev/null)" \
+      || { code="$?"; test "$code" -eq 1; status=''; }; \
+    test "$status" != 'install ok installed'; \
+  done; \
+  echo 'gate: forbidden library files'; \
+  test ! -e /lib/x86_64-linux-gnu/libxml2.so.2; \
+  test ! -e /lib/x86_64-linux-gnu/libarchive.so.13; \
+  echo 'gate: OCR language model files'; \
+  test -s /usr/share/tesseract-ocr/5/tessdata/spa.traineddata; \
+  test -s /usr/share/tesseract-ocr/5/tessdata/eng.traineddata; \
+  echo 'gate: OCR language discovery'; \
+  languages="$(TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata timeout 15s /opt/folio-ocr/bin/tesseract --list-langs)"; \
+  printf '%s\n' "$languages" | grep -q 'spa'; \
+  printf '%s\n' "$languages" | grep -q 'eng'
+ENV PATH="/opt/folio-ocr/bin:${PATH}" \
+    TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
 
 # The only artifact copied out of the verification stage is the signed .deb.
 COPY --from=clamav_verifier /tmp/clamav-vendor/clamav.deb /tmp/clamav.deb
