@@ -71,6 +71,7 @@ class DeploymentActivationGates(unittest.TestCase):
         for args in (
             ("--unknown",), ("--candidate", "--candidate"),
             ("--triage", "--triage"), ("--candidate", "--triage", "--extra"),
+            ("--candidate", "--experiment"), ("--experiment", "--experiment"),
         ):
             with self.subTest(args=args):
                 result=subprocess.run(
@@ -190,6 +191,8 @@ class DeploymentActivationGates(unittest.TestCase):
         self.assertIn('TRIAGE_MODE=""',source)
         self.assertIn("--candidate", source)
         self.assertIn("folio-civico-inspector:ocr-integrated", source)
+        self.assertIn("folio-civico-inspector:poppler-experiment", source)
+        self.assertIn("--experiment",source)
         self.assertIn('for option in "$@"; do', source)
         self.assertIn('case "$option" in', source)
         self.assertIn('TRIAGE_MODE="--triage"', source)

@@ -4,13 +4,17 @@
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
-if [[ "$#" -ne 0 ]]; then
+if [[ "$#" -gt 1 ]] || { [[ "$#" -eq 1 ]] && [[ "$1" != "--experiment" ]]; }; then
   printf '{"status":"error","reason":"unsupported_quality_option"}\n'
   exit 3
 fi
 python3 apps/inspector/preflight.py --mode build >/dev/null
 BASELINE="folio-civico-inspector:validation"
 CANDIDATE="folio-civico-inspector:ocr-integrated"
+if [[ "${1:-}" == "--experiment" ]]; then
+  BASELINE="folio-civico-inspector:ocr-integrated"
+  CANDIDATE="folio-civico-inspector:poppler-experiment"
+fi
 BEFORE_BASELINE="$(docker image inspect "$BASELINE" --format '{{.Id}}')"
 BEFORE_CANDIDATE="$(docker image inspect "$CANDIDATE" --format '{{.Id}}')"
 REPORTS="$(mktemp -d "${TMPDIR:-/tmp}/folio-ocr-quality.XXXXXX")"

@@ -6,10 +6,11 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 IMAGE="folio-civico-inspector:validation"
-# --candidate and --triage may be combined, without changing the CVE gate.
-# The candidate tag is never promoted to the approved validation tag.
+# --candidate or --experiment may be combined with --triage. Exactly
+# one non-validation image selector is permitted. No CVE gate changes.
 TRIAGE_MODE=""
 CANDIDATE_MODE=0
+EXPERIMENT_MODE=0
 if [[ "$#" -gt 2 ]]; then
   printf '{"status":"error","reason":"unsupported_audit_option"}\n'
   exit 3
@@ -24,11 +25,18 @@ for option in "$@"; do
       TRIAGE_MODE="--triage"
       ;;
     --candidate)
-      if [[ "$CANDIDATE_MODE" -eq 1 ]]; then
-        printf '{"status":"error","reason":"duplicate_audit_option"}\n'
+      if [[ "$CANDIDATE_MODE" -eq 1 || "$EXPERIMENT_MODE" -eq 1 ]]; then
+        printf '{"status":"error","reason":"conflicting_audit_option"}\n'
         exit 3
       fi
       CANDIDATE_MODE=1
+      ;;
+    --experiment)
+      if [[ "$EXPERIMENT_MODE" -eq 1 || "$CANDIDATE_MODE" -eq 1 ]]; then
+        printf '{"status":"error","reason":"conflicting_audit_option"}\n'
+        exit 3
+      fi
+      EXPERIMENT_MODE=1
       ;;
     *)
       printf '{"status":"error","reason":"unsupported_audit_option"}\n'
@@ -38,6 +46,8 @@ for option in "$@"; do
 done
 if [[ "$CANDIDATE_MODE" -eq 1 ]]; then
   IMAGE="folio-civico-inspector:ocr-integrated"
+elif [[ "$EXPERIMENT_MODE" -eq 1 ]]; then
+  IMAGE="folio-civico-inspector:poppler-experiment"
 fi
 command -v docker >/dev/null
 command -v trivy >/dev/null
