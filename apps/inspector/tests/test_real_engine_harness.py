@@ -17,7 +17,8 @@ from preflight import (
     MIN_SMOKE_FREE_BYTES, ENGINE_TOOLS,
 )
 from smoke_real_engines import (scanner_test_sample, main as smoke_main,
-                                exercise_real_engines, parse_pgm, assert_no_pdf_text)
+                                exercise_real_engines, parse_pgm, assert_no_pdf_text,
+                                require_visible_synthetic_ink)
 from inspector import ReviewRequired
 import preflight
 from smoke_http_real import main as http_smoke_main
@@ -84,6 +85,20 @@ class SyntheticFixtureTests(unittest.TestCase):
             with self.subTest(payload=payload[:18]):
                 with self.assertRaises(ValueError):
                     parse_pgm(payload)
+
+    def test_synthetic_font_loss_is_rejected_before_ocr(self):
+        # Regression: generic Poppler produced a *valid* but 100% white
+        # synthetic raster without libfontconfig (0 ink vs 1882 baseline).
+        width, height = 612, 792
+        with self.assertRaisesRegex(RuntimeError, "blank or nearly blank"):
+            require_visible_synthetic_ink((width, height, b"\xff" * (width * height)))
+        with self.assertRaisesRegex(RuntimeError, "blank or nearly blank"):
+            require_visible_synthetic_ink((width, height,
+                b"\x00" * 60 + b"\xff" * (width * height - 60)))
+        visible = b"\x00" * 1882 + b"\xff" * (width * height - 1882)
+        require_visible_synthetic_ink((width, height, visible))
+        with self.assertRaises(ValueError):
+            require_visible_synthetic_ink((1, 2, b"\x00"))
 
     def test_invalid_glyphs_and_damaged_fixture_are_rejected(self):
         with self.assertRaises(ValueError):

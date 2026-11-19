@@ -47,6 +47,21 @@ def parse_pgm(raw: bytes) -> tuple[int, int, bytes]:
     return width, height, lines[3]
 
 
+def require_visible_synthetic_ink(raster: tuple[int, int, bytes]) -> None:
+    """Reject blank/substantially blank renders before OCR can hide font loss.
+
+    Only synthetic fixture pixels are evaluated. No institutional document,
+    content, diagnostic path or raster is logged.
+    """
+    width, height, pixels = raster
+    if (not isinstance(width, int) or not isinstance(height, int)
+            or width < 1 or height < 1 or len(pixels) != width * height):
+        raise ValueError("Malformed synthetic raster")
+    min_ink = max(64, (width * height) // 5000)
+    if sum(pixel < 230 for pixel in pixels) < min_ink:
+        raise RuntimeError("Synthetic text raster is blank or nearly blank")
+
+
 def build_scanned_fixture() -> bytes:
     """Rasterize original synthetic text, then strip ALL PDF text/font objects.
 
@@ -69,7 +84,9 @@ def build_scanned_fixture() -> bytes:
         image = folder / "scan.pgm"
         if run.returncode != 0 or not image.is_file() or image.stat().st_size > 8 * 1024 * 1024 + 128:
             raise RuntimeError("Could not create bounded synthetic raster")
-        return scanned_pdf(raster=parse_pgm(image.read_bytes()))
+        raster = parse_pgm(image.read_bytes())
+        require_visible_synthetic_ink(raster)
+        return scanned_pdf(raster=raster)
 
 
 def assert_no_pdf_text(pdf: bytes) -> None:
