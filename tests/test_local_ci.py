@@ -81,6 +81,37 @@ class LocalCiContractTests(unittest.TestCase):
         self.assertTrue(all("--local" in call for call in invocations if "d1 migrations" in call))
         self.assertFalse(any("deploy" in call or "--remote" in call for call in invocations))
 
+    def test_main_ci_cannot_activate_unapproved_inspector_runtime(self):
+        """Main code integration does not grant container/Cloudflare release."""
+        import json
+
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn("branches:", workflow)
+        self.assertIn("      - main", workflow)
+        self.assertIn("contents: read", workflow)
+        self.assertIn("run: sh scripts/ci.sh", workflow)
+        self.assertNotIn("wrangler deploy", workflow)
+        self.assertNotIn("docker build", workflow)
+        self.assertNotIn("docker push", workflow)
+
+        package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+        self.assertNotIn("audit:inspector:image", package["scripts"]["build"])
+        self.assertNotIn("test:inspector:docker", package["scripts"]["build"])
+        for app in ("api", "mcp", "processor", "inspector-gateway"):
+            build = json.loads(
+                (ROOT / "apps" / app / "package.json").read_text(encoding="utf-8")
+            )["scripts"]["build"]
+            self.assertEqual(build, "wrangler deploy --dry-run --outdir dist")
+
+        decision = (ROOT / "docs" /
+                    "ADR-023-main-code-integration-runtime-release-gate.md")
+        policy = decision.read_text(encoding="utf-8")
+        for required in (
+            "main", "exit 2", "Cloudflare", "Preview", "VEX",
+            "sin desplegar", "CVE", "no autoriza",
+        ):
+            self.assertIn(required, policy)
+
 
 if __name__ == "__main__":
     unittest.main()

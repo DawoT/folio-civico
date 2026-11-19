@@ -2,7 +2,7 @@
 
 **Fecha de revisión:** 2026-11-19 (America/Lima)
 **Ámbito:** imagen **local** `folio-civico-inspector:poppler-experiment` y comparación con `ocr-integrated` y `validation`.
-**Decisión:** **NO APROBADO** para `main`, Preview ni producción. El gate original permanece bloqueado. Esta investigación **no** constituye un VEX aprobado, una excepción de vulnerabilidades ni una autorización de despliegue.
+**Decisión de release:** **NO APROBADO** para Preview ni producción. La integración de código en `main` se separa expresamente de la liberación del runtime en [ADR-023](ADR-023-main-code-integration-runtime-release-gate.md). El gate original permanece bloqueado. Esta investigación **no** constituye un VEX aprobado, una excepción de vulnerabilidades ni una autorización de despliegue.
 
 ## Escaneo real e inventario de CVE
 
@@ -99,4 +99,4 @@ bash apps/inspector/audit_image.sh --candidate --advisories          # exit 2
 sh scripts/ci.sh
 ```
 
-Se preserva `main`, la imagen `validation` y Cloudflare sin cambios.
+La revisión técnica R1.5 no alteró la imagen `validation` ni Cloudflare. La integración posterior del **código** en `main` se rige por [ADR-023](ADR-023-main-code-integration-runtime-release-gate.md) y no cambia la prohibición de desplegar el inspector.

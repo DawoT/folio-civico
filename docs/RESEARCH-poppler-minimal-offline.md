@@ -1,7 +1,7 @@
 # Investigación local · Poppler reducido sin HTTP ni Kerberos (no desplegable)
 
 **Fecha:** 2026-11-19 (America/Lima)
-**Estado:** experimento reproducible en `fix/tesseract-5.5.4-archive-free`. **No adoptar todavía, no publicar ni modificar `main`**. Sigue bloqueado el gate CVE de inspector.
+**Estado:** experimento reproducible construido en `fix/tesseract-5.5.4-archive-free`. **No adoptar ni publicar el runtime.** La integración posterior de **código** en `main` se autoriza por [ADR-023](ADR-023-main-code-integration-runtime-release-gate.md); el gate CVE del inspector continúa bloqueado.
 
 ## Hipótesis y alcance
 
@@ -52,6 +52,6 @@ bash apps/inspector/audit_image.sh --experiment --triage  # bloqueado, exit 2
 sh scripts/ci.sh
 ```
 
-**Decisión provisional:** conservar la variante como investigación local. El [dossier R1.5](SECURITY_CVE_REVIEW_2026-11-19.md) añadió inventario de ELF medidos y un gate explícito para cobertura de fuente: Poppler y Tesseract siguen sin evaluación individual de todos sus advisories, aunque se verifiquen hashes y enlaces. Debe analizarse si compensa la complejidad de mantener dos bibliotecas nativas compiladas desde fuente. El `main`, las imágenes aprobables y Cloudflare permanecen intactos.
+**Decisión provisional:** conservar la variante como investigación local. El [dossier R1.5](SECURITY_CVE_REVIEW_2026-11-19.md) añadió inventario de ELF medidos y un gate explícito para cobertura de fuente: Poppler y Tesseract siguen sin evaluación individual de todos sus advisories, aunque se verifiquen hashes y enlaces. Debe analizarse si compensa la complejidad de mantener dos bibliotecas nativas compiladas desde fuente. Las imágenes aprobables y Cloudflare permanecen intactos. La eventual integración del código en `main` no constituye un despliegue ni una aprobación de seguridad ([ADR-023](ADR-023-main-code-integration-runtime-release-gate.md)).
 
 Referencias: [ADR-015](ADR-015-runtime-cve-triage.md) · [ADR-021](ADR-021-minimal-tesseract-ocr.md) · [ADR-022](ADR-022-ocr-cve-and-signature-renewal.md).
