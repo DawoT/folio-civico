@@ -7,6 +7,16 @@ import {syntheticOperatorAuthorization} from "./signed-fixture.test-helper";
 
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();});
 
+function corruptJwtSignature(token:string):string {
+  const parts=token.split(".");
+  const signature=parts[2];
+  if(parts.length!==3 || !signature)throw new Error("Invalid signed test token");
+  // Change six significant bits, not the possibly non-significant trailing
+  // Base64URL bits (which can decode to an unchanged RSA signature).
+  parts[2]=(signature[0]==="A"?"B":"A")+signature.slice(1);
+  return parts.join(".");
+}
+
 describe("R2.6 · independent signed operator + MFA approval + inspector release preflight",()=>{
   it("verifies three separate signed authorities, scopes and finite expiry; prevents forged proof objects",async()=>{
     const f=await syntheticOperatorAuthorization();
@@ -64,7 +74,7 @@ describe("R2.6 · independent signed operator + MFA approval + inspector release
     const f=await syntheticOperatorAuthorization();
     for(const approvalJwt of [
       "a.b.c",
-      f.evidence.approvalJwt.slice(0,-1)+"A",
+      corruptJwtSignature(f.evidence.approvalJwt),
       await f.signing("approval",{}, {expired:true}),
       await f.signing("approval",{}, {keyKind:"release"}),
       await f.signing("approval",{}, {issuer:"https://evil.test"}),
