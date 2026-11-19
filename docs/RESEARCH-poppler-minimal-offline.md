@@ -52,6 +52,6 @@ bash apps/inspector/audit_image.sh --experiment --triage  # bloqueado, exit 2
 sh scripts/ci.sh
 ```
 
-**Decisión provisional:** conservar la variante como investigación local, mientras se completa su inventario de seguridad y se analiza si compensa la complejidad de mantener dos bibliotecas nativas compiladas desde fuente. El `main`, las imágenes aprobables y Cloudflare permanecen intactos.
+**Decisión provisional:** conservar la variante como investigación local. El [dossier R1.5](SECURITY_CVE_REVIEW_2026-11-19.md) añadió inventario de ELF medidos y un gate explícito para cobertura de fuente: Poppler y Tesseract siguen sin evaluación individual de todos sus advisories, aunque se verifiquen hashes y enlaces. Debe analizarse si compensa la complejidad de mantener dos bibliotecas nativas compiladas desde fuente. El `main`, las imágenes aprobables y Cloudflare permanecen intactos.
 
 Referencias: [ADR-015](ADR-015-runtime-cve-triage.md) · [ADR-021](ADR-021-minimal-tesseract-ocr.md) · [ADR-022](ADR-022-ocr-cve-and-signature-renewal.md).

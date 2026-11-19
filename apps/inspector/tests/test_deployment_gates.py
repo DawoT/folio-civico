@@ -72,6 +72,8 @@ class DeploymentActivationGates(unittest.TestCase):
             ("--unknown",), ("--candidate", "--candidate"),
             ("--triage", "--triage"), ("--candidate", "--triage", "--extra"),
             ("--candidate", "--experiment"), ("--experiment", "--experiment"),
+            ("--advisories", "--advisories"),
+            ("--candidate","--triage","--advisories","--unknown"),
         ):
             with self.subTest(args=args):
                 result=subprocess.run(
@@ -185,6 +187,19 @@ class DeploymentActivationGates(unittest.TestCase):
         self.assertLess(source.index("apps/inspector/audit_image.py"),
                         source.index("apps/inspector/triage_image.py"))
         self.assertIn("triage_gate_mismatch",source)
+        self.assertIn('ADVISORIES_MODE=0',source)
+        self.assertIn("advisory_inventory.py",source)
+        self.assertIn("advisory_gate_mismatch",source)
+        self.assertIn("source_inventory.py",source)
+        self.assertIn('IMAGE_MODE="experiment"',source)
+        self.assertIn('IMAGE_MODE="candidate"',source)
+        self.assertIn('"$BEFORE" \\',source)
+        self.assertIn('--source-inventory "$OUTPUT/source-inventory.json"',source)
+        self.assertLess(source.index("apps/inspector/source_inventory.py"),
+                        source.index("apps/inspector/audit_image.py"))
+        self.assertIn("--advisories",source)
+        self.assertLess(source.index("apps/inspector/audit_image.py"),
+                        source.index("apps/inspector/advisory_inventory.py"))
         self.assertNotIn("--ignore-unfixed",source)
         self.assertNotIn("--ignorefile",source)
         self.assertNotIn("docker system prune",source)

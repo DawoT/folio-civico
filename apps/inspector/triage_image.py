@@ -49,10 +49,11 @@ def validate_inventory(inventory: dict) -> tuple[dict[str, list[str]], int]:
 
 
 def prioritize_findings(
-    scan: dict, sbom: dict, inventory: dict, image: str
+    scan: dict, sbom: dict, inventory: dict, image: str,
+    source_inventory: dict,
 ) -> dict:
     # Use the SAME validation policy, not a simplified or weaker one.
-    audit = evaluate_image_audit(scan, sbom, image)
+    audit = evaluate_image_audit(scan, sbom, image, source_inventory)
     engines, unmapped = validate_inventory(inventory)
     linked = defaultdict(set)
     for engine, packages in engines.items():
@@ -94,6 +95,8 @@ def prioritize_findings(
         "audit_critical": audit["critical"],
         "audit_high": audit["high"],
         "audit_unknown": audit["unknown"],
+        "source_components_unassessed": audit["source_components_unassessed"],
+        "source_advisory_coverage": audit["source_advisory_coverage"],
         "total_blocking_findings": observed + not_observed,
         "observed_linked_blocking": observed,
         "not_observed_blocking": not_observed,
@@ -114,6 +117,7 @@ def main() -> int:
     parser.add_argument("--vulnerabilities", required=True, type=Path)
     parser.add_argument("--sbom", required=True, type=Path)
     parser.add_argument("--inventory", required=True, type=Path)
+    parser.add_argument("--source-inventory", required=True, type=Path)
     parser.add_argument("--image", required=True)
     args = parser.parse_args()
     try:
@@ -122,6 +126,7 @@ def main() -> int:
             json.loads(args.sbom.read_text(encoding="utf-8")),
             json.loads(args.inventory.read_text(encoding="utf-8")),
             args.image,
+            json.loads(args.source_inventory.read_text(encoding="utf-8")),
         )
     except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
         print(json.dumps({"status": "error", "reason": "runtime_triage_incomplete"}))
