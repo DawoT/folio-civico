@@ -1,86 +1,82 @@
-# ADR-010 · Validación real del inspector con protección de recursos
+# ADR-010 · Validación real de ClamAV, qpdf, Poppler y OCR
 
-**Fecha:** 2026-11-18  
-**Estado:** pruebas y procedimiento local implementados. **Ejecución con motores reales bloqueada de forma explícita por el entorno**, sin sustitución silenciosa por simulaciones.
+**Fecha:** 2026-11-18 (America/Lima)  
+**Estado:** **smoke real local aprobado (6/6, exit code 0)** con documentos exclusivamente sintéticos. **No desplegado, no integrado con Cloudflare Preview ni probado con expedientes institucionales.**
 
-## Objetivo
+## Objetivo y alcance
 
-Convertir la revisión de antivirus/OCR de ADR-008/009 en una comprobación reproducible y verificable con ejecutables, firmas oficiales y documentos **exclusivamente sintéticos**. Evitar que un Docker build pesado agote un host compartido o que se declare `clean` sin haber ejecutado ClamAV, Poppler y Tesseract reales.
+Verificar con ejecutables auténticos, firmas oficiales de ClamAV y datos originales sintéticos el circuito del inspector definido en ADR-008/009. La validación local no sustituye las pruebas remotas con Container, Service Binding, Queue, DLQ, Access y MFA.
 
-## Estado observado y decisión de seguridad
+## Resultados reproducibles
 
-En el host de desarrollo del operador (18-11-2026), el volumen compartido informa menos de **4 GiB libres**, con una capacidad total de 495 GiB prácticamente llena. No están presentes `clamscan`, `qpdf`, `pdfdetach`, `pdfinfo`, `pdftotext`, `pdftoppm` ni `tesseract`, ni existe un directorio de firmas oficiales ClamAV listo.
-
-**Decisión:** no ejecutar `docker build`, `apt`, `freshclam` ni descargas de imágenes en este host. No borrar otras imágenes, cachés ni recursos compartidos para liberar espacio; eso podría afectar otros productos. El proceso se puede reanudar en un host de validación **aislado** con capacidad suficiente, sin solicitar acceso a documentos institucionales ni habilitar Cloudflare.
-
-## Componentes implementados
-
-### Comprobación local sin efectos secundarios
-
-`apps/inspector/preflight.py --mode build` verifica:
-
-- Al menos **8 GiB libres** tanto en el volumen del repositorio como en el directorio de datos del daemon Docker.
-- Al menos **4 GiB de RAM disponible**, siguiendo la recomendación oficial de ClamAV para contenedores.
-- Binario Docker, daemon disponible y contexto **local** mediante socket Unix. Los contextos SSH/TCP y los daemons remotos no se aceptan.
-
-`--mode smoke` exige 1 GiB libre en el volumen de trabajo y al menos 128 MiB en el directorio temporal privado, 4 GiB RAM disponible, todos los ejecutables del inspector en PATH y bases de firmas `.cvd`/`.cld` presentes y con una antigüedad aparente máxima de 72 horas. Los controles no modifican el host. Un requisito ausente devuelve **exit code 2** y un JSON `{"ready":false,"problems":[...]}`.
-
-Comandos reproducibles:
+El host compartido había rechazado correctamente la ejecución inicial por falta de almacenamiento (menos de 4 GiB libres). El 18-11-2026, el preflight detectó **114,67 GiB libres**, Docker local y **más de 46 GiB de RAM disponible**. Esto permitió ejecutar:
 
 ```sh
-python3 apps/inspector/preflight.py --mode build
-python3 apps/inspector/preflight.py --mode smoke --database /opt/clamdb
+bash apps/inspector/validate_real_engines.sh
+# Equivalente: pnpm test:inspector:docker
 ```
 
-### Generación autocontenida de PDFs sintéticos
+La primera compilación descargó la imagen base y dependencias Debian, ejecutó `freshclam` y construyó exclusivamente la imagen local `folio-civico-inspector:validation`. El primer smoke real falló en **OCR** porque los glifos pixelados originales no eran suficientemente reconocibles. No se alteró el umbral de aprobación ni se sustituyeron motores por mocks para corregirlo.
 
-`apps/inspector/fixtures.py` construye dos PDFs válidos y un tercero dañado con la biblioteca estándar de Python:
+Se modificó `build_scanned_fixture()` para renderizar mediante **Poppler real** un PDF de texto sintético y convertir sus píxeles PGM en un segundo PDF que contiene **solo un XObject de imagen**, sin fuentes ni operadores PDF de texto. Antes de la inspección OCR se verifica además con `pdftotext` real que **no existe texto seleccionable** en ese nuevo PDF. Se conservó `scanned_pdf()` con glifos originales de la biblioteca estándar para los tests de contrato que no requieren motores reales.
 
-- PDF **nativo** de una página con texto de prueba «EXPEDIENTE OBRA 2026».
-- PDF **escaneado** de una página cuya única fuente de contenido es una imagen en escala de grises con «OBRA 2026» dibujado como glifos originales; no hay operadores PDF de texto ni fuente incrustada.
-- PDF truncado con encabezado aparente, pero sin tabla xref ni cierre válido.
+Se reconstruyó la imagen y el smoke pasó repetidamente. Después se añadieron dos escenarios negativos auténticos: **PDF cifrado** generado con qpdf y **PDF con adjunto** generado con pdfattach. El smoke final verifica seis casos, incluida la ejecución reforzada que exige que el PDF escaneado no tenga capa de texto:
 
-Las pruebas independientes del generador comprueban que la tabla xref apunta a los objetos esperados, que el escaneado contiene un XObject de imagen sin texto PDF y que el documento dañado carece de cierre.
-
-### Smoke test real, que no puede aprobar usando mocks
-
-`apps/inspector/smoke_real_engines.py` ejecuta de verdad `inspect_pdf`, con los motores del sistema:
-
-1. Native PDF: ClamAV, qpdf y Poppler completan; el texto extraído debe conservar «EXPEDIENTE», «OBRA» y «2026».
-2. Scanned PDF: ClamAV, qpdf y Poppler completan, `pdftotext` no debe aportar texto y `pdftoppm + Tesseract` deben recuperar «OBRA» y «2026».
-3. PDF truncado: debe rechazarse por estructura, nunca producir un manifiesto `clean`.
-4. **EICAR**, cadena de prueba antivirus inofensiva, creada exclusivamente en un directorio temporal fuera del repositorio: `clamscan` con las firmas configuradas debe identificarla (código 1).
-
-El smoke emite solo estados agregados de cada comprobación, sin contenido ni nombres institucionales. Si falta un motor, falla la prueba previa (código 2); si un motor real responde incorrectamente, falla (código 1). Un test Python normal no se confunde con una ejecución de este smoke.
-
-### Ejecución manual en Docker con privilegios mínimos
-
-`bash apps/inspector/validate_real_engines.sh` encadena **estrictamente** comprobación de capacidad → build de una imagen nombrada solo para Folio Cívico → ejecución sin salida a Internet:
-
-```sh
-pnpm test:inspector:docker
+```json
+{"checks":{"antivirus_test":"detected","embedded_file":"rejected","encrypted":"rejected","malformed":"rejected","native":"passed","ocr":"passed"},"ready":true}
 ```
 
-El `Dockerfile` incluye los generadores y el smoke para ejecutarlos dentro de la misma imagen, exige `freshclam` durante el build y falla si no hay definiciones. El contenedor de prueba ejecuta sin red, sin puertos publicados, sin capacidades Linux, con `no-new-privileges`, root filesystem de solo lectura, UID no privilegiado, máximo 64 procesos, límite de CPU, **4 GiB de RAM**, sin swap adicional y tmpfs privado de 256 MiB. El proceso no recibe HMAC ni token del servicio: son innecesarios para la prueba CLI.
+**Código de salida verificado: 0.** Este objeto refleja un smoke sobre archivos sintéticos, no una evaluación de seguridad de un repositorio de PDFs reales.
 
-La imagen local resultante conserva el nombre `folio-civico-inspector:validation` para inspección manual; el script no borra archivos/cachés/imágenes de otros proyectos. La ejecución real no está automatizada en CI por requerir motores pesados y descargas de definiciones oficiales.
+| Verificación real | Criterio | Resultado |
+| --- | --- | --- |
+| PDF nativo | ClamAV + qpdf + Poppler conservan `EXPEDIENTE`, `OBRA`, `2026` | **PASÓ** |
+| PDF escaneado sin capa de texto | `pdftotext` devuelve vacío y Tesseract recupera `OBRA`, `2026` | **PASÓ** |
+| PDF con estructura truncada | Rechazado por inspector sin `clean` | **PASÓ** |
+| PDF cifrado con qpdf | Rechazado sin declaración `clean` | **PASÓ** |
+| PDF con adjunto creado por pdfattach | Rechazado sin declaración `clean` | **PASÓ** |
+| EICAR inofensivo | ClamAV con firmas oficiales lo detecta (exit code 1) | **PASÓ** |
 
-### Endurecimiento adicional de ejecución
+### Versiones y firmas observadas
 
-`inspector.command()` ahora redirige la salida de herramientas externas a un archivo **temporal y privado** bajo el directorio aislado, en vez de usar `subprocess.run(capture_output=True)`, que podía acumular texto arbitrariamente grande en la RAM del proceso. Tras la ejecución comprueba el tamaño máximo de **2 MiB**, decodifica UTF-8 de forma estricta y falla cerrado. Los límites del tmpfs y del contenedor siguen siendo obligatorios; no se interpreta ni se registra la salida del parser como código.
+Consultadas **dentro de la imagen local ejecutada sin red**:
 
-## Resultados y límites
+| Motor / base | Versión observada |
+| --- | --- |
+| ClamAV | `1.4.6` |
+| qpdf | `11.3.0` |
+| Poppler (`pdfinfo`) | `22.12.0` |
+| Tesseract | `5.3.0` |
+| Firmas `daily.cvd` | 28187; descargada 2026-11-19 02:42:27 UTC |
+| Firmas `main.cvd` | 63; descargada 2026-11-19 02:42:30 UTC |
+| Firmas `bytecode.cvd` | 339; descargada 2026-11-19 02:42:34 UTC |
 
-- Se ejecutaron los tests unitarios Python del generador, preflight, límites de salida, condiciones de rechazo y política de despliegue.
-- Se ejecutó el comando real de preflight en el host: **denegó la construcción por disco insuficiente**. La ejecución de `smoke_real_engines.py` también devolvió código 2 por motores/firmas ausentes.
-- **No se ha construido Docker ni ejecutado un motor real. No existe validación real de OCR ni antivirus aún.**
-- La presencia de firmas y la detección EICAR son comprobaciones necesarias, no prueba de ausencia de malware en PDFs arbitrarios. El reconocimiento OCR debe validarse además con muestras de distintos escaneos, calidades e idiomas cuando se habilite un entorno aislado.
-- No se crea Queue, Container, R2, D1 ni ningún recurso Cloudflare remoto; no hay despliegue de producción ni tratamiento de expedientes institucionales.
+**Riesgo abierto:** durante `freshclam` se advirtió que ClamAV `1.4.6` está detrás de la versión recomendada `1.4.7`. La prueba funcional EICAR fue satisfactoria, pero antes del piloto se debe **actualizar/pinear una versión de ClamAV mantenida**, regenerar la imagen, verificar CVEs y actualizar continuamente las definiciones. La imagen contiene una fotografía de firmas; con el contenedor sin salida a Internet debe rotarse **antes de que la antigüedad supere 72 horas**. La antigüedad del archivo no certifica por sí misma su origen o cobertura.
 
-## Criterio para cerrar el bloqueo
+## Protección de recursos y privacidad
 
-Solo dar por completada la validación real cuando, en un entorno local **aislado y con ≥8 GiB libres y ≥4 GiB disponibles**, `pnpm test:inspector:docker` finalice con **exit code 0**, todos los estados `passed/rejected/detected` sean observables y se documenten versiones de motor, fecha/versión de firmas y límites reales. Después corresponde el Preview con Access/MFA, Queue, DLQ y contenedor autorizados por el titular.
+`apps/inspector/preflight.py` comprueba al menos 8 GiB libres en repositorio y Docker, 4 GiB de RAM disponible, daemon local por socket Unix y contexto no remoto. Si falla, devuelve exit code 2 y un JSON de problemas sin intentar construir.
 
-**Fuentes oficiales:** [Requisitos de ClamAV en Docker](https://docs.clamav.net/manual/Installing/Docker.html), [actualización de firmas](https://docs.clamav.net/manual/Usage/SignatureManagement.html), [límites de Cloudflare Containers](https://developers.cloudflare.com/containers/platform/limits/).
+El script `validate_real_engines.sh` usa la imagen del propio proyecto, **sin borrar ni limpiar cachés/volúmenes de otros proyectos**. Ejecuta el smoke como usuario no privilegiado con:
 
-**Evolución:** [ADR-008](ADR-008-isolated-inspector-queues.md) · [ADR-009](ADR-009-private-container-gateway.md).
+- `--network none`, sin puertos publicados, secretos de servicio ni conexiones Cloudflare.
+- Root filesystem de solo lectura, `--cap-drop ALL`, `no-new-privileges`, 64 procesos, 1 CPU, 4 GiB RAM sin swap adicional y `tmpfs` limitado a 256 MiB.
+- Directorios temporales eliminados al terminar; los PDFs de prueba se generan dentro del contenedor y nunca se extraen expedientes de R2.
+- Herramientas PDF con 30 segundos por invocación, 8 minutos totales por expediente y stdout capturado en archivo temporal privado, con límite de 2 MiB antes de cargarlo en memoria.
+
+La construcción de imagen obtiene firmas oficiales durante el build; **solo el build** usa red. El contenedor que procesa los PDFs sintéticos no tiene red. La imagen local queda etiquetada `folio-civico-inspector:validation` y no es la imagen de un despliegue productivo.
+
+## Pruebas de contrato
+
+Los tests Python independientes comprueban la tabla xref, presencia de XObject de imagen, ausencia de fuentes y texto PDF, validación de dimensiones PGM, bloqueos del preflight, comportamiento EICAR incorrecto, límites de procesador y estados. **Esos tests unitarios usan dobles cuando corresponde**, por lo que deben distinguirse de los resultados del smoke Docker.
+
+## Límites pendientes
+
+1. **No existe despliegue Cloudflare** de Container, gateway, Queue, DLQ ni cron. Los originales que se suban a la aplicación siguen en cuarentena.
+2. No hay pruebas de ClamAV sobre amenazas reales ni garantía de detección universal. EICAR comprueba únicamente el funcionamiento básico del motor y de las firmas.
+3. El OCR real se probó con **una** página sintética legible; faltan pruebas con múltiples páginas, orientación, baja resolución, tablas, documentos heterogéneos y contraste, todas con datos ficticios y revisión humana.
+4. **El rechazo de PDFs cifrados y con adjuntos ya se comprobó con motores reales.** Siguen pendientes construcciones complejas (acciones activas, JavaScript, formularios, fuentes, contenido remoto), políticas de respuesta ante falsos positivos y aislamiento de parsers bajo carga adversarial.
+5. No existe derivado visual saneado ni visor de PDF descargable; la interfaz solo consulta texto previamente admitido bajo firma y autenticación.
+6. Antes de Cloudflare Preview se requiere autorización explícita de recursos, costos, Access/MFA, protección de servicio, versión ClamAV soportada, rotación de firmas y controles de red.
+
+**Referencias:** [ADR-008](ADR-008-isolated-inspector-queues.md), [ADR-009](ADR-009-private-container-gateway.md), [Checklist Preview](PREVIEW_CHECKLIST.md). Documentación oficial: [ClamAV Docker](https://docs.clamav.net/manual/Installing/Docker.html), [administración de firmas](https://docs.clamav.net/manual/Usage/SignatureManagement.html).

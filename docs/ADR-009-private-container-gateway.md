@@ -1,7 +1,7 @@
 # ADR-009 · Gateway privado Cloudflare Containers y custodia de la firma
 
 **Fecha:** 2026-11-18  
-**Estado:** implementado y probado con dobles de Container/Queues; **no desplegado ni probado con motores antivirus/OCR reales**.
+**Estado:** gateway implementado y probado con dobles de Container/Queues; **no desplegado**. ClamAV/OCR reales ya se validaron en smoke **local independiente**, no en Cloudflare Containers (ADR-010).
 
 ## Decisión de arquitectura
 
@@ -44,7 +44,7 @@ El modo `signed` de Python permanece para pruebas locales independientes y despl
 
 ### Lo que aún no está probado
 
-No se ha construido una imagen real con `freshclam`, no hay claves reales, no hay instancias Cloudflare Container, ni Queues/Access/MFA reales, ni pruebas E2E de un PDF nativo/escaneado con ClamAV y Tesseract reales. Un Dockerfile y una clase Durable Object **no constituyen por sí mismos** un servicio operativo. La verificación completa debe realizarse solo en Preview con recursos dedicados, autorización del operador y documentos exclusivamente ficticios.
+**Se construyó una imagen local con `freshclam` y se completaron 6/6 pruebas de motores reales con PDFs sintéticos (ADR-010)**. Sin embargo, no hay claves de servicio reales, instancias Cloudflare Container, Queues/Access/MFA ni pruebas E2E remotas del flujo de documentos. Un Dockerfile y una clase Durable Object **no constituyen por sí mismos** un servicio operativo. La verificación completa debe realizarse solo en Preview con recursos dedicados, autorización del operador y documentos exclusivamente ficticios.
 
 ## Referencias
 

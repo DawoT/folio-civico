@@ -6,8 +6,8 @@ Actualizado: 2026-11-18. Alcance de piloto: municipalidad distrital, obras y con
 | --- | --- | --- | --- |
 | P0 | Monorepo, TypeScript, vitest, CI y documentación | Acceso al repositorio | **Completado como fundación** |
 | P1 | D1, autorización, evidencia, auditoría y contratos | P0; matriz de roles | **Parcial: evidencia persistente, idempotencia, auditoría y validación interna de dos personas; entorno real pendiente** |
-| P2 | Mesa React, PDF, R2 en cuarentena, checklist y borradores | P1 | **Parcial: mesa, R2, decisiones y lector de texto inspeccionado con citas por página; escaneo y visor PDF pendientes** |
-| P3 | Queues/Workflows, extracción, OCR por página e IA supervisada | P2; dataset anónimo | **Parcial: outbox/Queues, inspector y gateway privados preparados; harness real y preflight de seguridad probados, pero motores, despliegue y recursos reales pendientes** |
+| P2 | Mesa React, PDF, R2 en cuarentena, checklist y borradores | P1 | **Parcial: mesa, R2, decisiones y lector de texto inspeccionado; smoke antivirus/OCR local aprobado, pero pipeline remoto y visor PDF pendientes** |
+| P3 | Queues/Workflows, extracción, OCR por página e IA supervisada | P2; dataset anónimo | **Parcial: outbox/Queues, inspector y gateway preparados; smoke real Docker ClamAV/qpdf/Poppler/Tesseract aprobado (6/6), pero despliegue, operación, E2E y recursos remotos pendientes** |
 | P4 | MCP OAuth y herramientas de lectura/escritura controladas | P1 y Cloudflare Access | **Parcial: servidor de lectura sin despliegue** |
 | P5 | DOCX, E2E, seguridad, retención, medición del ahorro | P2–P4; aprobación legal | Pendiente |
 
@@ -15,7 +15,7 @@ Actualizado: 2026-11-18. Alcance de piloto: municipalidad distrital, obras y con
 
 Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación mínima; (3) refactorización; (4) tests + typecheck + dry-run build; (5) registro de resultados y riesgos. Las migraciones se verifican en D1 local antes de cualquier aplicación remota.
 
-## Entrega actual: P0/P1i + P2f + P3d + P4b
+## Entrega actual: P0/P1i + P2f + P3e + P4b
 
 - [x] Tests que rechazan permisos entre comisiones, sujetos incorrectos e inactivos.
 - [x] Dos clases de evidencia documental diferenciadas: página existente y alcance de búsqueda sin resultado; soporte para fuente oficial.
@@ -53,16 +53,18 @@ Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación m
 - [x] API autorizada y React para **lectura de texto** por página; no renderiza PDF ni HTML no confiable. Borradores de citas exactas de versión+SHA-256+página con revisor humano.
 - [x] Outbox D1 transaccional por versión con migraciones `0011`/`0012`, estados protegidos por triggers, reintentos limitados, mensajes sin contenido documental y marcado atómico de `completed` al admitir inspección.
 - [x] Código de consumidor independiente `apps/processor` con verificación de R2 físico, paso a Service Binding privado, firma HMAC, idempotencia, auditoría de rechazos y reintentos por mensaje; **sin bindings de Queue habilitados**.
-- [x] Implementación ejecutable del servicio de inspección aislado `apps/inspector`: flujo obligatorio ClamAV, qpdf, Poppler y OCR Tesseract cuando es necesario; rechaza cifrado/adjuntos, límites estrictos, firma y contenedor sin privilegios. **Motores reales aún no probados aquí**.
+- [x] Implementación ejecutable del servicio de inspección aislado `apps/inspector`: flujo obligatorio ClamAV, qpdf, Poppler y OCR Tesseract cuando es necesario; rechaza cifrado/adjuntos, límites estrictos, firma y contenedor sin privilegios. **Motores reales aprobados en smoke Docker local, no desplegados en Cloudflare**.
 - [x] Gateway privado `apps/inspector-gateway` con Durable Object Container API actual, autenticación de servicio, validación de SHA-256, límites de bytes y firma HMAC en Worker fuera del contenedor; sin binding activo ni rutas públicas.
-- [x] Python en modo Cloudflare `unsigned` sin clave HMAC; pruebas de salud del scanner y de la separación de secretos; firmas ClamAV exigidas en la construcción del Dockerfile (imagen **aún no construida**).
+- [x] Python en modo Cloudflare `unsigned` sin clave HMAC; pruebas de salud del scanner y de la separación de secretos; firmas ClamAV exigidas en la construcción del Dockerfile (imagen local **construida y probada**, no desplegada).
 - [x] Pruebas sintéticas locales de flujo Processor → Gateway → manifiesto firmado → D1 listo, más gate que bloquea activación accidental de Containers/Queues en los Wrangler activos.
 - [x] Generación con stdlib de PDFs sintéticos nativos/escaneados/dañados, smoke real ClamAV+Poppler+Tesseract+EICAR y preflight de disco/memoria/Docker local; sin mocks en modo real (ADR-010).
-- [x] El smoke Docker exige privilegios mínimos, red desconectada, RAM ≥4 GiB, firmas frescas y aborta en host compartido sin 8 GiB libres; comprobado bloqueo efectivo por falta de disco.
+- [x] El smoke Docker exige privilegios mínimos, red desconectada, RAM ≥4 GiB, firmas frescas y aborta cuando falta capacidad; comprobado bloqueo inicial por falta de disco y posterior ejecución satisfactoria tras liberarse capacidad.
 - [x] Refuerzo del inspector: stdout de motores en archivo temporal privado con máximo 2 MiB leídos a memoria; prueba de rechazo de salida excesiva o inválida.
 - [x] Diagnóstico de backlog/outbox (ADR-011) de solo lectura y sin endpoints públicos: pendientes, reintentos vencidos, envíos agotados, rechazos, comisiones cerradas, inconsistencias y versiones sin trabajo; métricas agregadas, límite de lectura, resultado incompleto explícito.
 - [x] Integración del diagnóstico al mantenimiento `scheduled` **sin activar cron**, con índice local D1 `0013` para orden de auditoría; ningún reenvío ni borrado automático.
-- [ ] **Ejecutar** build y smoke del inspector con ClamAV/Poppler/Tesseract y firmas actuales en un host aislado que cumpla requisitos, documentar versiones y evidencia. En host actual se bloqueó; no afirmar validación real.
+- [x] **Ejecutado y aprobado** build + smoke local con motores reales: PDF nativo, OCR de PDF exclusivamente rasterizado (sin capa de texto), rechazo estructural, PDF cifrado y con adjunto rechazados, y detección EICAR; 6/6, exit code 0 (ADR-010).
+- [x] Registradas versiones reales: ClamAV 1.4.6, qpdf 11.3.0, Poppler 22.12.0, Tesseract 5.3.0 y firmas daily/main/bytecode actualizadas; imagen local aislada sin red.
+- [ ] Actualizar ClamAV a una versión mantenida (durante `freshclam` se recomendó 1.4.7), verificar CVEs y rotación de firmas, ampliar muestras sintéticas de OCR y rechazo antes del piloto.
 - [ ] Aprovisionar Service Binding y Cloudflare Container en entorno autorizado.
 - [ ] Desplegar y verificar DLQ, Queues, cron, Access/MFA y E2E reales de Preview con solo datos sintéticos.
 - [ ] Integrar motor de Workflows y políticas de recuperación de tareas prolongadas; IA supervisada con dataset sintético/anonimizado.

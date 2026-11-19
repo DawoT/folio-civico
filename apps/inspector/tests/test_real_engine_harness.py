@@ -17,7 +17,7 @@ from preflight import (
     MIN_SMOKE_FREE_BYTES, ENGINE_TOOLS,
 )
 from smoke_real_engines import (scanner_test_sample, main as smoke_main,
-                                exercise_real_engines)
+                                exercise_real_engines, parse_pgm, assert_no_pdf_text)
 from inspector import ReviewRequired
 import preflight
 
@@ -57,6 +57,32 @@ class SyntheticFixtureTests(unittest.TestCase):
         self.assertEqual((width, height), (640, 120))
         self.assertIn(0, bitmap)
         self.assertIn(255, bitmap)
+
+    def test_raster_fixture_from_real_grayscale_image_has_no_text_layer(self):
+        pixels=bytes([255, 0, 0, 255])
+        sample=scanned_pdf(raster=(2, 2, pixels))
+        verify_xref(sample)
+        self.assertIn(b"/Subtype /Image",sample)
+        self.assertIn(b"/Width 2 /Height 2",sample)
+        self.assertNotIn(b"/Helvetica",sample)
+        self.assertNotIn(b" Tj",sample)
+        for raster in [(2,2,b"xx"), (0,2,pixels), (5000,1,pixels)]:
+            with self.subTest(raster=raster[:2]):
+                with self.assertRaises(ValueError):
+                    scanned_pdf(raster=raster)
+
+    def test_parse_pgm_checks_dimensions_and_strict_pixel_length(self):
+        self.assertEqual(parse_pgm(b"P5\n2 2\n255\n" + bytes([0,255,255,0])),
+                         (2, 2, bytes([0,255,255,0])))
+        for payload in [
+            b"P2\n2 2\n255\n" + bytes(4),
+            b"P5\n2 2\n255\n" + bytes(3),
+            b"P5\n0 2\n255\n" + bytes(4),
+            b"P5\n4001 1\n255\n" + bytes(4)
+        ]:
+            with self.subTest(payload=payload[:18]):
+                with self.assertRaises(ValueError):
+                    parse_pgm(payload)
 
     def test_invalid_glyphs_and_damaged_fixture_are_rejected(self):
         with self.assertRaises(ValueError):
@@ -107,9 +133,23 @@ class PreflightPolicyTests(unittest.TestCase):
                 self.assertIsNone(preflight._docker_root_free())
                 runtime.assert_not_called()
 
+    def test_real_smoke_rejects_ocr_fixture_if_text_layer_survives(self):
+        with patch("smoke_real_engines.subprocess.run",
+                   return_value=subprocess.CompletedProcess(
+                       args=["pdftotext"], returncode=0,
+                       stdout=b"unexpected searchable text")):
+            with self.assertRaisesRegex(AssertionError, "no searchable PDF text"):
+                assert_no_pdf_text(scanned_pdf())
+
+    def test_real_smoke_accepts_blank_pdf_text_extraction(self):
+        with patch("smoke_real_engines.subprocess.run",
+                   return_value=subprocess.CompletedProcess(
+                       args=["pdftotext"], returncode=0, stdout=b"\n\f")):
+            assert_no_pdf_text(scanned_pdf())
+
     def test_real_smoke_refuses_antivirus_that_does_not_detect_eicar(self):
         def simulated_inspector(pdf, version, expected_hash, *, signatures):
-            if version == "synthetic_bad":
+            if version in ("synthetic_bad", "synthetic_encrypted", "synthetic_embedded_file"):
                 raise ReviewRequired("synthetic malformed PDF")
             return {"pages": [
                 {"page": 1, "text": ("EXPEDIENTE OBRA 2026"
@@ -118,6 +158,9 @@ class PreflightPolicyTests(unittest.TestCase):
             ]}
         with tempfile.TemporaryDirectory() as scratch:
             with patch("smoke_real_engines.inspect_pdf", side_effect=simulated_inspector), \
+                 patch("smoke_real_engines.build_scanned_fixture", return_value=scanned_pdf()), \
+                 patch("smoke_real_engines.assert_no_pdf_text"), \
+                 patch("smoke_real_engines.build_negative_fixtures", return_value=[("encrypted",scanned_pdf()),("embedded_file",scanned_pdf())]), \
                  patch("smoke_real_engines.subprocess.run",
                        return_value=subprocess.CompletedProcess(
                            args=["clamscan"], returncode=0)):
@@ -127,7 +170,7 @@ class PreflightPolicyTests(unittest.TestCase):
     def test_smoke_orchestration_returns_aggregate_success_with_stubbed_engines(self):
         """Unit-only verification of orchestration, NOT real AV/OCR."""
         def simulated_inspector(pdf, version, expected_hash, *, signatures):
-            if version == "synthetic_bad":
+            if version in ("synthetic_bad", "synthetic_encrypted", "synthetic_embedded_file"):
                 raise ReviewRequired("synthetic malformed PDF")
             return {"pages": [
                 {"page": 1, "text": ("EXPEDIENTE OBRA 2026"
@@ -136,11 +179,15 @@ class PreflightPolicyTests(unittest.TestCase):
             ]}
         with tempfile.TemporaryDirectory() as scratch:
             with patch("smoke_real_engines.inspect_pdf", side_effect=simulated_inspector), \
+                 patch("smoke_real_engines.build_scanned_fixture", return_value=scanned_pdf()), \
+                 patch("smoke_real_engines.assert_no_pdf_text"), \
+                 patch("smoke_real_engines.build_negative_fixtures", return_value=[("encrypted",scanned_pdf()),("embedded_file",scanned_pdf())]), \
                  patch("smoke_real_engines.subprocess.run",
                        return_value=subprocess.CompletedProcess(
                            args=["clamscan"], returncode=1)):
                 self.assertEqual(exercise_real_engines(Path(scratch)), {
                     "native": "passed", "ocr": "passed", "malformed": "rejected",
+                    "encrypted":"rejected", "embedded_file":"rejected",
                     "antivirus_test": "detected"
                 })
 

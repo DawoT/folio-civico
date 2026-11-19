@@ -88,11 +88,21 @@ def _image_bitmap(word: str, *, scale: int = 9) -> tuple[int, int, bytes]:
     return width, height, bytes(pixels)
 
 
-def scanned_pdf() -> bytes:
-    """One page with a raster-only glyph image, intentionally no PDF text."""
-    width, height, gray = _image_bitmap(_OCR_TEXT)
+def scanned_pdf(*, raster: tuple[int, int, bytes] | None = None) -> bytes:
+    """One page with only image pixels, intentionally NO PDF text layer.
+
+    A pre-rendered grayscale image may be supplied for the real-engine smoke.
+    The default original glyph bitmap keeps unit fixtures stdlib-only.
+    """
+    width, height, gray = raster if raster is not None else _image_bitmap(_OCR_TEXT)
+    if (not isinstance(width, int) or not isinstance(height, int)
+            or width < 1 or height < 1 or width > 4000 or height > 4000
+            or width * height > 8 * 1024 * 1024
+            or len(gray) != width * height):
+        raise ValueError("Invalid grayscale raster dimensions or pixel count")
     compressed = zlib.compress(gray, level=9)
-    content = b"q\n450 0 0 120 75 600 cm\n/Im0 Do\nQ\n"
+    content = (b"q\n612 0 0 792 0 0 cm\n/Im0 Do\nQ\n" if raster is not None
+               else b"q\n450 0 0 120 75 600 cm\n/Im0 Do\nQ\n")
     image = _stream(
         compressed,
         (f"/Type /XObject /Subtype /Image /Width {width} /Height {height} "

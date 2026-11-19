@@ -75,7 +75,7 @@ Configuración **orientativa, no aplicada**, solo para cuando el operador haya c
 
 Usa `subprocess.run` con argumentos explícitos (sin shell), timeout de 30 segundos por herramienta y presupuesto total de 8 minutos por PDF, directorio temporal privado y no incluye contenido documental en logs. `Dockerfile` instala los ejecutables requeridos y se ejecuta con UID 65534, pero su aislamiento efectivo **depende de flags/políticas del orquestador**.
 
-La imagen no se ha construido ni ejecutado en este entorno: no hay `clamscan`, `qpdf`, `pdfinfo`, `pdftotext`, `pdftoppm` o `tesseract` instalados. Sus pruebas de Python utilizan ejecutables simulados; **no acreditan una firma AV actual ni la eficacia de detección ni la fidelidad del OCR sobre documentos reales**.
+**Evolución ADR-010:** la imagen local se construyó y el smoke de ClamAV, qpdf, Poppler y Tesseract con firmas oficiales **aprobó 6/6 casos sintéticos**. Los unit tests Python siguen usando dobles, separados del smoke auténtico. Aún no se han probado motores dentro de Cloudflare Containers, firmas en rotación ni documentos institucionales. EICAR no garantiza detección de malware arbitrario.
 
 ### Ejemplo de ejecución local contenida (no automatizada)
 
@@ -111,7 +111,7 @@ Los paths `/secure/*` son ejemplos que el operador debe sustituir. La red debe p
 
 ## Seguridad y límites
 
-- **Sin despliegue, sin Queues activas, sin cron y sin costos remotos habilitados en este incremento.** La ADR-010 añade preflight de disco/RAM, fixtures sintéticos y smoke real opt-in sin haber ejecutado los motores todavía.
+- **Sin despliegue, sin Queues activas, sin cron y sin costos remotos habilitados en este incremento.** La ADR-010 aporta preflight de disco/RAM y smoke de motores reales local **ejecutado satisfactoriamente** con PDFs sintéticos; faltan despliegue remoto y E2E.
 - No hay URL del inspector configurable por el mensaje, ruta pública de sus originales ni procesamiento en la API frontend.
 - `needs_review` es conservador, nunca aprobación. El pipeline no sustituye revisión normativa ni inspección humana y puede producir falsos positivos o falsos negativos.
 - El scanner no sanea un derivado visual para descarga; el visor seguro PDF sigue pendiente.
