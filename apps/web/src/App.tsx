@@ -10,6 +10,7 @@ import { StatusBadge } from "./ui/StatusBadge";
 import { SelectField } from "./ui/Fields";
 import { Card } from "./ui/Card";
 import { EmptyState, LoadingState } from "./ui/FeedbackStates";
+import { TaskNavigation } from "./layout/TaskNavigation";
 
 const statusText: Record<DocumentRow["extractionStatus"], string> = {
   pending: "En cuarentena", processing: "Procesando", ready: "Texto disponible",
@@ -32,6 +33,7 @@ function initialScope(): Scope | null {
 export function App() {
   const initial = initialScope();
   const [commissionId, setCommissionId] = useState(initial?.commissionId ?? "");
+  const [administrationOpen, setAdministrationOpen] = useState(false);
   const [batchId, setBatchId] = useState(initial?.batchId ?? "");
   const [scope, setScope] = useState<Scope | null>(initial);
   const [commissions, setCommissions] = useState<Commission[]>([]);
@@ -124,6 +126,7 @@ export function App() {
 
   const selected = documents.find((document) => document.id === selectedId) ?? null;
   const selectedCommission = commissions.find((item) => item.id === commissionId);
+  const selectedBatch = batches.find((item) => item.id === batchId);
   const canUpload = selectedCommission?.status === "active" && selectedCommission.role !== "observer";
   const canManage = selectedCommission?.status === "active" && selectedCommission.role === "president";
 
@@ -221,18 +224,12 @@ export function App() {
           <StatusBadge status="warning" className="status-label">Sin validación automática</StatusBadge>
         </section>
 
-        {session?.canBootstrap && (
-          <BootstrapCommissionPanel onCreated={()=> {
-            void loadCommissions().then(setCommissions).catch(problem=>
-              setCatalogError(problem instanceof Error?problem.message:"No se actualizaron las comisiones."));
-          }}/>
-        )}
-
         <form className="scope-form" onSubmit={connect} aria-label="Conectar comisión y lote">
           <SelectField id="scope-commission" label="Comisión"
             aria-label="Identificador de comisión" value={commissionId}
             onChange={(event) => {
               setCommissionId(event.target.value);
+              setAdministrationOpen(false);
               setBatchId("");
               setBatches([]);
               setScope(null);
@@ -254,23 +251,40 @@ export function App() {
           <Button variant="primary" type="submit" disabled={!commissionId || !batchId || catalogLoading || batchesLoading}>Abrir lote</Button>
         </form>
 
-        {canManage && (
-          <form className="manage-form" onSubmit={createBatch} aria-label="Crear lote de expedientes">
-            <label htmlFor="new-batch-label">Nuevo lote de expedientes</label>
-            <input id="new-batch-label" value={newBatchLabel} maxLength={120}
-              onChange={event=>setNewBatchLabel(event.target.value)}
-              placeholder="Obras y contrataciones · 2026" required
-              disabled={batchCreating||batchesLoading}/>
-            <button type="submit" className="button secondary"
-              disabled={batchCreating||batchesLoading||newBatchLabel.trim().length<3}>
-              {batchCreating?"Creando lote…":"Crear lote"}
-            </button>
-          </form>
-        )}
+        <TaskNavigation hasScope={Boolean(scope)} canDraft={Boolean(canUpload)}
+          canAdmin={Boolean(canManage || session?.canBootstrap)}
+          commissionName={selectedCommission?.name} batchLabel={selectedBatch?.label}
+          onOpenAdministration={()=>setAdministrationOpen(true)}/>
 
-        {canManage && session && commissionId && (
-          <CommissionAdminPanel key={commissionId} commissionId={commissionId}
-            currentSubject={session.subject}/>
+        {(canManage || session?.canBootstrap) && (
+          <details id="administracion" className="administration-drawer"
+            open={administrationOpen} onToggle={event=>setAdministrationOpen(event.currentTarget.open)}>
+            <summary>Administración de la comisión</summary>
+            <p className="review-note">Área de gestión de accesos, lotes y configuración. El trabajo documental continúa debajo.</p>
+            {session?.canBootstrap && (
+              <BootstrapCommissionPanel onCreated={()=> {
+                void loadCommissions().then(setCommissions).catch(problem=>
+                  setCatalogError(problem instanceof Error?problem.message:"No se actualizaron las comisiones."));
+              }}/>
+            )}
+            {canManage && (
+              <form className="manage-form" onSubmit={createBatch} aria-label="Crear lote de expedientes">
+                <label htmlFor="new-batch-label">Nuevo lote de expedientes</label>
+                <input id="new-batch-label" value={newBatchLabel} maxLength={120}
+                  onChange={event=>setNewBatchLabel(event.target.value)}
+                  placeholder="Obras y contrataciones · 2026" required
+                  disabled={batchCreating||batchesLoading}/>
+                <button type="submit" className="button secondary"
+                  disabled={batchCreating||batchesLoading||newBatchLabel.trim().length<3}>
+                  {batchCreating?"Creando lote…":"Crear lote"}
+                </button>
+              </form>
+            )}
+            {canManage && session && commissionId && (
+              <CommissionAdminPanel key={commissionId} commissionId={commissionId}
+                currentSubject={session.subject}/>
+            )}
+          </details>
         )}
         {sessionError && <p role="alert" className="message error">
           La administración no está disponible: {sessionError}
@@ -282,7 +296,7 @@ export function App() {
         )}
 
         <div className="workspace">
-          <Card as="section" className="documents-panel" aria-labelledby="documents-title">
+          <Card as="section" id="expedientes" className="documents-panel" aria-labelledby="documents-title">
             <div className="panel-header">
               <div>
                 <p className="eyebrow">01 · DOCUMENTACIÓN</p>

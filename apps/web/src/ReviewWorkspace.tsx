@@ -271,7 +271,7 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
         <p className="eyebrow">03 · CONTROL Y OBSERVACIONES</p>
         <h2 id="review-title">Constatación documental</h2>
         <p>Registro de búsquedas realizadas por personas autorizadas. No equivale a declarar una irregularidad.</p>
-        <div className="review-export">
+        <div className="review-export" id="informes">
           <button type="button" className="button secondary" disabled={exportBusy}
             onClick={()=>void exportReviewReport()}>
             {exportBusy ? "Preparando informe…" : "Exportar revisión interna (JSON)"}
@@ -290,7 +290,7 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
       {error && <p role="alert" className="message error">{error}</p>}
       {notice && <p role="status" className="message success">{notice}</p>}
       <div className="review-grid">
-        <div className="review-card">
+        <div className="review-card" id="checklist">
           <h3>Checklist de constatación</h3>
           {canManage && (
             <form className="manage-form" onSubmit={addChecklistItem}
@@ -326,7 +326,7 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
             </ul>}
           <p className="review-note">Un ítem pasa a «No ubicado · validación interna» solo cuando otro revisor valida la búsqueda documentada. El checklist institucional original no se altera.</p>
         </div>
-        <div className="review-card">
+        <div className="review-card" id="registrar-busqueda">
           <h3>Registrar búsqueda</h3>
           <p className="review-note">Documenta que se revisó un lote y no se ubicó un ítem esperado. La autoría y la fecha las fija el servidor.</p>
           <form className="review-form" onSubmit={saveDraft}>
@@ -407,7 +407,7 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
           )}
         </section>
       )}
-      <div className="review-card observations-card">
+      <div className="review-card observations-card" id="observaciones">
         <h3>Historial de observaciones</h3>
         <p className="review-note">Se muestran primero 25 registros. Puedes consultar el historial anterior sin perder las observaciones ya cargadas.</p>
         {loading ? <p>Consultando observaciones…</p> :
