@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {InspectedTextViewer} from "./InspectedTextViewer";
+import { Field, SelectField, TextareaField } from "./ui/Fields";
 import {
   loadChecklist, loadObservationHistory, loadObservationDetail, loadVerifiedReviewReport, createCommissionChecklistItem, submitSearchScopeDraft,
   transitionObservation as requestTransition,
@@ -329,18 +330,18 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
           <h3>Registrar búsqueda</h3>
           <p className="review-note">Documenta que se revisó un lote y no se ubicó un ítem esperado. La autoría y la fecha las fija el servidor.</p>
           <form className="review-form" onSubmit={saveDraft}>
-            <label htmlFor="review-item">Ítem esperado</label>
-            <select id="review-item" value={itemId} onChange={(event) => setItemId(event.target.value)}
+            <SelectField id="review-item" label="Ítem esperado" value={itemId}
+              onChange={(event) => setItemId(event.target.value)}
               disabled={!canDraft || busy || loading || checklist.length === 0} required>
               <option value="">Selecciona un ítem</option>
               {checklist.filter((item) => item.status === "pending" || item.status === "not_located")
                 .map((item) => <option key={item.id} value={item.id}>{item.expectedDocument}</option>)}
-            </select>
-            <label htmlFor="review-title-input">Título del registro</label>
-            <input id="review-title-input" value={title} onChange={(event) => setTitle(event.target.value)}
-              maxLength={160} placeholder="Expediente no ubicado durante la revisión" disabled={!canDraft || busy} required/>
-            <label htmlFor="review-description">Alcance de la búsqueda</label>
-            <textarea id="review-description" value={description}
+            </SelectField>
+            <Field id="review-title-input" label="Título del registro" value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              maxLength={160} placeholder="Expediente no ubicado durante la revisión"
+              disabled={!canDraft || busy} required/>
+            <TextareaField id="review-description" label="Alcance de la búsqueda" value={description}
               onChange={(event) => setDescription(event.target.value)} maxLength={4000}
               placeholder="Indica qué archivos, fechas o registros se revisaron."
               rows={4} disabled={!canDraft || busy} required/>
@@ -447,10 +448,10 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
               )}
               {record.canReview && activeReviewId===record.id && (
                 <div className="decision-panel">
-                  <label htmlFor={`review-note-${record.id}`}>Justificación de la decisión humana</label>
-                  <textarea id={`review-note-${record.id}`} rows={3} maxLength={1000}
-                    value={reviewNote} disabled={transitionBusy}
+                  <TextareaField id={`review-note-${record.id}`} label="Justificación de la decisión humana"
+                    rows={3} maxLength={1000} value={reviewNote} disabled={transitionBusy}
                     onChange={event=>setReviewNote(event.target.value)}
+                    hint="Mínimo 15 caracteres. La revisión debe ser independiente."
                     placeholder="Describe la comprobación independiente realizada (mínimo 15 caracteres)."/>
                   <label className="attestation">
                     <input type="checkbox" checked={reviewConfirmed} disabled={transitionBusy}
