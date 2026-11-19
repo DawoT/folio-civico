@@ -34,6 +34,8 @@ class ScannerTests(unittest.TestCase):
     def fake_runner(self, argv, cwd):
         self.called.append(argv[0])
         command = argv[0]
+        if command == "clamscan" and "--version" in argv:
+            return "ClamAV 1.5.5/28187/2026-11-18"
         if command == "pdfdetach":
             return "0 embedded files\n"
         if command == "pdfinfo":
@@ -42,6 +44,17 @@ class ScannerTests(unittest.TestCase):
             page = int(argv[argv.index("-f") + 1])
             return f"Expediente de obras página {page}"
         return ""
+
+    def test_security_patch_version_policy_rejects_outdated_clamav(self):
+        for raw in ("ClamAV 1.4.6", "ClamAV 1.5.4/28185/Mon Nov 16 2026",
+                    "", "ClamAV unknown", "ClamAV 1.5.4-masquerade"):
+            with self.subTest(raw=raw):
+                with self.assertRaises(inspector.ScannerUnavailable):
+                    inspector.verify_clamav_version(raw)
+        for raw in ("ClamAV 1.5.5", "ClamAV 1.5.5/28187/Nov 18",
+                    "ClamAV 1.5.6/28188/Nov 19"):
+            with self.subTest(raw=raw):
+                inspector.verify_clamav_version(raw)
 
     def test_clean_pdf_extracts_two_contiguous_pages(self):
         result = inspector.inspect_pdf(PDF, "ver_a", SHA,
@@ -58,7 +71,7 @@ class ScannerTests(unittest.TestCase):
 
     def test_scanner_failure_cannot_be_treated_as_clean(self):
         def failing(argv, cwd):
-            if argv[0] == "clamscan":
+            if argv[0] == "clamscan" and "--version" not in argv:
                 raise inspector.ReviewRequired("synthetic virus match")
             return self.fake_runner(argv, cwd)
 
@@ -205,11 +218,29 @@ class ScannerTests(unittest.TestCase):
             with patch.object(inspector.shutil, "which", return_value=None):
                 with self.assertRaises(inspector.ScannerUnavailable):
                     inspector.inspection_ready()
-            with patch.object(inspector.shutil, "which", return_value="/usr/bin/fake"):
+            with patch.object(inspector.shutil, "which", return_value="/usr/bin/fake"), \
+                 patch.object(inspector, "command", return_value="ClamAV 1.5.5"):
                 inspector.inspection_ready()
                 (self.signatures / "daily.cld").unlink()
                 with self.assertRaises(inspector.ScannerUnavailable):
                     inspector.inspection_ready()
+
+    def test_readiness_and_direct_admission_reject_vulnerable_scanner(self):
+        with patch.dict(os.environ, {
+            "FOLIO_INSPECTOR_SERVICE_TOKEN": "synthetic" * 6,
+            "FOLIO_INSPECTOR_HMAC_KEY": "synthetic-hmac" * 4,
+            "CLAMAV_DB_DIR": str(self.signatures),
+        }), patch.object(inspector.shutil, "which", return_value="/usr/bin/fake"), \
+             patch.object(inspector, "command", return_value="ClamAV 1.5.4"):
+            with self.assertRaises(inspector.ScannerUnavailable):
+                inspector.inspection_ready()
+        def outdated_runner(argv, cwd):
+            if "--version" in argv:
+                return "ClamAV 1.4.6"
+            self.fail("A vulnerable scanner must not process the PDF")
+        with self.assertRaises(inspector.ScannerUnavailable):
+            inspector.inspect_pdf(PDF, "ver_a", SHA, signatures=self.signatures,
+                                  run=outdated_runner)
 
     def test_gateway_health_is_private_and_fails_when_inspector_unavailable(self):
         from http.client import HTTPConnection
@@ -253,7 +284,8 @@ class ScannerTests(unittest.TestCase):
             "FOLIO_INSPECTOR_SERVICE_TOKEN": ("synthetic" * 6),
             "CLAMAV_DB_DIR": str(self.signatures)
         }, clear=True):
-            with patch.object(inspector.shutil, "which", return_value="/usr/bin/fake"):
+            with patch.object(inspector.shutil, "which", return_value="/usr/bin/fake"), \
+                 patch.object(inspector, "command", return_value="ClamAV 1.5.5"):
                 inspector.inspection_ready()  # No HMAC secret required.
             server = HTTPServer(("127.0.0.1", 0), inspector.InspectorHandler)
             thread = Thread(target=server.serve_forever, daemon=True)

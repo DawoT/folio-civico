@@ -7,7 +7,7 @@ Actualizado: 2026-11-18. Alcance de piloto: municipalidad distrital, obras y con
 | P0 | Monorepo, TypeScript, vitest, CI y documentación | Acceso al repositorio | **Completado como fundación** |
 | P1 | D1, autorización, evidencia, auditoría y contratos | P0; matriz de roles | **Parcial: evidencia persistente, idempotencia, auditoría y validación interna de dos personas; entorno real pendiente** |
 | P2 | Mesa React, PDF, R2 en cuarentena, checklist y borradores | P1 | **Parcial: mesa, R2, decisiones y lector de texto inspeccionado; smoke antivirus/OCR local aprobado, pero pipeline remoto y visor PDF pendientes** |
-| P3 | Queues/Workflows, extracción, OCR por página e IA supervisada | P2; dataset anónimo | **Parcial: outbox/Queues, inspector y gateway preparados; smoke real Docker ClamAV/qpdf/Poppler/Tesseract aprobado (6/6), pero despliegue, operación, E2E y recursos remotos pendientes** |
+| P3 | Queues/Workflows, extracción, OCR por página e IA supervisada | P2; dataset anónimo | **Parcial: outbox/Queues, inspector y gateway preparados; ClamAV 1.5.5 firmado y smoke local 6/6 + HTTP real aprobados, pero escaneo CVEs integral, despliegue, operación y E2E remotos pendientes** |
 | P4 | MCP OAuth y herramientas de lectura/escritura controladas | P1 y Cloudflare Access | **Parcial: servidor de lectura sin despliegue** |
 | P5 | DOCX, E2E, seguridad, retención, medición del ahorro | P2–P4; aprobación legal | Pendiente |
 
@@ -15,7 +15,7 @@ Actualizado: 2026-11-18. Alcance de piloto: municipalidad distrital, obras y con
 
 Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación mínima; (3) refactorización; (4) tests + typecheck + dry-run build; (5) registro de resultados y riesgos. Las migraciones se verifican en D1 local antes de cualquier aplicación remota.
 
-## Entrega actual: P0/P1i + P2f + P3e + P4b
+## Entrega actual: P0/P1i + P2f + P3f + P4b
 
 - [x] Tests que rechazan permisos entre comisiones, sujetos incorrectos e inactivos.
 - [x] Dos clases de evidencia documental diferenciadas: página existente y alcance de búsqueda sin resultado; soporte para fuente oficial.
@@ -63,8 +63,11 @@ Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación m
 - [x] Diagnóstico de backlog/outbox (ADR-011) de solo lectura y sin endpoints públicos: pendientes, reintentos vencidos, envíos agotados, rechazos, comisiones cerradas, inconsistencias y versiones sin trabajo; métricas agregadas, límite de lectura, resultado incompleto explícito.
 - [x] Integración del diagnóstico al mantenimiento `scheduled` **sin activar cron**, con índice local D1 `0013` para orden de auditoría; ningún reenvío ni borrado automático.
 - [x] **Ejecutado y aprobado** build + smoke local con motores reales: PDF nativo, OCR de PDF exclusivamente rasterizado (sin capa de texto), rechazo estructural, PDF cifrado y con adjunto rechazados, y detección EICAR; 6/6, exit code 0 (ADR-010).
-- [x] Registradas versiones reales: ClamAV 1.4.6, qpdf 11.3.0, Poppler 22.12.0, Tesseract 5.3.0 y firmas daily/main/bytecode actualizadas; imagen local aislada sin red.
-- [ ] Actualizar ClamAV a una versión mantenida (durante `freshclam` se recomendó 1.4.7), verificar CVEs y rotación de firmas, ampliar muestras sintéticas de OCR y rechazo antes del piloto.
+- [x] Primer smoke histórico con ClamAV 1.4.6, qpdf 11.3.0, Poppler 22.12.0, Tesseract 5.3.0 y firmas daily/main/bytecode; imagen local aislada sin red. **Sustituido por versión parchada del incremento siguiente.**
+- [x] **ClamAV actualizado a 1.5.5** desde paquete oficial Linux firmado por Cisco Talos y verificado con GPG + huella principal de la clave antes de instalar; corrige riesgos de 1.4.6/1.5.4 de noviembre de 2026 (ADR-012).
+- [x] Doble gate de versión de ClamAV >=1.5.5 en la serie 1.5, tanto para `GET /health` como para `inspect_pdf`; el build también verifica la versión. Bloquea admission con scanners antiguos o no identificados.
+- [x] Smoke real HTTP interno del inspector con token sintético y sin red: salud 200, credencial errónea 403, documento autorizado clean sin firma en el parser y SHA-256 falsificado 422 (ADR-012).
+- [ ] Completar escaneo de CVEs/SBOM de la imagen nativa y política verificable de renovación de firmas <=72 h, revisar superficie de herramientas del build, ampliar muestras OCR antes de piloto.
 - [ ] Aprovisionar Service Binding y Cloudflare Container en entorno autorizado.
 - [ ] Desplegar y verificar DLQ, Queues, cron, Access/MFA y E2E reales de Preview con solo datos sintéticos.
 - [ ] Integrar motor de Workflows y políticas de recuperación de tareas prolongadas; IA supervisada con dataset sintético/anonimizado.

@@ -44,7 +44,7 @@ El modo `signed` de Python permanece para pruebas locales independientes y despl
 
 ### Lo que aún no está probado
 
-**Se construyó una imagen local con `freshclam` y se completaron 6/6 pruebas de motores reales con PDFs sintéticos (ADR-010)**. Sin embargo, no hay claves de servicio reales, instancias Cloudflare Container, Queues/Access/MFA ni pruebas E2E remotas del flujo de documentos. Un Dockerfile y una clase Durable Object **no constituyen por sí mismos** un servicio operativo. La verificación completa debe realizarse solo en Preview con recursos dedicados, autorización del operador y documentos exclusivamente ficticios.
+**Se construyó una imagen local con `freshclam` y se completaron 6/6 pruebas de motores reales con PDFs sintéticos (ADR-010); posteriormente se actualizó a ClamAV 1.5.5 con verificación GPG y smoke HTTP real local (ADR-012)**. Sin embargo, no hay claves de servicio reales, instancias Cloudflare Container, Queues/Access/MFA ni pruebas E2E remotas del flujo de documentos. Un Dockerfile y una clase Durable Object **no constituyen por sí mismos** un servicio operativo. La verificación completa debe realizarse solo en Preview con recursos dedicados, autorización del operador y documentos exclusivamente ficticios.
 
 ## Referencias
 

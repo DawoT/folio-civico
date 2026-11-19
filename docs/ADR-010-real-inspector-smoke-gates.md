@@ -1,7 +1,7 @@
 # ADR-010 · Validación real de ClamAV, qpdf, Poppler y OCR
 
 **Fecha:** 2026-11-18 (America/Lima)  
-**Estado:** **smoke real local aprobado (6/6, exit code 0)** con documentos exclusivamente sintéticos. **No desplegado, no integrado con Cloudflare Preview ni probado con expedientes institucionales.**
+**Estado histórico:** **smoke real local aprobado (6/6, exit code 0)** con documentos exclusivamente sintéticos. Este registro corresponde al **primer motor ClamAV 1.4.6**; fue actualizado y repetido en la [ADR-012](ADR-012-patched-clamav-supply-chain.md) con **ClamAV 1.5.5 verificado por GPG**. **No desplegado ni integrado con Cloudflare Preview o expedientes institucionales.**
 
 ## Objetivo y alcance
 
@@ -51,7 +51,7 @@ Consultadas **dentro de la imagen local ejecutada sin red**:
 | Firmas `main.cvd` | 63; descargada 2026-11-19 02:42:30 UTC |
 | Firmas `bytecode.cvd` | 339; descargada 2026-11-19 02:42:34 UTC |
 
-**Riesgo abierto:** durante `freshclam` se advirtió que ClamAV `1.4.6` está detrás de la versión recomendada `1.4.7`. La prueba funcional EICAR fue satisfactoria, pero antes del piloto se debe **actualizar/pinear una versión de ClamAV mantenida**, regenerar la imagen, verificar CVEs y actualizar continuamente las definiciones. La imagen contiene una fotografía de firmas; con el contenedor sin salida a Internet debe rotarse **antes de que la antigüedad supere 72 horas**. La antigüedad del archivo no certifica por sí misma su origen o cobertura.
+**Riesgo histórico, corregido en ADR-012:** en esta primera ejecución, `freshclam` advirtió que ClamAV `1.4.6` estaba detrás del parche `1.4.7`. La imagen local actual se reconstruyó con el paquete oficial firmado **1.5.5** y superó nuevamente los seis casos. Sigue siendo obligatorio, antes de Preview, comprobar CVEs/SBOM del sistema completo y la **renovación de firmas antes de 72 horas**. La antigüedad del archivo no certifica por sí misma su origen o cobertura.
 
 ## Protección de recursos y privacidad
 

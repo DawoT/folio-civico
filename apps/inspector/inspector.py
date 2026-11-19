@@ -58,6 +58,21 @@ def require_fresh_signatures(directory: Path, now: float | None = None) -> None:
 
 
 MAX_ENGINE_OUTPUT_BYTES = 2 * 1024 * 1024
+MIN_CLAMAV_RELEASE = (1, 5, 5)
+
+
+def verify_clamav_version(raw: str) -> None:
+    """Refuse the ClamAV releases affected by November 2026 CVEs.
+
+    The scanner must use the tested 1.5 feature series. A newer feature line
+    needs a separate compatibility review rather than automatic admission.
+    """
+    match = re.match(r"^ClamAV (\d+)\.(\d+)\.(\d+)(?=/|\s|$)", raw.strip())
+    if not match:
+        raise ScannerUnavailable("Invalid ClamAV version metadata")
+    installed = tuple(int(group) for group in match.groups())
+    if installed[:2] != (1, 5) or installed < MIN_CLAMAV_RELEASE:
+        raise ScannerUnavailable("Patched ClamAV 1.5.5+ is required")
 
 
 def command(argv: list[str], cwd: Path, seconds: int = MAX_PROCESS_SECONDS) -> str:
@@ -98,6 +113,10 @@ def inspect_pdf(
     if hashlib.sha256(pdf).hexdigest() != expected_sha256:
         raise ReviewRequired("Original content checksum mismatch")
     require_fresh_signatures(signatures)
+    try:
+        verify_clamav_version(run(["clamscan", "--version"], Path(tempfile.gettempdir())))
+    except ReviewRequired as error:
+        raise ScannerUnavailable("Cannot verify ClamAV security patch version") from error
     started = time.monotonic()
 
     with tempfile.TemporaryDirectory(prefix="folio-inspector-") as name:
@@ -208,6 +227,7 @@ def inspection_ready() -> None:
                "pdftotext", "pdftoppm", "tesseract")
     if any(shutil.which(engine) is None for engine in engines):
         raise ScannerUnavailable("One or more mandatory scanner engines are unavailable")
+    verify_clamav_version(command(["clamscan", "--version"], Path(tempfile.gettempdir())))
 
 
 class InspectorHandler(BaseHTTPRequestHandler):

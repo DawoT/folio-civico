@@ -27,3 +27,19 @@ docker run --rm \
   --entrypoint python3 \
   folio-civico-inspector:validation \
   /srv/folio-inspector/smoke_real_engines.py --database /opt/clamdb
+
+# Exercise the ACTUAL HTTP handler and patched engine on loopback inside
+# the same network-disabled container. It receives only synthetic credentials.
+docker run --rm \
+  --network none \
+  --read-only \
+  --cap-drop ALL \
+  --security-opt no-new-privileges \
+  --pids-limit 64 \
+  --cpus 1 \
+  --memory 4g \
+  --memory-swap 4g \
+  --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777 \
+  --entrypoint python3 \
+  folio-civico-inspector:validation \
+  /srv/folio-inspector/smoke_http_real.py

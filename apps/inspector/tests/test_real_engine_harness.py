@@ -20,6 +20,7 @@ from smoke_real_engines import (scanner_test_sample, main as smoke_main,
                                 exercise_real_engines, parse_pgm, assert_no_pdf_text)
 from inspector import ReviewRequired
 import preflight
+from smoke_http_real import main as http_smoke_main
 
 
 def verify_xref(pdf: bytes) -> None:
@@ -190,6 +191,15 @@ class PreflightPolicyTests(unittest.TestCase):
                     "encrypted":"rejected", "embedded_file":"rejected",
                     "antivirus_test": "detected"
                 })
+
+    def test_real_http_smoke_never_exposes_parser_details_on_failure(self):
+        with patch("smoke_http_real.run_smoke",
+                   side_effect=RuntimeError("private/quarantine/synthetic.pdf")), \
+             patch("builtins.print") as emitted:
+            self.assertEqual(http_smoke_main(), 1)
+            report = json.loads(emitted.call_args.args[0])
+            self.assertEqual(report, {"ready": False, "reason": "http_smoke_failed"})
+            self.assertNotIn("private", json.dumps(report))
 
     def test_manual_smoke_returns_nonzero_when_preflight_fails(self):
         from smoke_real_engines import inspect_host
