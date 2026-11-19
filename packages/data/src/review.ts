@@ -6,6 +6,9 @@ export interface ChecklistRow {
   area: "works" | "procurement";
   expectedDocument: string;
   status: "pending" | "located" | "not_located" | "observed";
+  /** Validated search evidence is a review projection, never an official checklist mutation. */
+  statusSource: "stored" | "validated_search";
+  validatedSearchObservationId: string | null;
   reviewedBy: string | null;
   reviewedAt: string | null;
 }
@@ -37,13 +40,37 @@ function validText(value: string, limit: number): boolean {
 export async function listChecklist(db: D1Database, subject: string, commissionId: string): Promise<ChecklistRow[]> {
   if (!subject || !commissionId) throw new ReviewAccessError("Missing identity");
   const result = await db.prepare(`
-    SELECT i.id, i.area, i.expected_document AS expectedDocument, i.status,
-      i.reviewed_by AS reviewedBy, i.reviewed_at AS reviewedAt
+    WITH validated_search AS (
+      SELECT o.commission_id AS commissionId,
+        json_extract(e.reference_json, '$.checklistItemId') AS checklistId,
+        o.id AS observationId, o.reviewed_by AS reviewer, o.reviewed_at AS reviewedAt,
+        ROW_NUMBER() OVER (
+          PARTITION BY o.commission_id, json_extract(e.reference_json, '$.checklistItemId')
+          ORDER BY o.reviewed_at DESC, o.id DESC
+        ) AS rank
+      FROM observations o
+      JOIN observation_evidence e ON e.observation_id = o.id AND e.type = 'SEARCH_SCOPE'
+      WHERE o.commission_id = ? AND o.status = 'validated'
+        AND json_extract(e.reference_json, '$.commissionId') = o.commission_id
+    )
+    SELECT i.id, i.area, i.expected_document AS expectedDocument,
+      CASE WHEN i.status IN ('pending', 'not_located') AND v.observationId IS NOT NULL
+        THEN 'not_located' ELSE i.status END AS status,
+      CASE WHEN i.status IN ('pending', 'not_located') AND v.observationId IS NOT NULL
+        THEN 'validated_search' ELSE 'stored' END AS statusSource,
+      CASE WHEN i.status IN ('pending', 'not_located') THEN v.observationId
+        ELSE NULL END AS validatedSearchObservationId,
+      CASE WHEN i.status IN ('pending', 'not_located') AND v.observationId IS NOT NULL
+        THEN v.reviewer ELSE i.reviewed_by END AS reviewedBy,
+      CASE WHEN i.status IN ('pending', 'not_located') AND v.observationId IS NOT NULL
+        THEN v.reviewedAt ELSE i.reviewed_at END AS reviewedAt
     FROM checklist_items i
     JOIN commission_members m ON m.commission_id = i.commission_id
+    LEFT JOIN validated_search v ON v.commissionId = i.commission_id
+      AND v.checklistId = i.id AND v.rank = 1
     WHERE i.commission_id = ? AND m.subject = ? AND m.active = 1
     ORDER BY i.area, i.expected_document, i.id LIMIT 100
-  `).bind(commissionId, subject).all<ChecklistRow>();
+  `).bind(commissionId, commissionId, subject).all<ChecklistRow>();
   return result.results;
 }
 

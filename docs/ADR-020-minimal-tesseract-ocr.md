@@ -1,4 +1,4 @@
-# ADR-016 · Tesseract 5.5.4 mínimo sin libarchive/libxml2
+# ADR-020 · Tesseract 5.5.4 mínimo sin libarchive/libxml2
 
 **Fecha:** 2026-11-19 (America/Lima)  
 **Estado:** remediación acotada en evaluación local. **No equivale a aprobar el inspector ni habilitar Preview**.

@@ -147,11 +147,55 @@ export async function loadCommissionBatches(
 }
 
 
+export interface CreatedBatch extends CommissionBatch { replayed: boolean }
+export interface CreatedChecklist {
+  id: string; area:"works"|"procurement";expectedDocument:string;
+  status:"pending";replayed:boolean;
+}
+
+export async function createCommissionBatch(
+  input:{commissionId:string;label:string},
+  fetcher:typeof fetch=fetch,
+  makeKey:()=>string=()=>crypto.randomUUID()
+):Promise<CreatedBatch> {
+  const label=input.label.trim();
+  if(label.length<3||label.length>120||/[\u0000-\u001f\u007f]/.test(input.label)) {
+    throw new ApiError(400,"Introduce un nombre de lote válido (3–120 caracteres).");
+  }
+  const response=await fetcher(commissionPath(input.commissionId)+"/batches",{
+    method:"POST",credentials:"same-origin",cache:"no-store",
+    headers:{"Content-Type":"application/json","Idempotency-Key":makeKey()},
+    body:JSON.stringify({label})
+  });
+  return await expectJson(response) as CreatedBatch;
+}
+
+export async function createCommissionChecklistItem(
+  input:{commissionId:string;area:"works"|"procurement";expectedDocument:string},
+  fetcher:typeof fetch=fetch,
+  makeKey:()=>string=()=>crypto.randomUUID()
+):Promise<CreatedChecklist> {
+  const expectedDocument=input.expectedDocument.trim();
+  if((input.area!=="works"&&input.area!=="procurement")
+    || expectedDocument.length<3||expectedDocument.length>160
+    ||/[\u0000-\u001f\u007f]/.test(input.expectedDocument)) {
+    throw new ApiError(400,"Introduce un ítem y un área válidos.");
+  }
+  const response=await fetcher(commissionPath(input.commissionId)+"/checklist/items",{
+    method:"POST",credentials:"same-origin",cache:"no-store",
+    headers:{"Content-Type":"application/json","Idempotency-Key":makeKey()},
+    body:JSON.stringify({area:input.area,expectedDocument})
+  });
+  return await expectJson(response) as CreatedChecklist;
+}
+
 export interface ChecklistRow {
   id: string;
   area: "works" | "procurement";
   expectedDocument: string;
   status: "pending" | "located" | "not_located" | "observed";
+  statusSource: "stored" | "validated_search";
+  validatedSearchObservationId: string | null;
   reviewedBy: string | null;
   reviewedAt: string | null;
 }
@@ -210,6 +254,86 @@ export async function loadObservationDrafts(
   const body=await expectJson(response);
   if (!Array.isArray(body)) throw new ApiError(502,"Respuesta inesperada de las observaciones.");
   return body as ObservationRow[];
+}
+
+/** Fetches a specific record even when it is older than the 50-item recent list. */
+export async function loadObservationDetail(
+  commissionId: string, observationId: string, fetcher: typeof fetch = fetch
+): Promise<ObservationRow> {
+  if (!validId.test(observationId)) {
+    throw new ApiError(400,"Identificador de observación no válido.");
+  }
+  const response = await fetcher(
+    commissionPath(commissionId)+`/observations/${observationId}`,
+    {credentials:"same-origin",cache:"no-store"}
+  );
+  const body = await expectJson(response);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new ApiError(502,"Respuesta inesperada de la observación.");
+  }
+  const record = body as Partial<ObservationRow>;
+  if (record.id !== observationId || record.commissionId !== commissionId
+    || !Array.isArray(record.evidence) || typeof record.title !== "string"
+    || !["draft","in_review","validated","dismissed"].includes(record.status ?? "")) {
+    throw new ApiError(502,"La evidencia consultada no coincide con la solicitud.");
+  }
+  return record as ObservationRow;
+}
+
+export interface VerifiedReviewReport {
+  file: string;
+  sha256: string;
+  count: number;
+}
+
+/** Verifies the payload hash before a browser may download the internal report. */
+export async function loadVerifiedReviewReport(
+  commissionId: string, fetcher: typeof fetch = fetch
+): Promise<VerifiedReviewReport> {
+  const response = await fetcher(commissionPath(commissionId)+"/observations/export", {
+    credentials: "same-origin", cache: "no-store"
+  });
+  const value = await expectJson(response);
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ApiError(502, "Formato de exportación no válido.");
+  }
+  const report = value as Record<string, unknown>;
+  if (report.format !== "folio-civico.review-export.v1"
+    || typeof report.payload !== "string"
+    || typeof report.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(report.sha256)) {
+    throw new ApiError(502, "La exportación no tiene un manifiesto de integridad válido.");
+  }
+  const encoded = new TextEncoder().encode(report.payload);
+  if (encoded.byteLength > 8 * 1024 * 1024) {
+    throw new ApiError(502, "La exportación supera el límite seguro.");
+  }
+  const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoded)),
+    byte => byte.toString(16).padStart(2, "0")).join("");
+  if (digest !== report.sha256 || (response.headers.get("X-Report-SHA256")
+    && response.headers.get("X-Report-SHA256") !== digest)) {
+    throw new ApiError(502, "La huella SHA-256 de la exportación no coincide.");
+  }
+  let payload: unknown;
+  try {
+    payload = JSON.parse(report.payload);
+  } catch {
+    throw new ApiError(502, "El contenido de la exportación no es válido.");
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new ApiError(502, "El contenido de la exportación no es válido.");
+  }
+  const data = payload as Record<string, unknown>;
+  const commission = data.commission as { id?: unknown } | undefined;
+  const completeness = data.completeness as { included?: unknown; truncated?: unknown } | undefined;
+  const observations = data.observations;
+  if (data.schemaVersion !== 1 || data.kind !== "internal_human_review"
+    || commission?.id !== commissionId || !Array.isArray(observations)
+    || completeness?.truncated !== false || completeness.included !== observations.length
+    || !observations.every(item => item && typeof item === "object"
+      && ["validated","dismissed"].includes(item.status))) {
+    throw new ApiError(502, "La exportación está incompleta o corresponde a otra comisión.");
+  }
+  return { file: JSON.stringify(report), sha256: digest, count: observations.length };
 }
 
 export interface ObservationTransitionInput {

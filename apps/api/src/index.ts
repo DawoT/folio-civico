@@ -3,6 +3,9 @@ import { getCommissionSummary, listAccessibleCommissions, listCommissionBatches,
 import { handleDocumentRequest } from "./document-routes";
 import { handleReviewRequest, type ReviewAction } from "./review-routes";
 import { handleTransitionRequest } from "./transition-routes";
+import { handleObservationDetailRequest } from "./observation-detail";
+import { handleReviewExportRequest } from "./review-export-routes";
+import { handleProvisioningRequest } from "./provisioning-routes";
 import { runQuarantineAudit, runProcessingAudit } from "./maintenance";
 import { handleTextRequest } from "./text-routes";
 
@@ -28,17 +31,23 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
 
   const discovery = url.pathname === "/api/commissions";
   const batches = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/batches$/.exec(url.pathname);
+  const checklistProvision = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/checklist\/items$/.exec(url.pathname);
   const route = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/summary$/.exec(url.pathname);
   const documents = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/batches\/([A-Za-z0-9_-]{1,64})\/documents$/.exec(url.pathname);
   const review = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/(checklist|observations|observations\/drafts|observations\/page-drafts)$/.exec(url.pathname);
   const transition = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/([A-Za-z0-9_-]{1,64})\/actions$/.exec(url.pathname);
+  const reviewExport = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/export$/.exec(url.pathname);
+  const observationDetail = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
   const textPages = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/documents\/([A-Za-z0-9_-]{1,64})\/pages$/.exec(url.pathname);
-  if (!discovery && !batches && !route && !documents && !review && !transition && !textPages) return json({ error: "Not found" }, 404);
-  if ((discovery || batches || route) && request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+  if (!discovery && !batches && !checklistProvision && !route && !documents && !review && !transition && !reviewExport && !observationDetail && !textPages) return json({ error: "Not found" }, 404);
+  if (((discovery || route) && request.method !== "GET")
+    || (batches && request.method !== "GET" && request.method !== "POST")) return json({ error: "Method not allowed" }, 405);
 
   const subject = await authenticateAccess(request, env);
   if (!subject) return json({ error: "Unauthorized" }, 401);
   if (!env.DB) return json({ error: "Service not configured" }, 503);
+  if (batches && request.method === "POST") return handleProvisioningRequest(request,{DB:env.DB},subject,batches[1]!,"batch");
+  if (checklistProvision) return handleProvisioningRequest(request,{DB:env.DB},subject,checklistProvision[1]!,"checklist");
   if (discovery || batches) {
     try {
       if (discovery) return json(await listAccessibleCommissions(env.DB, subject), 200);
@@ -58,6 +67,8 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
       : review[2] === "observations" ? "observations" : "checklist";
     return handleReviewRequest(request, {DB:env.DB},subject,review[1]!,action);
   }
+  if (reviewExport) return handleReviewExportRequest(request,{DB:env.DB},subject,reviewExport[1]!);
+  if (observationDetail) return handleObservationDetailRequest(request,{DB:env.DB},subject,observationDetail[1]!,observationDetail[2]!);
 
   if (!route) return json({ error: "Not found" }, 404);
   try {

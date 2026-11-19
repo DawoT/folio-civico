@@ -84,6 +84,37 @@ describe("signed Access identity to tenant-aware API", () => {
     } finally {f.close();}
   });
 
+  it("provisions a pilot batch and checklist using a signed president identity", async () => {
+    const f=fixture();
+    try {
+      const {token}=await tokenFor("eva");
+      const env={DB:f.db,ACCESS_TEAM_DOMAIN:issuer,ACCESS_AUD:audience};
+      const create=async (path:string,key:string,body:unknown)=>
+        handleApiRequest(new Request("https://folio.test"+path,{
+          method:"POST",
+          headers:{"Cf-Access-Jwt-Assertion":token,"Idempotency-Key":key,
+            "Content-Type":"application/json"},
+          body:JSON.stringify(body)
+        }),env);
+      const batch=await create("/api/commissions/c_a/batches","signed_batch_12345",{label:"Lote piloto nuevo"});
+      expect(batch.status).toBe(201);
+      const checklist=await create("/api/commissions/c_a/checklist/items","signed_check_12345",{
+        area:"procurement",expectedDocument:"Contrato específico de obra"
+      });
+      expect(checklist.status).toBe(201);
+      const listed=await call(f.db,token,"/api/commissions/c_a/batches");
+      expect(listed.status).toBe(200);
+      expect(await listed.json()).toEqual(expect.arrayContaining([expect.objectContaining({label:"Lote piloto nuevo"})]));
+      const items=await call(f.db,token,"/api/commissions/c_a/checklist");
+      expect(items.status).toBe(200);
+      expect(await items.json()).toEqual(expect.arrayContaining([
+        expect.objectContaining({expectedDocument:"Contrato específico de obra",status:"pending"})
+      ]));
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM commission_provisioning_requests").get())
+        .toMatchObject({n:2});
+    } finally {f.close();}
+  });
+
   it("routes a signed human draft with real tenant checks and an auditable record", async () => {
     const f=fixture();
     try {

@@ -147,6 +147,26 @@ h1 { margin: 0; font-size: clamp(29px, 3.2vw, 42px); letter-spacing: -.05em; lin
 .checklist-items strong { font-size: 14px; overflow-wrap: anywhere; }
 .checklist-area { font-size: 11px; color: #075c57; font-weight: 750; text-transform: uppercase; }
 .checklist-status { display: inline-flex; width: fit-content; background: #eef3f1; padding: 5px 8px; border-radius: 5px; color: #435b58; font-size: 12px; }
+.checklist-proof { color: #465e61; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.checklist-proof code { overflow-wrap: anywhere; }
+.linked-observation-card { margin-top: 22px; }
+.linked-observation-id { overflow-wrap: anywhere; }
+.manage-form {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin: 14px 0 18px; padding: 14px; border-radius: 9px;
+  border: 1px solid #d8e5e1; background: #f7faf9;
+}
+.manage-form label { flex-basis: 100%; font-size: 13px; font-weight: 700; }
+.manage-form input,.manage-form select {
+  flex: 1 1 190px; min-width: 0; min-height: 44px; padding: 10px 12px;
+  background: #fff; color: #172740; border: 1px solid #aebfbc; border-radius: 7px;
+}
+.manage-form input:focus-visible,.manage-form select:focus-visible {
+  outline: 3px solid #0f7771; outline-offset: 2px;
+}
+.review-export { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 16px 0 18px; }
+.review-export > p { margin: 0; }
+.report-digest { overflow-wrap: anywhere; word-break: break-all; }
 .review-form { display: flex; flex-direction: column; gap: 10px; }
 .review-form > label:not(.attestation) { font-size: 13px; font-weight: 700; margin-top: 5px; }
 .review-form input:not([type="checkbox"]), .review-form select, .review-form textarea {

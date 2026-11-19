@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { loadChecklist, loadObservationDrafts, submitSearchScopeDraft, transitionObservation } from "./api";
-import { ReviewWorkspace } from "./ReviewWorkspace";
+import { loadChecklist, loadObservationDrafts, loadObservationDetail, loadVerifiedReviewReport, createCommissionBatch, createCommissionChecklistItem, submitSearchScopeDraft, transitionObservation } from "./api";
+import { ReviewWorkspace, ChecklistStatus } from "./ReviewWorkspace";
+import type { ChecklistRow } from "./api";
 
 describe("review API client", () => {
   it("loads checklist with same-origin credentials and no caching", async () => {
@@ -18,6 +19,74 @@ describe("review API client", () => {
     await loadObservationDrafts("c_a",fetcher);
     expect(fetcher).toHaveBeenCalledWith("/api/commissions/c_a/observations",expect.anything());
     await expect(loadObservationDrafts("../c_b",fetcher)).rejects.toThrow();
+  });
+
+  it("loads an exact observation using the same-origin authenticated route, rejecting mismatched responses", async () => {
+    const saved = {id:"obs_123",commissionId:"c_a",title:"Búsqueda revisada",status:"validated",evidence:[],
+      reviewedBy:"eva",reviewNote:"Validación independiente suficiente."};
+    const fetcher = vi.fn(async (_url:RequestInfo|URL,_opts?:RequestInit)=>Response.json(saved));
+    expect(await loadObservationDetail("c_a","obs_123",fetcher)).toMatchObject(saved);
+    expect(fetcher).toHaveBeenCalledWith("/api/commissions/c_a/observations/obs_123",{
+      credentials:"same-origin",cache:"no-store"
+    });
+    await expect(loadObservationDetail("c_a","../unsafe",fetcher)).rejects.toThrow();
+    const forged=vi.fn(async()=>Response.json({...saved,commissionId:"other"}));
+    await expect(loadObservationDetail("c_a","obs_123",forged)).rejects.toThrow();
+  });
+
+  it("downloads a complete, correctly hashed review export from the authorized commission", async () => {
+    const payload=JSON.stringify({
+      schemaVersion:1,kind:"internal_human_review",
+      commission:{id:"c_a"},completeness:{truncated:false,included:1},
+      observations:[{status:"validated",id:"review_1"}]
+    });
+    const sha256=Array.from(new Uint8Array(await crypto.subtle.digest(
+      "SHA-256",new TextEncoder().encode(payload))),x=>x.toString(16).padStart(2,"0")).join("");
+    const envelope={format:"folio-civico.review-export.v1",sha256,payload};
+    const fetcher=vi.fn(async()=>Response.json(envelope));
+    const result=await loadVerifiedReviewReport("c_a",fetcher);
+    expect(result.sha256).toBe(sha256);
+    expect(result.count).toBe(1);
+    expect(JSON.parse(result.file)).toEqual(envelope);
+    expect(fetcher).toHaveBeenCalledWith("/api/commissions/c_a/observations/export",{
+      credentials:"same-origin",cache:"no-store"
+    });
+    const tampered=vi.fn(async()=>Response.json({...envelope,payload:payload+" "}));
+    await expect(loadVerifiedReviewReport("c_a",tampered)).rejects.toThrow();
+    const wrongCommission=vi.fn(async()=>Response.json({...envelope,
+      payload:JSON.stringify({...JSON.parse(payload),commission:{id:"c_b"}})}));
+    await expect(loadVerifiedReviewReport("c_a",wrongCommission)).rejects.toThrow();
+    await expect(loadVerifiedReviewReport("../c_b",fetcher)).rejects.toThrow();
+  });
+
+  it("creates authorized pilot batches and checklist items without supplying actor identity",async()=>{
+    const responses=vi.fn(async (_url:RequestInfo|URL,_options?:RequestInit)=>
+      Response.json({id:"created_1",replayed:false},{status:201}));
+    await createCommissionBatch({commissionId:"c_a",label:"Obras y contratos"},responses,()=> "batch_create_req");
+    await createCommissionChecklistItem({
+      commissionId:"c_a",area:"procurement",expectedDocument:"Contrato adjudicado"
+    },responses,()=> "checklist_create_req");
+    const calls=responses.mock.calls;
+    expect(calls[0]?.[0]).toBe("/api/commissions/c_a/batches");
+    expect(calls[1]?.[0]).toBe("/api/commissions/c_a/checklist/items");
+    for(const [url,options] of calls) {
+      expect(url).toContain("/api/commissions/c_a/");
+      expect(options).toMatchObject({
+        method:"POST",credentials:"same-origin",cache:"no-store",
+        headers:{"Content-Type":"application/json","Idempotency-Key":expect.any(String)}
+      });
+      const data=JSON.parse(options?.body as string);
+      expect(data).not.toHaveProperty("actorSubject");
+      expect(data).not.toHaveProperty("status");
+    }
+  });
+
+  it("renders provisioning only for a president",()=>{
+    const readOnly=renderToStaticMarkup(<ReviewWorkspace scope={{commissionId:"c_a",batchId:"b_a"}} canDraft={true}/>);
+    const president=renderToStaticMarkup(<ReviewWorkspace scope={{commissionId:"c_a",batchId:"b_a"}} canDraft={true} canManage={true}/>);
+    expect(readOnly).not.toContain("Incorporar ítem");
+    expect(president).toContain("Incorporar ítem");
+    expect(president).toContain("Ítem esperado del checklist");
   });
 
   it("submits manual search with no client-supplied reviewer, date or validation status", async () => {
@@ -52,6 +121,26 @@ describe("review API client", () => {
     });
     await expect(transitionObservation({commissionId:"c_a",observationId:"obs_1",
       action:"validate",note:"no"},fetcher)).rejects.toThrow();
+  });
+
+  it("shows confirmed absence as an internal decision with traceable reviewer", () => {
+    const item: ChecklistRow = {
+      id: "item_a", area: "works", expectedDocument: "Expediente",
+      status: "not_located", statusSource: "validated_search",
+      validatedSearchObservationId: "obs_001", reviewedBy: "reviewer", reviewedAt: "2026-11-19 11:00:00"
+    };
+    const markup = renderToStaticMarkup(<ChecklistStatus item={item}/>);
+    expect(markup).toContain("No ubicado");
+    expect(markup).toContain("validación interna");
+    expect(markup).toContain("reviewer");
+    expect(markup).toContain("obs_001");
+    expect(renderToStaticMarkup(<ChecklistStatus item={item} onOpenValidation={()=>{}}/>)).toContain("Ver validación");
+    const pending = renderToStaticMarkup(<ChecklistStatus item={{
+      ...item, status: "pending", statusSource: "stored",
+      validatedSearchObservationId: null, reviewedBy: null, reviewedAt: null
+    }}/>);
+    expect(pending).toContain("Pendiente");
+    expect(pending).not.toContain("validación interna");
   });
 
   it("renders review without pretending to validate an observation", () => {
