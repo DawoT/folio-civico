@@ -64,7 +64,8 @@ No usar una migración remota desde CI hasta disponer de controles explícitos d
 ## Gate 5 · Requisitos pendientes para documentos institucionales
 
 - Base jurídica y acuerdos de tratamiento/residencia/retención de datos.
-- Conectar un servicio **aislado** de inspección antimalware, transformación y extracción/OCR de PDF que firme el contrato de la ADR-007. Configurar clave de firma como secreto de entorno con rotación, nunca en repositorio. El lector de texto existe, pero no hay inspector externo desplegado y no puede consumir originales de cuarentena.
+- Completar la [ADR-008](ADR-008-isolated-inspector-queues.md): desplegar el contenedor aislado con ClamAV, qpdf, Poppler, Tesseract, firmas frescas, gateway privado autenticado y Service Binding `INSPECTOR`. **Aún no está conectado ni probado con motores reales.** Configurar `INSPECTOR_SERVICE_TOKEN` y `INSPECTOR_HMAC_KEY` como secretos exclusivos de `folio-civico-processor`, con rotación.
+- Aprovisionar la Queue `folio-civico-pdf-pending`, su dead-letter queue, productor `PROCESSING_QUEUE` en API, consumidor `folio-civico-processor` y cron de outbox con aprobación y límites de costo; **no existe ninguno en los Wrangler versionados**. Probar recuperación, 422 como `needs_review`, errores 503 y reintentos.
 - Activar y verificar, solo tras aprobación, el trigger programado para el diagnóstico R2–D1. Hoy está **desactivado**. Acordar política de limpieza, retención, borrado e incidentes; la auditoría no elimina ni certifica el contenido físico.
 - Checklist institucional aprobado, provisión y revocación de usuarios, segregación de funciones.
 - Validación de seguridad de la sesión OAuth/MFA; evidencia de pruebas E2E remotas.

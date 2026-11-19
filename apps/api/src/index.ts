@@ -1,5 +1,5 @@
 import { authenticateAccess, type AccessConfig } from "@folio/auth";
-import { getCommissionSummary, listAccessibleCommissions, listCommissionBatches } from "@folio/data";
+import { getCommissionSummary, listAccessibleCommissions, listCommissionBatches, dispatchProcessingOutbox, type ProcessingQueueMessage } from "@folio/data";
 import { handleDocumentRequest } from "./document-routes";
 import { handleReviewRequest, type ReviewAction } from "./review-routes";
 import { handleTransitionRequest } from "./transition-routes";
@@ -9,6 +9,8 @@ import { handleTextRequest } from "./text-routes";
 export interface ApiEnv extends AccessConfig {
   DB?: D1Database;
   DOCUMENTS?: R2Bucket;
+  /** Optional until operator configures an isolated Folio Cívico Queue. */
+  PROCESSING_QUEUE?: Queue<ProcessingQueueMessage>;
 }
 
 function json(body: unknown, status: number): Response {
@@ -76,5 +78,10 @@ export default {
     ctx.waitUntil(runQuarantineAudit(env, (summary) => {
       console.log(JSON.stringify(summary));
     }).then(() => undefined));
+    // Dormant by default: neither a cron nor a Queue binding exists in Wrangler.
+    if (env.PROCESSING_QUEUE && env.DB) {
+      ctx.waitUntil(dispatchProcessingOutbox(env.DB, env.PROCESSING_QUEUE)
+        .then(stats => { console.log(JSON.stringify({kind:"folio.processing.outbox",...stats})); }));
+    }
   }
 } satisfies ExportedHandler<ApiEnv>;

@@ -4,3 +4,4 @@ export * from "./review";
 export * from "./transitions";
 export * from "./quarantine-audit";
 export * from "./inspected-text";
+export * from "./processing-outbox";

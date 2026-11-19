@@ -8,3 +8,5 @@ coverage/
 .pi/
 .mcp-gpt/
 *.log
+__pycache__/
+*.pyc
