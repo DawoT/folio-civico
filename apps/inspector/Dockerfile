@@ -5,8 +5,18 @@ FROM python:3.12-slim-bookworm
 
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    clamav qpdf poppler-utils tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng \
+    clamav clamav-freshclam qpdf poppler-utils tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng \
   && rm -rf /var/lib/apt/lists/*
+
+# Fetch trusted AV definitions during image build. A failed download fails
+# the build. With enableInternet=false, runtime cannot silently refresh them:
+# rebuild and replace the image before the 72-hour freshness gate expires.
+# Do not put signatures or credentials in the git repository.
+RUN mkdir -p /opt/clamdb \
+  && chown clamav:clamav /opt/clamdb \
+  && freshclam --datadir=/opt/clamdb \
+  && find /opt/clamdb -type f \( -name '*.cvd' -o -name '*.cld' \) -print -quit | grep -q . \
+  && chmod -R a+rX /opt/clamdb
 
 WORKDIR /srv/folio-inspector
 COPY --chown=65534:65534 inspector.py /srv/folio-inspector/inspector.py

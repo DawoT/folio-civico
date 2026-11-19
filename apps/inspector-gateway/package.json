@@ -1,0 +1,8 @@
+{
+  "name":"@folio/inspector-gateway",
+  "version":"0.1.0",
+  "private":true,
+  "type":"module",
+  "scripts":{"build":"wrangler deploy --dry-run --outdir dist"},
+  "dependencies":{"@folio/data":"workspace:*"}
+}

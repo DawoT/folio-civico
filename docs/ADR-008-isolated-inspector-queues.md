@@ -61,17 +61,17 @@ Configuración **orientativa, no aplicada**, solo para cuando el operador haya c
 ]
 ```
 
-El gateway `folio-civico-inspector-gateway` **todavía no existe** y debe implementar autenticación y transporte a la red privada del contenedor. Las dos claves `INSPECTOR_SERVICE_TOKEN` e `INSPECTOR_HMAC_KEY` deben instalarse como secretos del Worker (nunca en `vars`). No insertar estos fragmentos en Wrangler antes de comprobar, con una cuenta aislada, que las Queues y el gateway existen y están protegidos.
+**Evolución (ADR-009):** el código del gateway `folio-civico-inspector-gateway` ya existe como Worker y Durable Object Container, con configuración activa inerte y plantilla privada de habilitación. No hay instancias ni Service Binding remoto desplegados. `INSPECTOR_SERVICE_TOKEN` y `INSPECTOR_HMAC_KEY` se configuran solo como secretos de Processor y Gateway (nunca en `vars`); **la clave HMAC no se pasa al contenedor**. No incorporar estos fragmentos en Wrangler hasta que exista una cuenta aislada con autorización, Queues y gateway protegidos.
 
 ### 3. Inspector de PDF aislado, ejecutable, sin autoaprobar documentos
 
-`apps/inspector/inspector.py` es un servidor HTTP de uso exclusivo interno (`POST /inspect`) con autenticación mediante token de servicio, HMAC de resultado y tamaño de entrada 8 MiB. No expone un endpoint público a usuarios finales. Es obligatorio disponer de:
+`apps/inspector/inspector.py` es un servidor HTTP de uso exclusivo interno (`POST /inspect`) con autenticación mediante token de servicio y tamaño de entrada 8 MiB. En su modo local original puede firmar HMAC; **en la integración Cloudflare (`FOLIO_INSPECTOR_OUTPUT_MODE=unsigned`) únicamente devuelve un manifiesto sin firma que el Worker Gateway comprueba y firma** (ADR-009). No expone un endpoint público a usuarios finales. Es obligatorio disponer de:
 
 - **ClamAV:** base de firmas montada en modo lectura, presencia de `.cvd`/`.cld` y antigüedad aparente máxima de 72 horas; un escaneo no limpio o fallido no puede declarar `clean`. La edad de archivo es una comprobación operativa, no una garantía criptográfica de actualización de firmas.
 - **qpdf:** `--check` sobre el original, con rechazo ante errores de estructura. Los errores de motor ClamAV (código 2) se clasifican como indisponibilidad, no como detección (código 1).
 - **Poppler:** `pdfdetach` rechaza archivos incrustados, `pdfinfo` rechaza cifrado y limita el expediente a 100 páginas. `pdftotext` extrae cada página individualmente.
 - **Tesseract:** si la página no produce texto, `pdftoppm` genera una rasterización **solo interna** y Tesseract ejecuta OCR `spa+eng`. La página debe producir texto no vacío y de máximo 8 000 caracteres, sin controles peligrosos.
-- **Firma:** el informe `clean` sigue el JSON determinista de ADR-007; una clave secreta de 32+ bytes firma el manifiesto con HMAC-SHA256. No se devuelve PDF, imagen rasterizada ni rutas internas.
+- **Firma:** en modo local `signed`, Python firma HMAC; en Cloudflare Containers (ADR-009), el proceso de análisis devuelve JSON no firmado y el Worker gateway, único tenedor de la clave HMAC, firma después de verificarlo. No devuelve PDF, imagen rasterizada ni rutas internas.
 
 Usa `subprocess.run` con argumentos explícitos (sin shell), timeout de 30 segundos por herramienta y presupuesto total de 8 minutos por PDF, directorio temporal privado y no incluye contenido documental en logs. `Dockerfile` instala los ejecutables requeridos y se ejecuta con UID 65534, pero su aislamiento efectivo **depende de flags/políticas del orquestador**.
 
@@ -103,7 +103,7 @@ Los paths `/secure/*` son ejemplos que el operador debe sustituir. La red debe p
 ## Dependencias necesarias antes de un piloto
 
 1. Aprovisionar exclusivamente para Folio Cívico: Queue de pendientes y **dead-letter queue**, productor/consumidor, cron, D1/R2 y Access/OAuth, con aprobación de costos. La retención de fallos exige la DLQ: sin ella, Cloudflare puede descartar mensajes agotados.
-2. Implementar y securizar el **gateway privado de Service Binding** que enlaza el Worker `INSPECTOR` con el contenedor HTTP aislado. No existe ese gateway actualmente; sin él no hay cadena ejecutable remota. Mantener acceso a los originales limitado a la conexión de inspección.
+2. **Desplegar y verificar** el gateway de Service Binding ya implementado en `apps/inspector-gateway` con el contenedor HTTP aislado. El código existe, pero **no hay ninguna instancia Container ni Service Binding remoto activo**; sin ellos no hay cadena ejecutable real. Mantener acceso a los originales limitado a la conexión de inspección.
 3. Inyectar y rotar secretos de servicio/HMAC como secretos de Cloudflare, jamás como `vars` o en el repo; restringir identidad y egreso del contenedor y supervisar su base ClamAV.
 4. Verificar con **motores reales y fixtures sintéticos**: PDF nativo, página escaneada con OCR, adjuntos, PDF cifrado, archivo EICAR controlado, PDF dañado y firmas antiguas. Limitar fallos por recurso, extracción incompleta y timeout.
 5. Probar toda la cadena en Preview protegido y con cuenta aislada: carga → D1 outbox → Queue → servicio aislado → manifiesto firmado → D1 texto → cita humana. Validar la DLQ, métricas, concurrencia y reintentos.
@@ -115,6 +115,6 @@ Los paths `/secure/*` son ejemplos que el operador debe sustituir. La red debe p
 - No hay URL del inspector configurable por el mensaje, ruta pública de sus originales ni procesamiento en la API frontend.
 - `needs_review` es conservador, nunca aprobación. El pipeline no sustituye revisión normativa ni inspección humana y puede producir falsos positivos o falsos negativos.
 - El scanner no sanea un derivado visual para descarga; el visor seguro PDF sigue pendiente.
-- No se documenta `Cloudflare Service Binding` como equivalente a conectar directamente un contenedor Python. Requiere un gateway separado y una arquitectura autorizada para la plataforma.
+- El Service Binding del Processor apunta al gateway Worker de ADR-009, el cual utiliza un Durable Object y el puerto privado del Container. **Sigue desactivado** hasta contar con una arquitectura de Preview autorizada, secrets reales y firmas vigentes.
 
 **Referencias:** [ADR-007](ADR-007-inspected-text-gate.md), [roadmap](ROADMAP.md), documentación oficial de [Cloudflare Queues](https://developers.cloudflare.com/queues/configuration/configure-queues/) y [reintentos/DLQ](https://developers.cloudflare.com/queues/configuration/batching-retries/).

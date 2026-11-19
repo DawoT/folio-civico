@@ -173,6 +173,104 @@ class ScannerTests(unittest.TestCase):
             inspector.inspect_pdf(PDF, "ver_a", SHA,
                                   signatures=self.signatures, run=unavailable)
 
+    def test_cloudflare_container_env_secrets_are_supported_without_files(self):
+        with patch.dict(os.environ, {
+            "FOLIO_INSPECTOR_SERVICE_TOKEN": "synthetic" * 6,
+            "FOLIO_INSPECTOR_HMAC_KEY": "synthetic-hmac" * 4,
+        }):
+            self.assertEqual(inspector.secret_file("FOLIO_INSPECTOR_TOKEN_FILE"),
+                             ("synthetic" * 6).encode())
+            self.assertEqual(inspector.secret_file("FOLIO_INSPECTOR_HMAC_FILE"),
+                             ("synthetic-hmac" * 4).encode())
+
+    def test_container_readiness_rejects_missing_engines_or_stale_signatures(self):
+        with patch.dict(os.environ, {
+            "FOLIO_INSPECTOR_SERVICE_TOKEN": "synthetic" * 6,
+            "FOLIO_INSPECTOR_HMAC_KEY": "synthetic-hmac" * 4,
+            "CLAMAV_DB_DIR": str(self.signatures),
+        }):
+            with patch.object(inspector.shutil, "which", return_value=None):
+                with self.assertRaises(inspector.ScannerUnavailable):
+                    inspector.inspection_ready()
+            with patch.object(inspector.shutil, "which", return_value="/usr/bin/fake"):
+                inspector.inspection_ready()
+                (self.signatures / "daily.cld").unlink()
+                with self.assertRaises(inspector.ScannerUnavailable):
+                    inspector.inspection_ready()
+
+    def test_gateway_health_is_private_and_fails_when_inspector_unavailable(self):
+        from http.client import HTTPConnection
+        from http.server import HTTPServer
+        from threading import Thread
+        service = HTTPServer(("127.0.0.1", 0), inspector.InspectorHandler)
+        thread = Thread(target=service.serve_forever, daemon=True)
+        thread.start()
+        def health():
+            connection = HTTPConnection("127.0.0.1", service.server_port, timeout=3)
+            connection.request("GET", "/health")
+            response = connection.getresponse()
+            status, content = response.status, response.read()
+            connection.close()
+            return status, content
+        try:
+            with patch.object(inspector, "inspection_ready",
+                              side_effect=inspector.ScannerUnavailable("not ready")):
+                self.assertEqual(health(), (503, b""))
+            with patch.object(inspector, "inspection_ready", return_value=None):
+                self.assertEqual(health(), (200, b""))
+        finally:
+            service.shutdown()
+            thread.join(timeout=3)
+            service.server_close()
+
+    def test_cloudflare_unsigned_mode_keeps_hmac_out_of_parser_environment(self):
+        from http.client import HTTPConnection
+        from http.server import HTTPServer
+        from threading import Thread
+
+        manifest = {
+            "documentVersionId": "ver_a", "sourceSha256": SHA,
+            "scanVerdict": "clean", "scanner": "isolated-scanner-v1",
+            "scannerReportId": "report_test_87654321",
+            "scannedAt": "2026-11-18T19:00:00.000Z",
+            "pages": [{"page": 1, "text": "Referencia sintética"}]
+        }
+        with patch.dict(os.environ, {
+            "FOLIO_INSPECTOR_OUTPUT_MODE": "unsigned",
+            "FOLIO_INSPECTOR_SERVICE_TOKEN": ("synthetic" * 6),
+            "CLAMAV_DB_DIR": str(self.signatures)
+        }, clear=True):
+            with patch.object(inspector.shutil, "which", return_value="/usr/bin/fake"):
+                inspector.inspection_ready()  # No HMAC secret required.
+            server = HTTPServer(("127.0.0.1", 0), inspector.InspectorHandler)
+            thread = Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with patch.object(inspector, "inspect_pdf", return_value=manifest) as mocked:
+                    connection = HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+                    connection.request("POST", "/inspect", body=PDF, headers={
+                        "Content-Type": "application/pdf",
+                        "X-Folio-Document-Version": "ver_a",
+                        "X-Folio-Source-Sha256": SHA,
+                        "X-Folio-Inspector-Token": "synthetic" * 6
+                    })
+                    response = connection.getresponse()
+                    raw = response.read()
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(json.loads(raw), {"manifest": manifest})
+                    self.assertNotIn(b"signature", raw)
+                    mocked.assert_called_once()
+                    connection.close()
+            finally:
+                server.shutdown()
+                thread.join(timeout=3)
+                server.server_close()
+
+    def test_inspector_rejects_unexpected_signing_mode(self):
+        with patch.dict(os.environ, {"FOLIO_INSPECTOR_OUTPUT_MODE": "unverified"}):
+            with self.assertRaises(inspector.ScannerUnavailable):
+                inspector.inspection_output_mode()
+
     def test_http_service_authenticates_and_bounds_binary_input(self):
         from http.client import HTTPConnection
         from http.server import HTTPServer

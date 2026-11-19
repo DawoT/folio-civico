@@ -1,0 +1,33 @@
+{
+  // REVIEW ONLY. Do not deploy without isolated Preview account and approval.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "folio-civico-inspector-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-18",
+  "workers_dev": false,
+  "preview_urls": false,
+  "containers": [{
+    "class_name": "InspectorContainer",
+    "scheduling_policy": "durable_object",
+    "images": {
+      "base": {
+        "dockerfile": "../inspector/Dockerfile",
+        "build_context": "../inspector"
+      }
+    }
+  }],
+  "durable_objects": {
+    "bindings": [{
+      "name": "INSPECTOR_CONTAINER",
+      "class_name": "InspectorContainer"
+    }]
+  },
+  "exports": {
+    "InspectorContainer": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
+  // Secrets (not committed): INSPECTOR_SERVICE_TOKEN, INSPECTOR_HMAC_KEY.
+  // Deploy requires a fresh, trusted, verified ClamAV signature database.
+}

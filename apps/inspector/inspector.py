@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -165,13 +166,40 @@ def signed_result(manifest: dict, key: bytes) -> bytes:
 
 
 def secret_file(path_variable: str) -> bytes:
+    # Local Docker deployments use mounted secret files. Cloudflare Containers
+    # receives Worker secrets via ctx.container.start({env:...}).
     filename = os.environ.get(path_variable, "")
-    if not filename or not Path(filename).is_file():
-        raise ScannerUnavailable("Required private secret mount is missing")
-    result = Path(filename).read_bytes().strip()
+    if filename:
+        if not Path(filename).is_file():
+            raise ScannerUnavailable("Required private secret mount is missing")
+        result = Path(filename).read_bytes().strip()
+    else:
+        fallback = {
+            "FOLIO_INSPECTOR_TOKEN_FILE": "FOLIO_INSPECTOR_SERVICE_TOKEN",
+            "FOLIO_INSPECTOR_HMAC_FILE": "FOLIO_INSPECTOR_HMAC_KEY"
+        }.get(path_variable)
+        result = os.environ.get(fallback, "").encode() if fallback else b""
     if len(result) < 32:
-        raise ScannerUnavailable("Private secret is too short")
+        raise ScannerUnavailable("Private secret is missing or too short")
     return result
+
+
+def inspection_output_mode() -> str:
+    mode = os.environ.get("FOLIO_INSPECTOR_OUTPUT_MODE", "signed")
+    if mode not in ("signed", "unsigned"):
+        raise ScannerUnavailable("Unsupported inspection output mode")
+    return mode
+
+
+def inspection_ready() -> None:
+    secret_file("FOLIO_INSPECTOR_TOKEN_FILE")
+    if inspection_output_mode() == "signed":
+        secret_file("FOLIO_INSPECTOR_HMAC_FILE")
+    require_fresh_signatures(Path(os.environ.get("CLAMAV_DB_DIR", "/opt/clamdb")))
+    engines = ("clamscan", "qpdf", "pdfinfo", "pdfdetach",
+               "pdftotext", "pdftoppm", "tesseract")
+    if any(shutil.which(engine) is None for engine in engines):
+        raise ScannerUnavailable("One or more mandatory scanner engines are unavailable")
 
 
 class InspectorHandler(BaseHTTPRequestHandler):
@@ -182,13 +210,25 @@ class InspectorHandler(BaseHTTPRequestHandler):
         # Never log request headers, PDF filenames, raw text or document IDs.
         pass
 
+    def do_GET(self) -> None:
+        if self.path != "/health":
+            self.reply(404)
+            return
+        try:
+            inspection_ready()
+            self.reply(200)
+        except (ScannerUnavailable, OSError):
+            self.reply(503)
+
     def do_POST(self) -> None:
         if self.path != "/inspect":
             self.reply(404)
             return
         try:
             token = secret_file("FOLIO_INSPECTOR_TOKEN_FILE")
-            signed_key = secret_file("FOLIO_INSPECTOR_HMAC_FILE")
+            mode = inspection_output_mode()
+            signed_key = (secret_file("FOLIO_INSPECTOR_HMAC_FILE")
+                          if mode == "signed" else None)
             candidate = self.headers.get("X-Folio-Inspector-Token", "").encode()
             if not hmac.compare_digest(token, candidate):
                 self.reply(403)
@@ -210,7 +250,13 @@ class InspectorHandler(BaseHTTPRequestHandler):
                 self.headers.get("X-Folio-Source-Sha256", ""),
                 signatures=Path(os.environ.get("CLAMAV_DB_DIR", "/opt/clamdb"))
             )
-            result = signed_result(manifest, signed_key)
+            # In Cloudflare Containers the gateway Worker, not this lower-trust
+            # parser process, owns the signing key. The unsigned result never
+            # reaches the application without verification and gateway signing.
+            result = (signed_result(manifest, signed_key)
+                      if signed_key is not None else
+                      json.dumps({"manifest": manifest}, ensure_ascii=False,
+                                 separators=(",", ":")).encode("utf-8"))
             if len(result) > 2 * 1024 * 1024:
                 self.reply(422)
                 return
@@ -241,7 +287,5 @@ if __name__ == "__main__":
     host = os.environ.get("FOLIO_INSPECTOR_BIND", "127.0.0.1")
     if host not in ("127.0.0.1", "0.0.0.0"):
         raise SystemExit("Unsafe inspector bind address")
-    secret_file("FOLIO_INSPECTOR_TOKEN_FILE")
-    secret_file("FOLIO_INSPECTOR_HMAC_FILE")
-    require_fresh_signatures(Path(os.environ.get("CLAMAV_DB_DIR", "/opt/clamdb")))
+    inspection_ready()
     HTTPServer((host, 8789), InspectorHandler).serve_forever()

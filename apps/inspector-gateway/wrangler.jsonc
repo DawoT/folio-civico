@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "folio-civico-inspector-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-18",
+  "workers_dev": false,
+  "preview_urls": false
+  // Intentionally NO Container/Durable Object binding, no public route, and
+  // no secrets in the checked-in active config. Disabled until approval.
+}

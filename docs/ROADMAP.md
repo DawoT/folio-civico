@@ -7,7 +7,7 @@ Actualizado: 2026-11-18. Alcance de piloto: municipalidad distrital, obras y con
 | P0 | Monorepo, TypeScript, vitest, CI y documentación | Acceso al repositorio | **Completado como fundación** |
 | P1 | D1, autorización, evidencia, auditoría y contratos | P0; matriz de roles | **Parcial: evidencia persistente, idempotencia, auditoría y validación interna de dos personas; entorno real pendiente** |
 | P2 | Mesa React, PDF, R2 en cuarentena, checklist y borradores | P1 | **Parcial: mesa, R2, decisiones y lector de texto inspeccionado con citas por página; escaneo y visor PDF pendientes** |
-| P3 | Queues/Workflows, extracción, OCR por página e IA supervisada | P2; dataset anónimo | **Parcial: outbox transaccional, consumidor Queue y código del inspector aislado con ClamAV/Poppler/Tesseract; gateway, recursos y pruebas con motores reales pendientes** |
+| P3 | Queues/Workflows, extracción, OCR por página e IA supervisada | P2; dataset anónimo | **Parcial: outbox, consumidor Queue, inspector Python y gateway privado Cloudflare Containers/Durable Objects implementados en código; despliegue, recursos y pruebas con motores reales pendientes** |
 | P4 | MCP OAuth y herramientas de lectura/escritura controladas | P1 y Cloudflare Access | **Parcial: servidor de lectura sin despliegue** |
 | P5 | DOCX, E2E, seguridad, retención, medición del ahorro | P2–P4; aprobación legal | Pendiente |
 
@@ -15,7 +15,7 @@ Actualizado: 2026-11-18. Alcance de piloto: municipalidad distrital, obras y con
 
 Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación mínima; (3) refactorización; (4) tests + typecheck + dry-run build; (5) registro de resultados y riesgos. Las migraciones se verifican en D1 local antes de cualquier aplicación remota.
 
-## Entrega actual: P0/P1h + P2f + P3a + P4b
+## Entrega actual: P0/P1h + P2f + P3b + P4b
 
 - [x] Tests que rechazan permisos entre comisiones, sujetos incorrectos e inactivos.
 - [x] Dos clases de evidencia documental diferenciadas: página existente y alcance de búsqueda sin resultado; soporte para fuente oficial.
@@ -54,7 +54,11 @@ Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación m
 - [x] Outbox D1 transaccional por versión con migraciones `0011`/`0012`, estados protegidos por triggers, reintentos limitados, mensajes sin contenido documental y marcado atómico de `completed` al admitir inspección.
 - [x] Código de consumidor independiente `apps/processor` con verificación de R2 físico, paso a Service Binding privado, firma HMAC, idempotencia, auditoría de rechazos y reintentos por mensaje; **sin bindings de Queue habilitados**.
 - [x] Implementación ejecutable del servicio de inspección aislado `apps/inspector`: flujo obligatorio ClamAV, qpdf, Poppler y OCR Tesseract cuando es necesario; rechaza cifrado/adjuntos, límites estrictos, firma y contenedor sin privilegios. **Motores reales aún no probados aquí**.
-- [ ] Gateway de Service Binding al contenedor, montaje y actualización segura de firmas ClamAV, pruebas reales de antivirus/OCR con fixtures, DLQ, Queues y cron dedicados, integraciones E2E de Preview.
+- [x] Gateway privado `apps/inspector-gateway` con Durable Object Container API actual, autenticación de servicio, validación de SHA-256, límites de bytes y firma HMAC en Worker fuera del contenedor; sin binding activo ni rutas públicas.
+- [x] Python en modo Cloudflare `unsigned` sin clave HMAC; pruebas de salud del scanner y de la separación de secretos; firmas ClamAV exigidas en la construcción del Dockerfile (imagen **aún no construida**).
+- [x] Pruebas sintéticas locales de flujo Processor → Gateway → manifiesto firmado → D1 listo, más gate que bloquea activación accidental de Containers/Queues en los Wrangler activos.
+- [ ] Construir y ensayar imagen con ClamAV/Poppler/Tesseract y firmas actuales en contenedor real; aprovisionar Service Binding y Cloudflare Container en entorno autorizado.
+- [ ] Desplegar y verificar DLQ, Queues, cron, Access/MFA y E2E reales de Preview con solo datos sintéticos.
 - [ ] Integrar motor de Workflows y políticas de recuperación de tareas prolongadas; IA supervisada con dataset sintético/anonimizado.
 - [ ] Visor visual de documentos saneados y descargas controladas, solo tras inspección y aprobación normativa.
 - [x] Conciliación diagnóstica R2–D1: candidatos huérfanos con antigüedad ≥48 h, referencias ausentes, metadatos SHA-256 incompatibles, paginación/límites explícitos y cero borrados.
