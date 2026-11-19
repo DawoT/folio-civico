@@ -24,16 +24,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test
-      - name: Test isolated inspector orchestration (mock engines)
-        run: python3 -m unittest discover -s apps/inspector/tests
-      - run: pnpm typecheck
-      - run: pnpm build
-      - run: pnpm test:workers
-      - name: Verify API local D1 migrations
-        run: pnpm exec wrangler d1 migrations apply folio-civico-preview --local --config apps/api/wrangler.jsonc
-      - name: Verify MCP local D1 migrations
-        run: pnpm exec wrangler d1 migrations apply folio-civico-preview --local --config apps/mcp/wrangler.jsonc
-      - name: Verify Processor local D1 migrations
-        run: pnpm exec wrangler d1 migrations apply folio-civico-preview --local --config apps/processor/wrangler.jsonc
+      # Not required for local development. When Actions is available again,
+      # it must run the exact same gates as sh scripts/ci.sh.
+      - name: Run local CI contract
+        run: sh scripts/ci.sh

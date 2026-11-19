@@ -11,7 +11,7 @@ Folio Cívico es una mesa de revisión documental asistida por IA para comisione
 - **No implementado todavía:** **resolución o evaluación formal de los CVE críticos/altos de la imagen, procesamiento documental remoto en Cloudflare Containers/Queues, integración E2E con Access/MFA y verificación antimalware/OCR sobre el pipeline real; el smoke local de motores sí pasó**, visor visual del PDF, aprovisionamiento/activación de Queues/cron/DLQ/Workflows, borrado/retención automatizados en R2, verificación sistemática de todos los originales (solo se rehashea el original en la puerta de admisión), firma o aprobación oficial de observaciones, actualización del checklist, exportación DOCX, onboarding, OAuth/Access configurado, herramientas MCP de escritura ni despliegue. La interfaz web inicial solo lista y registra PDFs; no permite ver originales de cuarentena.
 - **Seguridad de arranque:** los endpoints protegidos deniegan acceso si faltan las variables de Cloudflare Access o la membresía activa de la comisión. No se aceptan identidades enviadas por el navegador.
 
-Ver [roadmap](docs/ROADMAP.md), [arquitectura](docs/ADR-001-cloudflare-mcp.md), [decisión de ingesta](docs/ADR-002-r2-intake.md), [autorización y descubrimiento](docs/ADR-003-auth-discovery.md), [borradores con evidencia](docs/ADR-004-human-review.md), [idempotencia y revisión humana](docs/ADR-005-human-decisions.md), [conciliación R2–D1](docs/ADR-006-quarantine-reconciliation.md), [admisión firmada y consulta por página](docs/ADR-007-inspected-text-gate.md), [inspector aislado y colas](docs/ADR-008-isolated-inspector-queues.md), [gateway privado de Containers](docs/ADR-009-private-container-gateway.md), [validación real del inspector](docs/ADR-010-real-inspector-smoke-gates.md), [diagnóstico de cola documental](docs/ADR-011-processing-backlog-audit.md), [actualización de ClamAV y firma del proveedor](docs/ADR-012-patched-clamav-supply-chain.md), [SBOM y gate de vulnerabilidades](docs/ADR-013-inspector-sbom-cve-gate.md), [parche zlib y caducidad de firmas](docs/ADR-014-native-zlib-signature-lifecycle.md), [guía de Preview](docs/PREVIEW_CHECKLIST.md) y [modelo de evidencias](docs/EVIDENCE.md).
+Ver [plan de ejecución e integración](docs/EXECUTION_PLAN.md), [roadmap](docs/ROADMAP.md), [arquitectura](docs/ADR-001-cloudflare-mcp.md), [decisión de ingesta](docs/ADR-002-r2-intake.md), [autorización y descubrimiento](docs/ADR-003-auth-discovery.md), [borradores con evidencia](docs/ADR-004-human-review.md), [idempotencia y revisión humana](docs/ADR-005-human-decisions.md), [conciliación R2–D1](docs/ADR-006-quarantine-reconciliation.md), [admisión firmada y consulta por página](docs/ADR-007-inspected-text-gate.md), [inspector aislado y colas](docs/ADR-008-isolated-inspector-queues.md), [gateway privado de Containers](docs/ADR-009-private-container-gateway.md), [validación real del inspector](docs/ADR-010-real-inspector-smoke-gates.md), [diagnóstico de cola documental](docs/ADR-011-processing-backlog-audit.md), [actualización de ClamAV y firma del proveedor](docs/ADR-012-patched-clamav-supply-chain.md), [SBOM y gate de vulnerabilidades](docs/ADR-013-inspector-sbom-cve-gate.md), [parche zlib y caducidad de firmas](docs/ADR-014-native-zlib-signature-lifecycle.md), [guía de Preview](docs/PREVIEW_CHECKLIST.md) y [modelo de evidencias](docs/EVIDENCE.md).
 
 ## Requisitos
 
@@ -24,6 +24,9 @@ pnpm typecheck
 pnpm build
 pnpm test:workers
 pnpm test:inspector
+
+# Gate único de integración local (sin GitHub Actions ni recursos remotos):
+sh scripts/ci.sh
 
 # Solo en host local aislado con ≥8 GiB de disco libre, 4 GiB RAM y Docker:
 # pnpm test:inspector:docker
