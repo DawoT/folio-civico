@@ -78,6 +78,9 @@ RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates qpdf poppler-utils libleptonica6 tesseract-ocr-spa tesseract-ocr-eng zlib1g \
   && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' zlib1g)" ge "1:1.3.dfsg+really1.3.1-1+deb13u1" \
+  && test -r /etc/fonts/fonts.conf \
+  && test ! -L /etc/fonts/fonts.conf \
+  && test -d /etc/fonts/conf.d \
   && rm -rf /var/lib/apt/lists/*
 
 # The source-verified OCR executable and shared library do not depend on

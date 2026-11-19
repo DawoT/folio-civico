@@ -116,6 +116,61 @@ class ScannerTests(unittest.TestCase):
                 inspector.inspect_pdf(PDF, "ver_a", SHA,
                                       signatures=self.signatures, run=unreliable)
 
+    def test_parser_children_receive_only_immutable_allowlisted_environment(self):
+        """A memory-disclosure CVE in a PDF/AV parser must not expose service keys."""
+        from subprocess import CompletedProcess
+        poison = {
+            "FOLIO_INSPECTOR_SERVICE_TOKEN": "synthetic-private-token-" * 3,
+            "FOLIO_INSPECTOR_HMAC_KEY": "synthetic-hmac-key-" * 4,
+            "LD_PRELOAD": "/tmp/malicious.so",
+            "LD_LIBRARY_PATH": "/tmp/untrusted-libs",
+            "FONTCONFIG_FILE": "/tmp/attacker-fonts.xml",
+            "FONTCONFIG_PATH": "/tmp/attacker-fontconfig",
+            "FONTCONFIG_SYSROOT": "/tmp/attacker-root",
+            "XDG_CONFIG_HOME": "/tmp/user-font-config",
+            "XDG_CACHE_HOME": "/tmp/user-font-cache",
+            "HOME": "/tmp/attacker-home",
+            "TESSDATA_PREFIX": "/tmp/attacker-tessdata",
+            "PATH": "/tmp/attacker-bin",
+            "PYTHONPATH": "/tmp/attacker-py",
+        }
+        with patch.dict(os.environ, poison), patch.object(
+            inspector.subprocess, "run",
+            return_value=CompletedProcess(["clamscan", "--version"], 0, b"", b""),
+        ) as invoked:
+            inspector.command(["clamscan", "--version"], self.signatures)
+        child = invoked.call_args.kwargs["env"]
+        self.assertEqual(child, {
+            "PATH": "/opt/folio-poppler/bin:/opt/folio-ocr/bin:/usr/local/bin:/usr/bin:/bin",
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+            "TESSDATA_PREFIX": "/usr/share/tesseract-ocr/5/tessdata",
+            "FONTCONFIG_FILE": "/etc/fonts/fonts.conf",
+            "FONTCONFIG_PATH": "/etc/fonts",
+            "HOME": "/nonexistent",
+            "XDG_CONFIG_HOME": "/nonexistent",
+            "XDG_CACHE_HOME": "/nonexistent",
+        })
+        for secret in poison.values():
+            self.assertNotIn(secret, child.values())
+        self.assertEqual(set(child), set(inspector.engine_environment()))
+
+    def test_real_child_inherits_no_service_credentials_or_custom_fontconfig(self):
+        """Direct child-process contract, not merely an inspected mock call."""
+        with patch.dict(os.environ, {
+            "FOLIO_INSPECTOR_SERVICE_TOKEN": "private-test-token",
+            "FOLIO_INSPECTOR_HMAC_KEY": "private-test-hmac",
+            "FONTCONFIG_FILE": "/tmp/injected-fonts.conf",
+            "XDG_CONFIG_HOME": "/tmp/injected-xdg",
+            "LD_LIBRARY_PATH": "/tmp/injected-library",
+        }):
+            raw = inspector.command(
+                [sys.executable, "-c",
+                 "import json,os;print(json.dumps(dict(os.environ),sort_keys=True))"],
+                self.signatures,
+            )
+        self.assertEqual(json.loads(raw), inspector.engine_environment())
+
     def test_security_patch_version_policy_rejects_outdated_clamav(self):
         for raw in ("ClamAV 1.4.6", "ClamAV 1.5.4/28185/Mon Nov 16 2026",
                     "", "ClamAV unknown", "ClamAV 1.5.4-masquerade"):

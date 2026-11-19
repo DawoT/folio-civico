@@ -82,6 +82,27 @@ MAX_ENGINE_OUTPUT_BYTES = 2 * 1024 * 1024
 MIN_CLAMAV_RELEASE = (1, 5, 5)
 QPDF_UNENCRYPTED = "not_encrypted"
 
+# Never let an untrusted PDF/AV parser inherit the service token, HMAC key,
+# loader hooks, or caller-defined Fontconfig XML. Fontconfig must keep using
+# the image-owned system configuration: removing it lost visible PDF text.
+# This is a defense-in-depth control, NOT a fix for Expat or Poppler CVEs.
+_ENGINE_ENV = {
+    "PATH": "/opt/folio-poppler/bin:/opt/folio-ocr/bin:/usr/local/bin:/usr/bin:/bin",
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+    "TESSDATA_PREFIX": "/usr/share/tesseract-ocr/5/tessdata",
+    "FONTCONFIG_FILE": "/etc/fonts/fonts.conf",
+    "FONTCONFIG_PATH": "/etc/fonts",
+    "HOME": "/nonexistent",
+    "XDG_CONFIG_HOME": "/nonexistent",
+    "XDG_CACHE_HOME": "/nonexistent",
+}
+
+
+def engine_environment() -> dict[str, str]:
+    """Fresh, deterministic subprocess environment without caller secrets."""
+    return dict(_ENGINE_ENV)
+
 
 def verify_clamav_version(raw: str) -> None:
     """Refuse the ClamAV releases affected by November 2026 CVEs.
@@ -105,7 +126,8 @@ def command(argv: list[str], cwd: Path, seconds: int = MAX_PROCESS_SECONDS) -> s
         try:
             result = subprocess.run(
                 argv, cwd=cwd, check=False, stdout=output,
-                stderr=subprocess.DEVNULL, timeout=seconds
+                stderr=subprocess.DEVNULL, timeout=seconds,
+                env=engine_environment()
             )
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as error:
             raise ScannerUnavailable("Required inspector engine unavailable") from error

@@ -63,6 +63,9 @@ RUN set -eux; \
     # Removing this font backend silently renders unembedded Helvetica PDFs blank. \
     # Preserve fontconfig until Expat is patched without breaking PDF fidelity. \
     ldd /opt/folio-poppler/lib/libpoppler.so.147 | grep -q 'libfontconfig'; \
+    test -r /etc/fonts/fonts.conf; \
+    test ! -L /etc/fonts/fonts.conf; \
+    test -d /etc/fonts/conf.d; \
     for binary in pdftotext pdftoppm pdfinfo pdfdetach pdfattach; do \
       test -x "/opt/folio-poppler/bin/$binary"; \
       linked="$(ldd "/opt/folio-poppler/bin/$binary")"; \

@@ -104,6 +104,18 @@ class DeploymentActivationGates(unittest.TestCase):
             dockerfile.index("freshclam --config-file")
         )
 
+    def test_runtime_contains_trusted_fontconfig_used_by_sandboxed_parsers(self):
+        dockerfile=(ROOT/"apps/inspector/Dockerfile").read_text(encoding="utf-8")
+        for check in ("test -r /etc/fonts/fonts.conf",
+                      "test ! -L /etc/fonts/fonts.conf",
+                      "test -d /etc/fonts/conf.d"):
+            self.assertIn(check,dockerfile)
+        inspector=(ROOT/"apps/inspector/inspector.py").read_text(encoding="utf-8")
+        self.assertIn('"FONTCONFIG_FILE": "/etc/fonts/fonts.conf"',inspector)
+        self.assertIn('"FONTCONFIG_PATH": "/etc/fonts"',inspector)
+        self.assertIn('env=engine_environment()',inspector)
+        self.assertNotIn('env=os.environ',inspector)
+
     def test_signed_vendor_downloads_have_bounded_timeouts(self):
         source=(ROOT / "apps/inspector/Dockerfile").read_text(encoding="utf-8")
         verifier=source.split("FROM debian:trixie-slim AS ocr_builder", 1)[0]
