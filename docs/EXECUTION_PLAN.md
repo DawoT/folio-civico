@@ -17,7 +17,7 @@
 | ID | Incremento entregable | Dependencias | Criterio de aceptación para integrarse | Estado al corte |
 | --- | --- | --- | --- | --- |
 | **R0** | Troncal `main`, CI shell independiente del proveedor, contrato de pruebas, roadmap y controles de integración | Historia lineal existente | `sh scripts/ci.sh` con exit 0; pruebas de orden, fail-fast, local-only y rechazo de flags; árbol limpio, push no forzado | **Completado:** `main` publicada; CI local verde |
-| **R1** | Remediación del inspector, CVE triage y cadena de suministro | R0, ADR-013/014 | Imagen reproducible con SBOM/digest; hallazgos CRITICAL/HIGH/UNKNOWN remediados o VEX granular formalmente aprobado; `audit:inspector:image` y smoke Docker aprobados; prueba de caducidad/renovación `< 72h` | **Bloqueado:** 1 CRITICAL, 149 HIGH, 19 UNKNOWN; rotación no implementada |
+| **R1** | Remediación del inspector, CVE triage y cadena de suministro | R0, ADR-013/014/015 | Imagen reproducible con SBOM/digest; hallazgos CRITICAL/HIGH/UNKNOWN remediados o VEX granular formalmente aprobado; `audit:inspector:image` y smoke Docker aprobados; prueba de caducidad/renovación `< 72h` | **Parcial y bloqueado:** triaje nativo reproducido; 1 CRITICAL, 149 HIGH, 19 UNKNOWN; dos propietarios no resueltos y rotación pendiente |
 | **R2** | Cadena documental resiliente y comprobaciones E2E locales | R0, R1 para validar imagen final | Escenarios sintéticos R2 → outbox D1 → Queue simulada → Processor → Gateway → inspector → D1; éxito, duplicados, errores 422/503, reintentos, agotamiento, HMAC inválido, caída temporal y reconciliación. Sin exposición de original | **Parcial:** contratos y pruebas unitarias/integración locales existentes |
 | **R3** | Preview Cloudflare aislado, identidad y OAuth MCP | R1, R2 y aprobación de recursos/costes | D1/R2/Queues/DLQ/Containers exclusivamente `folio-civico-*`; Access/MFA, OAuth real, mínimo privilegio, prohibición de rutas públicas, revocación, backup/rollback y E2E con datos sintéticos | **Pendiente; operador Preview no configurado** |
 | **R4** | Visor PDF saneado, navegación de citas y experiencia accesible | R2, R3 y reglas institucionales | El original en cuarentena nunca se sirve; solo artefacto inspeccionado; correspondencia versión+SHA256+página y errores de permisos probados; accesibilidad de teclado y estados de carga/error | **Pendiente** |
@@ -28,7 +28,7 @@
 
 ### Primeras unidades de trabajo para avanzar tras R0
 
-1. **R1.1 — inventario verificable:** extraer del informe Trivy evidencias técnicas por paquete/CVE, sin almacenarlas en Git; priorizar parsers alcanzables y el CRITICAL de `libxml2`. Evitar silenciar hallazgos.
+1. **R1.1 — inventario verificable (parcial validado):** el triaje real agrupa 169 hallazgos bloqueantes y observa enlace dinámico en 105; quedan 64 sin enlace observado y 2 propietarios de biblioteca sin resolver. **No confundir ausencia en `ldd` con ausencia de riesgo.** Conservar evidencia granular fuera de Git, priorizar `libxml2` y completar las rutas faltantes (ADR-015).
 2. **R1.2 — remediación o VEX formal:** buscar correcciones oficiales y probar imagen candidata con los mismos fixtures; documentar bloqueos no corregibles y la decisión humana correspondiente.
 3. **R1.3 — ciclo de firmas:** diseñar renovación de imágenes/digests antes del límite de 72 h; probar arranque/rechazo, corte de disponibilidad, reversión y no admisión con firmas caducadas.
 4. **R2.1 — contrato E2E sintético:** cubrir idempotencia y fallos del pipeline sin depender todavía de Cloudflare remoto; asegurar que el job no se marca completo sin manifiesto firmado.
@@ -48,3 +48,4 @@ Registrar aquí los commits de cada entrega, las pruebas efectivamente ejecutada
 | Fecha | Incremento | Resultado |
 | --- | --- | --- |
 | 2026-11-19 | R0 | `main` creada y publicada mediante avance lineal sin force-push desde el commit `bc5dd86`; `sh scripts/ci.sh` exit 0: 4 tests del runner, 173 Vitest, 58 Python y 5 workerd, typecheck, build y 13 migraciones D1 locales verificadas en API/MCP/Processor. Auditoría CVE sigue bloqueada; no se desplegó. |
+| 2026-11-19 | R1.1 | Reaplicado sobre `main` el triaje de CVE de la rama independiente y ejecutado `sh scripts/ci.sh` (4+173+69+5 pruebas y build/migraciones, exit 0); `bash apps/inspector/audit_image.sh --triage` devolvió **exit 2 esperado** por 1 CRITICAL, 149 HIGH y 19 UNKNOWN. Sin autorización de despliegue. |
