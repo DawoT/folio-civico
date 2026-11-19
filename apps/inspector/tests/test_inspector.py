@@ -37,6 +37,8 @@ class ScannerTests(unittest.TestCase):
         command = argv[0]
         if command == "clamscan" and "--version" in argv:
             return "ClamAV 1.5.5/28187/2026-11-18"
+        if command == "qpdf" and argv[1] == "--is-encrypted":
+            return "not_encrypted"
         if command == "pdfdetach":
             return "0 embedded files\n"
         if command == "pdfinfo":
@@ -45,6 +47,74 @@ class ScannerTests(unittest.TestCase):
             page = int(argv[argv.index("-f") + 1])
             return f"Expediente de obras página {page}"
         return ""
+
+    def test_qpdf_encryption_status_is_fail_closed_and_does_not_leak_metadata(self):
+        from subprocess import CompletedProcess
+        args = ["qpdf", "--is-encrypted", "synthetic.pdf"]
+        for status, expected_error in (
+            (0, inspector.ReviewRequired),
+            (1, inspector.ScannerUnavailable),
+            (3, inspector.ScannerUnavailable),
+            (-11, inspector.ScannerUnavailable),
+        ):
+            with self.subTest(status=status), patch.object(
+                inspector.subprocess, "run",
+                return_value=CompletedProcess(args, status, b"", b""),
+            ), self.assertRaises(expected_error):
+                inspector.command(args, self.signatures)
+        with patch.object(
+            inspector.subprocess, "run",
+            return_value=CompletedProcess(args, 2, b"", b""),
+        ):
+            self.assertEqual(inspector.command(args, self.signatures), "not_encrypted")
+        self.assertEqual(list(self.signatures.glob("tmp*")), [])
+
+    def test_encryption_gate_precedes_any_poppler_or_qpdf_structure_probe(self):
+        invocations = []
+        def capture(argv, cwd):
+            invocations.append(tuple(argv))
+            return self.fake_runner(argv, cwd)
+        self.assertEqual(
+            inspector.inspect_pdf(PDF, "ver_a", SHA,
+                                  signatures=self.signatures, run=capture)["scanVerdict"],
+            "clean",
+        )
+        tools = [args[0] for args in invocations]
+        preflight = next(index for index, args in enumerate(invocations)
+                         if args[:2] == ("qpdf", "--is-encrypted"))
+        self.assertLess(tools.index("clamscan"), preflight)
+        self.assertLess(preflight, next(index for index, args in enumerate(invocations)
+                                      if args[:2] == ("qpdf", "--check")))
+        self.assertLess(preflight, tools.index("pdfdetach"))
+        self.assertLess(preflight, tools.index("pdfinfo"))
+
+        def encrypted(argv, cwd):
+            invocations.append(tuple(argv))
+            if argv[:2] == ["qpdf", "--is-encrypted"]:
+                raise inspector.ReviewRequired("Encrypted PDF is not supported")
+            if argv[0] in {"pdfdetach", "pdfinfo", "pdftotext", "pdftoppm"}:
+                self.fail("Poppler must never inspect an encrypted document")
+            return self.fake_runner(argv, cwd)
+        invocations.clear()
+        with self.assertRaises(inspector.ReviewRequired):
+            inspector.inspect_pdf(PDF, "ver_a", SHA,
+                                  signatures=self.signatures, run=encrypted)
+        self.assertNotIn("pdfdetach", [args[0] for args in invocations])
+        self.assertFalse(any(args[:2] == ("qpdf", "--check") for args in invocations))
+
+    def test_encryption_preflight_requires_an_explicit_unencrypted_verdict(self):
+        for unexpected in ("", "encrypted", "not_encrypted\\n", "not_encrypted "):
+            def unreliable(argv, cwd):
+                if argv[:2] == ["qpdf", "--is-encrypted"]:
+                    return unexpected
+                if argv[0] in ("pdfdetach", "pdfinfo", "pdftotext", "pdftoppm"):
+                    self.fail("No Poppler calls without exact qpdf verdict")
+                return self.fake_runner(argv, cwd)
+            with self.subTest(verdict=unexpected), self.assertRaises(
+                inspector.ScannerUnavailable
+            ):
+                inspector.inspect_pdf(PDF, "ver_a", SHA,
+                                      signatures=self.signatures, run=unreliable)
 
     def test_security_patch_version_policy_rejects_outdated_clamav(self):
         for raw in ("ClamAV 1.4.6", "ClamAV 1.5.4/28185/Mon Nov 16 2026",
