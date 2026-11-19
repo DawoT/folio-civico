@@ -1,21 +1,19 @@
-# Folio Cívico inspector: fail-closed build against November 2026
-# ClamAV security vulnerabilities. Never deploy automatically.
-# The vendor-signed release is used because Debian Bookworm currently ships
-# 1.4.6 and the official Docker feature tags still point to 1.5.4.
-FROM python:3.12-slim-bookworm
+# Folio Cívico: vendor-signed ClamAV 1.5.5 and isolated PDF runtime.
+# Builds are manual; no Cloudflare resources or institutional PDFs are touched.
+#
+# Vendor artifact verification is isolated in a disposable build stage.
+# curl and GPG never enter the runtime image that processes untrusted PDFs.
+FROM debian:trixie-slim AS clamav_verifier
 
 ARG CLAMAV_VERSION=1.5.5
 RUN test "$(dpkg --print-architecture)" = "amd64"
-
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ca-certificates curl gnupg qpdf poppler-utils tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng \
+    ca-certificates curl gnupg \
   && rm -rf /var/lib/apt/lists/*
 
-# Obtain the Talos key from its official documentation. Pin the full primary
-# fingerprint independently of the download; neither HTTPS alone nor an
-# unverified key fetched beside the .deb is sufficient supply-chain checking.
-# Verify the detached release signature BEFORE installing the binaries.
+# Independently pinned Talos primary fingerprint. Verify detached signature
+# before the package can be copied into the runtime build stage.
 RUN set -eux; \
   mkdir -p /tmp/clamav-vendor; \
   curl --fail --silent --show-error --location --proto '=https' \
@@ -35,12 +33,25 @@ RUN set -eux; \
   test "$actual_fingerprint" = "5BADCA2665EF59DCF8A23D8B707F0DB480836771"; \
   gpg --batch --no-default-keyring \
     --keyring /tmp/clamav-vendor/talos-keyring.gpg --verify \
-    /tmp/clamav-vendor/clamav.deb.sig /tmp/clamav-vendor/clamav.deb; \
-  dpkg -i /tmp/clamav-vendor/clamav.deb; \
-  rm -rf /tmp/clamav-vendor
+    /tmp/clamav-vendor/clamav.deb.sig /tmp/clamav-vendor/clamav.deb
 
-# Offline runtime: freshly downloaded official signatures are baked into the
-# image, not requested by the parser container. Rotate image before 72h.
+FROM python:3.12-slim-trixie
+RUN test "$(dpkg --print-architecture)" = "amd64"
+
+# Runtime dependencies, without curl or an unverified Debian ClamAV binary.
+# Poppler on Trixie depends on GPG-related packages; purging GPG removes
+# poppler-utils as well. Do not break the PDF scanner to remove a dependency.
+RUN apt-get update \
+  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ca-certificates qpdf poppler-utils tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng \
+  && rm -rf /var/lib/apt/lists/*
+
+# The only artifact copied out of the verification stage is the signed .deb.
+COPY --from=clamav_verifier /tmp/clamav-vendor/clamav.deb /tmp/clamav.deb
+RUN dpkg -i /tmp/clamav.deb && rm /tmp/clamav.deb
+
+# Official signatures fetched and validated only at build time.
+# The runtime has no egress, so rebuild before the 72-hour freshness cap.
 RUN set -eux; \
   groupadd --system clamav; \
   useradd --system --gid clamav --no-create-home clamav; \
@@ -55,8 +66,7 @@ RUN set -eux; \
 WORKDIR /srv/folio-inspector
 COPY --chown=65534:65534 inspector.py fixtures.py preflight.py smoke_real_engines.py smoke_http_real.py /srv/folio-inspector/
 
-# Build-level version assertion reuses the same fail-closed policy as health
-# and document admission. If the upstream package is not 1.5.5+, stop here.
+# Harden both build and runtime admission against an outdated scanner.
 RUN python3 -c "from inspector import verify_clamav_version; import subprocess; verify_clamav_version(subprocess.check_output(['clamscan','--version'], text=True))"
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \

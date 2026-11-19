@@ -60,6 +60,33 @@ class DeploymentActivationGates(unittest.TestCase):
         self.assertLess(text.index("--verify"),text.index("dpkg -i"))
         self.assertIn("5BADCA2665EF59DCF8A23D8B707F0DB480836771",text)
 
+    def test_vendor_download_tools_do_not_survive_into_pdf_runtime(self):
+        source=(ROOT/"apps/inspector/Dockerfile").read_text(encoding="utf-8")
+        self.assertIn("AS clamav_verifier",source)
+        self.assertIn("COPY --from=clamav_verifier",source)
+        verifier,runtime=source.split("FROM python:3.12-slim-trixie",1)
+        self.assertIn("gpg --batch",verifier)
+        self.assertIn("--verify",verifier)
+        self.assertIn("curl --fail",verifier)
+        self.assertNotIn("curl --fail",runtime)
+        self.assertNotIn("ca-certificates curl",runtime)
+        self.assertNotIn("apt-get purge",runtime)
+        self.assertIn("freshclam",runtime)
+        self.assertIn("USER 65534:65534",runtime)
+
+    def test_optional_image_audit_has_no_vulnerability_suppressions(self):
+        source=(ROOT/"apps/inspector/audit_image.sh").read_text(encoding="utf-8")
+        self.assertIn("set -euo pipefail",source)
+        self.assertIn("folio-civico-inspector:validation",source)
+        self.assertIn("--image-src docker",source)
+        self.assertIn("--format cyclonedx",source)
+        self.assertIn("--format json",source)
+        self.assertIn("audit_image.py",source)
+        self.assertIn("image_changed_during_audit",source)
+        for forbidden in ("--ignore-unfixed", "--skip-db-update", "--ignorefile",
+                          "--exit-code 0", "|| true", "docker system prune"):
+            self.assertNotIn(forbidden,source)
+
     def test_local_real_engine_runner_requires_preflight_and_is_offline(self):
         runner=(ROOT / "apps/inspector/validate_real_engines.sh").read_text(
             encoding="utf-8"
@@ -84,8 +111,9 @@ class DeploymentActivationGates(unittest.TestCase):
         self.assertIn("smoke_real_engines.py", dockerfile)
         self.assertIn("fixtures.py", dockerfile)
         self.assertIn("smoke_http_real.py", dockerfile)
-        self.assertEqual(runner.count("--network none"), 2)
+        self.assertEqual(runner.count("--network none"), 3)
         self.assertIn("/srv/folio-inspector/smoke_http_real.py", runner)
+        self.assertIn("! command -v curl",runner)
 
     def test_private_container_process_never_receives_hmac_signing_key(self):
         source=(ROOT / "apps/inspector-gateway/src/index.ts").read_text(encoding="utf-8")

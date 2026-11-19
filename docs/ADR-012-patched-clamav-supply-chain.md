@@ -32,7 +32,7 @@ Se ampliaron pruebas Python que bloquean versiones `1.4.6` y `1.5.4`, exigen fal
 ### Límites pendientes
 
 - Un **parche antivirus vigente no demuestra ausencia universal de malware**. EICAR es una verificación funcional, no un ensayo completo de ataques sobre PDFs adversariales.
-- La versión del motor y la edad de las firmas son controles necesarios, no una evaluación exhaustiva de las dependencias del sistema operativo. Antes del piloto se requiere un escaneo de vulnerabilidades de la **imagen completa** (incluidas dependencias nativas, SBoM y base Python) y una política de renovación con procedencia verificable.
+- La versión del motor y la edad de las firmas no demuestran la seguridad de dependencias. **Evolución ADR-013:** el SBOM y escaneo completo ya se realizaron y reportaron hallazgos críticos/altos persistentes, por lo que la imagen está bloqueada para Preview. Sigue pendiente la renovación de firmas con evidencias y remediación o VEX autorizado.
 - La imagen base `python:3.12-slim-bookworm` está referida por una etiqueta actualizada con `--pull`, no por un digest aprobado; validar procedencia, pin y actualización controlada en CI al preparar el despliegue.
 - Los ejecutables `curl` y `gnupg` usados en el build quedan instalados en esta primera versión. Antes de publicar la imagen en Preview se deberá evaluar una construcción multi-stage para reducir la superficie y el tamaño de ataque, sin debilitar la verificación de firma.
 - La construcción depende de la disponibilidad del artefacto oficial y la clave Talos. Al rotar la clave o cambiar la versión hay que revisar la nueva huella por un canal independiente; fallará cerrado hasta actualizar la política. No se introducen secretos institucionales en la imagen.

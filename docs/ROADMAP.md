@@ -1,13 +1,13 @@
 # Roadmap de ingeniería · Folio Cívico
 
-Actualizado: 2026-11-18. Alcance de piloto: municipalidad distrital, obras y contrataciones, PDF nativo/escaneado.
+Actualizado: 2026-11-19. Alcance de piloto: municipalidad distrital, obras y contrataciones, PDF nativo/escaneado.
 
 | Fase | Resultado | Dependencias | Estado |
 | --- | --- | --- | --- |
 | P0 | Monorepo, TypeScript, vitest, CI y documentación | Acceso al repositorio | **Completado como fundación** |
 | P1 | D1, autorización, evidencia, auditoría y contratos | P0; matriz de roles | **Parcial: evidencia persistente, idempotencia, auditoría y validación interna de dos personas; entorno real pendiente** |
 | P2 | Mesa React, PDF, R2 en cuarentena, checklist y borradores | P1 | **Parcial: mesa, R2, decisiones y lector de texto inspeccionado; smoke antivirus/OCR local aprobado, pero pipeline remoto y visor PDF pendientes** |
-| P3 | Queues/Workflows, extracción, OCR por página e IA supervisada | P2; dataset anónimo | **Parcial: outbox/Queues, inspector y gateway preparados; ClamAV 1.5.5 firmado y smoke local 6/6 + HTTP real aprobados, pero escaneo CVEs integral, despliegue, operación y E2E remotos pendientes** |
+| P3 | Queues/Workflows, extracción, OCR por página e IA supervisada | P2; dataset anónimo | **Parcial: inspector funcional (6/6 + HTTP 4/4); escaneo Trivy/SBOM efectuado, pero imagen bloqueada por 1 crítico, 150 altos y 19 desconocidos; despliegue/E2E remotos pendientes** |
 | P4 | MCP OAuth y herramientas de lectura/escritura controladas | P1 y Cloudflare Access | **Parcial: servidor de lectura sin despliegue** |
 | P5 | DOCX, E2E, seguridad, retención, medición del ahorro | P2–P4; aprobación legal | Pendiente |
 
@@ -15,7 +15,7 @@ Actualizado: 2026-11-18. Alcance de piloto: municipalidad distrital, obras y con
 
 Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación mínima; (3) refactorización; (4) tests + typecheck + dry-run build; (5) registro de resultados y riesgos. Las migraciones se verifican en D1 local antes de cualquier aplicación remota.
 
-## Entrega actual: P0/P1i + P2f + P3f + P4b
+## Entrega actual: P0/P1i + P2f + P3g + P4b
 
 - [x] Tests que rechazan permisos entre comisiones, sujetos incorrectos e inactivos.
 - [x] Dos clases de evidencia documental diferenciadas: página existente y alcance de búsqueda sin resultado; soporte para fuente oficial.
@@ -67,7 +67,10 @@ Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación m
 - [x] **ClamAV actualizado a 1.5.5** desde paquete oficial Linux firmado por Cisco Talos y verificado con GPG + huella principal de la clave antes de instalar; corrige riesgos de 1.4.6/1.5.4 de noviembre de 2026 (ADR-012).
 - [x] Doble gate de versión de ClamAV >=1.5.5 en la serie 1.5, tanto para `GET /health` como para `inspect_pdf`; el build también verifica la versión. Bloquea admission con scanners antiguos o no identificados.
 - [x] Smoke real HTTP interno del inspector con token sintético y sin red: salud 200, credencial errónea 403, documento autorizado clean sin firma en el parser y SHA-256 falsificado 422 (ADR-012).
-- [ ] Completar escaneo de CVEs/SBOM de la imagen nativa y política verificable de renovación de firmas <=72 h, revisar superficie de herramientas del build, ampliar muestras OCR antes de piloto.
+- [x] **Escaneo CVEs/SBOM real ejecutado** con Trivy 0.76.2 y CycloneDX; comparadas las bases Bookworm y Trixie. Dockerfile multi-stage: firma GPG del proveedor en verificador separado y runtime sin `curl`; GPG sigue siendo dependencia de Poppler (ADR-013).
+- [x] Gate manual reproducible `pnpm audit:inspector:image`: valida escaneo Debian y SBOM, identidad de imagen, devuelve exit 2 ante crítico/alto/desconocido, sin ignorar CVEs sin parche. Resultado real **bloqueado**.
+- [ ] **Bloqueante para Preview:** resolver o evaluar formalmente 1 hallazgo crítico (`libxml2`), 150 altos y 19 desconocidos de la imagen final; no aprobar despliegue por los smokes funcionales. Asegurar CVEs/firmas y SBOM evidenciados.
+- [ ] Demostrar renovación verificable de firmas antes de 72 h, evaluar vulnerabilidades de librerías nativas restantes y ampliar muestras OCR antes del piloto.
 - [ ] Aprovisionar Service Binding y Cloudflare Container en entorno autorizado.
 - [ ] Desplegar y verificar DLQ, Queues, cron, Access/MFA y E2E reales de Preview con solo datos sintéticos.
 - [ ] Integrar motor de Workflows y políticas de recuperación de tareas prolongadas; IA supervisada con dataset sintético/anonimizado.

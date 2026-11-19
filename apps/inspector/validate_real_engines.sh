@@ -11,6 +11,13 @@ docker build --pull \
   --tag folio-civico-inspector:validation \
   apps/inspector
 
+# The runtime must not retain the build-only curl downloader.
+# GPG is a required transitive dependency of Poppler in Debian Trixie.
+docker run --rm --network none --read-only --cap-drop ALL \
+  --security-opt no-new-privileges \
+  --entrypoint /bin/sh folio-civico-inspector:validation \
+  -c '! command -v curl'
+
 # No network or public ports. The smoke CLI needs no production secrets.
 # 4 GiB is the official ClamAV recommended container memory, not the old
 # insufficient 768 MiB limit. No PDF/test file survives container exit.
