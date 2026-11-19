@@ -73,6 +73,12 @@ class AdvisoryInventoryTests(unittest.TestCase):
         self.assertTrue(result["non_selected_findings_remain_blocking"])
         self.assertFalse(result["declares_not_affected"])
         self.assertFalse(result["source_built_coverage_verified"])
+        self.assertEqual(result["native_selected_cve_count"], 24)
+        self.assertEqual(result["native_source_advisories"]["status"], "review_required")
+        self.assertFalse(result["native_source_advisories"]["release_authorized"])
+        self.assertFalse(result["native_source_advisories"]["complete_source_advisory_coverage"])
+        self.assertEqual([x["cve_count"] for x in
+                          result["native_source_advisories"]["components"]], [14,10])
         self.assertNotIn("description",json.dumps(result))
 
     def test_missing_metadata_or_excessive_findings_fail_closed(self):
@@ -99,6 +105,9 @@ class AdvisoryInventoryTests(unittest.TestCase):
         self.assertEqual(value["selected_blocking"],0)
         self.assertEqual(value["total_blocking"],1)
         self.assertFalse(any(x["vendor_analysis_required"] for x in value["packages"]))
+        self.assertEqual(value["native_selected_cve_count"], 24)
+        self.assertEqual(value["native_source_advisories"]["status"], "review_required")
+        self.assertEqual(value["status"], "blocked")
 
     def test_mismatched_image_or_missing_report_returns_error_three(self):
         with self.assertRaises(ValueError):

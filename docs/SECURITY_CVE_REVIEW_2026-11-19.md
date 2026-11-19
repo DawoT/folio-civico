@@ -64,6 +64,8 @@ El experimento compila `poppler=25.03.0-5+deb13u4` de las fuentes Debian firmada
 
 [Debian Security Tracker — Poppler](https://security-tracker.debian.org/tracker/source-package/poppler) mantiene CVE abiertos para Trixie, por ejemplo `CVE-2026-107705` (desbordamiento en procesamiento) y `CVE-2026-93653` (denegación de servicio en Splash). El paquete fuente con backports de Debian **no garantiza** que todos esos avisos recientes estén corregidos. Deben identificarse los parches de cada versión con código y alcance en los binarios locales. No se interpretará la desaparición del paquete `libpoppler147` de Trivy como un cierre de estos CVE.
 
+**Actualización R1.9:** el [registro de vulnerabilidades de motores compilados](SECURITY_NATIVE_ADVISORY_LEDGER_2026-11-19.md) enumera **24 avisos seleccionados de trackers Debian** —14 Tesseract y 10 Poppler— con identidad ELF medida. Ninguno está declarado automáticamente afectado ni no afectado en los binarios compilados y **no se agregan a los conteos Trivy**. El registro es parcial y la cobertura formal sigue pendiente.
+
 ## Nuevo guardrail de cobertura de componentes locales
 
 Archivos relevantes: `apps/inspector/source_inventory.py`, `audit_image.py`, `triage_image.py`, `advisory_inventory.py` y `audit_image.sh`.

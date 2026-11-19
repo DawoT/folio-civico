@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 
 from audit_image import evaluate_image_audit
+from native_advisory_ledger import source_cve_ledger
 
 SELECTED_PACKAGES = ("clamav", "libexpat1")
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
@@ -24,6 +25,9 @@ def targeted_advisories(
     vulnerabilities: dict, sbom: dict, image: str, source_inventory: dict
 ) -> dict:
     audit = evaluate_image_audit(vulnerabilities, sbom, image, source_inventory)
+    # The source ledger is a separate advisory snapshot. Never count its IDs
+    # as Trivy findings or use them to change the authoritative gate.
+    native_ledger = source_cve_ledger(source_inventory, image)
     reported: dict[str, list[dict]] = {package: [] for package in SELECTED_PACKAGES}
     for section in vulnerabilities["Results"]:
         for finding in section.get("Vulnerabilities") or []:
@@ -70,6 +74,8 @@ def targeted_advisories(
         "source_built_coverage_verified": False,
         "source_components_unassessed": audit["source_components_unassessed"],
         "source_advisory_coverage": audit["source_advisory_coverage"],
+        "native_source_advisories": native_ledger,
+        "native_selected_cve_count": native_ledger["selected_cve_total"],
     }
 
 
