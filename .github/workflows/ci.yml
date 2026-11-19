@@ -24,7 +24,11 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      # Not required for local development. When Actions is available again,
-      # it must run the exact same gates as sh scripts/ci.sh.
+      # Playwright browsers are binary artifacts, not pnpm dependencies.
+      # Fresh GitHub runners never have the pinned Chromium build preinstalled.
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium for Playwright browser and WCAG tests
+        run: pnpm exec playwright install --with-deps chromium
       - name: Run local CI contract
         run: sh scripts/ci.sh

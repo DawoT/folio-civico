@@ -90,6 +90,19 @@ class LocalCiContractTests(unittest.TestCase):
         self.assertTrue(all("--local" in call for call in invocations if "d1 migrations" in call))
         self.assertFalse(any("deploy" in call or "--remote" in call for call in invocations))
 
+    def test_github_actions_installs_real_chromium_before_browser_ci(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        install_deps = "run: pnpm install --frozen-lockfile"
+        install_browser = "run: pnpm exec playwright install --with-deps chromium"
+        run_ci = "run: sh scripts/ci.sh"
+        self.assertIn(install_deps, workflow)
+        self.assertIn(install_browser, workflow)
+        self.assertLess(workflow.index(install_deps), workflow.index(install_browser))
+        self.assertLess(workflow.index(install_browser), workflow.index(run_ci))
+        self.assertNotIn("playwright install --with-deps firefox", workflow)
+        self.assertNotIn("playwright install --with-deps webkit", workflow)
+        self.assertNotIn("wrangler deploy --remote", workflow)
+
     def test_main_ci_cannot_activate_unapproved_inspector_runtime(self):
         """Main code integration does not grant container/Cloudflare release."""
         import json

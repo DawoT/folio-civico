@@ -14,6 +14,7 @@ class ExperimentalPopplerPolicyTests(unittest.TestCase):
             "POPPLER_DEBIAN_VERSION=25.03.0-5+deb13u4",
             "apt-get source",
             "dpkg-parsechangelog",
+            "-DFONT_CONFIGURATION=fontconfig",
             "-DENABLE_LIBCURL=OFF",
             "-DENABLE_GPGME=OFF",
             "-DENABLE_NSS3=OFF",
@@ -34,6 +35,8 @@ class ExperimentalPopplerPolicyTests(unittest.TestCase):
         self.assertIn('linked="$(ldd "/opt/folio-poppler/bin/$binary")"',source)
         self.assertNotIn('! ldd "',source)
         self.assertIn('libgpgme|libnss3',source)
+        self.assertIn("grep -q 'libfontconfig'", source)
+        self.assertNotIn("-DFONT_CONFIGURATION=generic", source)
 
     def test_poppler_quality_comparison_is_optional_and_reuses_strict_gate(self):
         source=(ROOT/"apps/inspector/compare_ocr_quality.sh").read_text(encoding="utf-8")
@@ -44,6 +47,26 @@ class ExperimentalPopplerPolicyTests(unittest.TestCase):
         result=subprocess.run(
             ['bash','apps/inspector/compare_ocr_quality.sh','--invalid'],
             cwd=ROOT,timeout=5,capture_output=True,text=True
+        )
+        self.assertEqual(result.returncode,3)
+
+    def test_current_raster_guard_runs_offline_without_rebuilding_images(self):
+        script=(ROOT/"apps/inspector/verify_raster_guard.sh").read_text(encoding="utf-8")
+        self.assertIn("set -euo pipefail",script)
+        self.assertIn('python3 apps/inspector/preflight.py --mode build',script)
+        self.assertIn('folio-civico-inspector:poppler-experiment',script)
+        self.assertIn('docker image inspect "$IMAGE"',script)
+        self.assertIn('--network none --read-only --cap-drop ALL',script)
+        self.assertIn('--security-opt no-new-privileges',script)
+        self.assertIn('smoke_real_engines.py',script)
+        self.assertNotIn('docker build',script)
+        self.assertNotIn('docker push',script)
+        self.assertNotIn('--publish',script)
+        self.assertNotIn('--mount',script)
+        self.assertNotIn('wrangler deploy',script)
+        result=subprocess.run(
+            ["bash","apps/inspector/verify_raster_guard.sh","--invalid"],
+            cwd=ROOT,timeout=5,capture_output=True,text=True,check=False
         )
         self.assertEqual(result.returncode,3)
 

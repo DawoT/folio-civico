@@ -26,6 +26,7 @@ RUN cmake -S /src/poppler-25.03.0 -B /tmp/poppler-build -G Ninja \
       -DCMAKE_INSTALL_PREFIX=/opt/folio-poppler \
       -DCMAKE_INSTALL_LIBDIR=lib \
       -DBUILD_SHARED_LIBS=ON \
+      -DFONT_CONFIGURATION=fontconfig \
       -DENABLE_LIBCURL=OFF \
       -DENABLE_GPGME=OFF \
       -DENABLE_NSS3=OFF \
@@ -59,6 +60,9 @@ RUN set -eux; \
       libgssapi-krb5-2 libk5crypto3 libkrb5-3 libkrb5support0; \
     printf '%s\n' /opt/folio-poppler/lib > /etc/ld.so.conf.d/folio-poppler.conf; \
     ldconfig; \
+    # Removing this font backend silently renders unembedded Helvetica PDFs blank. \
+    # Preserve fontconfig until Expat is patched without breaking PDF fidelity. \
+    ldd /opt/folio-poppler/lib/libpoppler.so.147 | grep -q 'libfontconfig'; \
     for binary in pdftotext pdftoppm pdfinfo pdfdetach pdfattach; do \
       test -x "/opt/folio-poppler/bin/$binary"; \
       linked="$(ldd "/opt/folio-poppler/bin/$binary")"; \
