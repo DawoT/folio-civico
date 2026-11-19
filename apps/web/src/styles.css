@@ -108,6 +108,88 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
 .decision-panel .fc-field-label { margin-bottom: 0; }
 .scope-form .fc-field select { width: 100%; }
 
+/* IA-001.1: task-led, accessible navigation over existing document sections. */
+.task-navigation {
+  display: grid;
+  gap: var(--fc-space-3);
+  margin: 0 0 var(--fc-space-6);
+  padding: var(--fc-space-4);
+  border: 1px solid var(--fc-color-border-default);
+  border-radius: var(--fc-radius-card);
+  background: var(--fc-color-surface-base);
+}
+.task-navigation-context {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--fc-space-2) var(--fc-space-4);
+  min-width: 0;
+}
+.task-navigation-context strong {
+  font-size: 14px;
+  color: var(--fc-color-text-primary);
+  overflow-wrap: anywhere;
+}
+.task-navigation-context > span:last-child:not(.task-navigation-kicker) {
+  color: var(--fc-color-text-secondary);
+  font-size: var(--fc-type-caption);
+  overflow-wrap: anywhere;
+}
+.task-navigation-kicker {
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .08em;
+  color: var(--fc-color-brand-primary);
+}
+.task-navigation-links {
+  display: flex;
+  gap: var(--fc-space-2);
+  flex-wrap: wrap;
+}
+.task-navigation-links a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 9px 13px;
+  border: 1px solid var(--fc-color-border-default);
+  border-radius: var(--fc-radius-control);
+  background: var(--fc-color-surface-subtle);
+  color: var(--fc-color-brand-primary);
+  font-size: var(--fc-type-label);
+  font-weight: 650;
+  text-decoration: none;
+  text-align: center;
+}
+.task-navigation-links a:hover {
+  border-color: var(--fc-color-border-strong);
+  background: var(--fc-color-surface-selected);
+}
+.administration-drawer {
+  margin: 0 0 var(--fc-space-6);
+  background: var(--fc-color-surface-base);
+  border: 1px solid var(--fc-color-border-default);
+  border-radius: var(--fc-radius-card);
+  padding: var(--fc-space-3) var(--fc-space-4);
+}
+.administration-drawer summary {
+  cursor: pointer;
+  font-weight: 700;
+  min-height: 44px;
+  padding: 12px 3px;
+}
+.administration-drawer summary:focus-visible {
+  outline: 3px solid var(--fc-color-focus);
+  outline-offset: 3px;
+}
+.administration-drawer[open] > .review-note {
+  margin-top: var(--fc-space-2);
+}
+#expedientes, #checklist, #registrar-busqueda, #observaciones, #informes, #administracion {
+  scroll-margin-top: var(--fc-space-4);
+}
+
 .status-label {
   color: var(--fc-color-status-reviewing-fg); background: var(--fc-color-status-warning-bg); border: 1px solid #eed8a5;
   border-radius: 999px; font-size: 12px; padding: 9px 13px; white-space: nowrap;
