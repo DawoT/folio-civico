@@ -7,7 +7,7 @@ Actualizado: 2026-11-19. Alcance de piloto: municipalidad distrital, obras y con
 | P0 | Monorepo, TypeScript, vitest, CI y documentación | Acceso al repositorio | **Completado como fundación** |
 | P1 | D1, autorización, evidencia, auditoría y contratos | P0; matriz de roles | **Parcial: evidencia persistente, idempotencia, auditoría y validación interna de dos personas; entorno real pendiente** |
 | P2 | Mesa React, PDF, R2 en cuarentena, checklist y borradores | P1 | **Parcial: mesa, R2, decisiones y lector de texto inspeccionado; smoke antivirus/OCR local aprobado, pero pipeline remoto y visor PDF pendientes** |
-| P3 | Queues/Workflows, extracción, OCR por página e IA supervisada | P2; dataset anónimo | **Parcial: inspector funcional (6/6 + HTTP 4/4); escaneo Trivy/SBOM efectuado, pero imagen bloqueada por 1 crítico, 150 altos y 19 desconocidos; despliegue/E2E remotos pendientes** |
+| P3 | Queues/Workflows, extracción, OCR por página e IA supervisada | P2; dataset anónimo | **Parcial: inspector funcional (6/6 + HTTP 4/4); escaneo Trivy/SBOM efectuado, pero imagen bloqueada por 1 crítico, 149 altos y 19 desconocidos; despliegue/E2E remotos pendientes** |
 | P4 | MCP OAuth y herramientas de lectura/escritura controladas | P1 y Cloudflare Access | **Parcial: servidor de lectura sin despliegue** |
 | P5 | DOCX, E2E, seguridad, retención, medición del ahorro | P2–P4; aprobación legal | Pendiente |
 
@@ -15,7 +15,7 @@ Actualizado: 2026-11-19. Alcance de piloto: municipalidad distrital, obras y con
 
 Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación mínima; (3) refactorización; (4) tests + typecheck + dry-run build; (5) registro de resultados y riesgos. Las migraciones se verifican en D1 local antes de cualquier aplicación remota.
 
-## Entrega actual: P0/P1i + P2f + P3g + P4b
+## Entrega actual: P0/P1i + P2f + P3h + P4b
 
 - [x] Tests que rechazan permisos entre comisiones, sujetos incorrectos e inactivos.
 - [x] Dos clases de evidencia documental diferenciadas: página existente y alcance de búsqueda sin resultado; soporte para fuente oficial.
@@ -69,8 +69,10 @@ Cada incremento: (1) caso de aceptación y prueba fallida; (2) implementación m
 - [x] Smoke real HTTP interno del inspector con token sintético y sin red: salud 200, credencial errónea 403, documento autorizado clean sin firma en el parser y SHA-256 falsificado 422 (ADR-012).
 - [x] **Escaneo CVEs/SBOM real ejecutado** con Trivy 0.76.2 y CycloneDX; comparadas las bases Bookworm y Trixie. Dockerfile multi-stage: firma GPG del proveedor en verificador separado y runtime sin `curl`; GPG sigue siendo dependencia de Poppler (ADR-013).
 - [x] Gate manual reproducible `pnpm audit:inspector:image`: valida escaneo Debian y SBOM, identidad de imagen, devuelve exit 2 ante crítico/alto/desconocido, sin ignorar CVEs sin parche. Resultado real **bloqueado**.
-- [ ] **Bloqueante para Preview:** resolver o evaluar formalmente 1 hallazgo crítico (`libxml2`), 150 altos y 19 desconocidos de la imagen final; no aprobar despliegue por los smokes funcionales. Asegurar CVEs/firmas y SBOM evidenciados.
-- [ ] Demostrar renovación verificable de firmas antes de 72 h, evaluar vulnerabilidades de librerías nativas restantes y ampliar muestras OCR antes del piloto.
+- [x] **zlib1g corregido** en imagen Debian Trixie: paquete de seguridad `1:1.3.dfsg+really1.3.1-1+deb13u1` verificado dentro del contenedor y versión mínima en Dockerfile. Trivy baja de 150 a 149 HIGH y de 636 a 634 hallazgos totales (ADR-014).
+- [x] Inventario estricto y vencimiento de firmas ClamAV en cada `/health` e inspección: exige `daily`, `main`, `bytecode`, sin duplicados ni symlinks y con 72 h máximo. HTTP 503 verificado con firmas sintéticas vencidas.
+- [ ] **Bloqueante para Preview:** resolver o evaluar formalmente 1 hallazgo crítico (`libxml2`, sin parche Debian Trixie publicado), 149 altos y 19 desconocidos; no aprobar despliegue por los smokes funcionales. Asegurar CVEs/firmas y SBOM evidenciados.
+- [ ] Demostrar **renovación y sustitución automática de imagen** antes de 72 h, con firma de proveedor y comprobación de digest; el rechazo local de firmas caducadas está probado, pero no existe rotación remota. Evaluar vulnerabilidades nativas restantes y ampliar muestras OCR.
 - [ ] Aprovisionar Service Binding y Cloudflare Container en entorno autorizado.
 - [ ] Desplegar y verificar DLQ, Queues, cron, Access/MFA y E2E reales de Preview con solo datos sintéticos.
 - [ ] Integrar motor de Workflows y políticas de recuperación de tareas prolongadas; IA supervisada con dataset sintético/anonimizado.

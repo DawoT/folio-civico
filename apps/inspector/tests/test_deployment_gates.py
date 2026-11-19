@@ -60,6 +60,12 @@ class DeploymentActivationGates(unittest.TestCase):
         self.assertLess(text.index("--verify"),text.index("dpkg -i"))
         self.assertIn("5BADCA2665EF59DCF8A23D8B707F0DB480836771",text)
 
+    def test_zlib_security_version_is_checked_before_publishing_image(self):
+        dockerfile=(ROOT/"apps/inspector/Dockerfile").read_text(encoding="utf-8")
+        self.assertIn("zlib1g",dockerfile)
+        self.assertIn("dpkg --compare-versions",dockerfile)
+        self.assertIn("1:1.3.dfsg+really1.3.1-1+deb13u1",dockerfile)
+
     def test_vendor_download_tools_do_not_survive_into_pdf_runtime(self):
         source=(ROOT/"apps/inspector/Dockerfile").read_text(encoding="utf-8")
         self.assertIn("AS clamav_verifier",source)

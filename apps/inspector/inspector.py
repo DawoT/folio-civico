@@ -41,20 +41,41 @@ class ScannerUnavailable(Exception):
     """A mandatory verification engine or signature database is unavailable."""
 
 
+CORE_CLAMAV_DATABASES = frozenset(("daily", "main", "bytecode"))
+
+
 def require_fresh_signatures(directory: Path, now: float | None = None) -> None:
-    if not directory.is_dir():
+    """Require all official core DBs; one freshly touched file is insufficient.
+
+    The scanner image is read-only at runtime. mtime is an operational age
+    gate, not proof that signature contents are authentic; freshclam validates
+    the downloaded databases during image construction.
+    """
+    if not directory.is_dir() or directory.is_symlink():
         raise ScannerUnavailable("ClamAV signatures not mounted")
-    databases = [
-        file for file in directory.iterdir()
-        if file.is_file() and file.suffix in (".cvd", ".cld")
-    ]
     current = time.time() if now is None else now
-    if not databases or any(
-        current - file.stat().st_mtime > MAX_SIGNATURE_AGE
-        or file.stat().st_mtime > current + 300
-        for file in databases
-    ):
-        raise ScannerUnavailable("ClamAV signatures are missing or stale")
+    databases: dict[str, Path] = {}
+    try:
+        for file in directory.iterdir():
+            if file.suffix not in (".cvd", ".cld"):
+                continue
+            # A duplicate core name could cause the engine to select an
+            # unintended database. Additional databases need review.
+            if (file.stem not in CORE_CLAMAV_DATABASES
+                    or file.stem in databases
+                    or file.is_symlink() or not file.is_file()):
+                raise ScannerUnavailable("Unapproved or ambiguous ClamAV database")
+            databases[file.stem] = file
+        if databases.keys() != CORE_CLAMAV_DATABASES:
+            raise ScannerUnavailable("ClamAV core signature databases incomplete")
+        for file in databases.values():
+            stats = file.stat()
+            if (stats.st_size == 0
+                    or stats.st_mtime < current - MAX_SIGNATURE_AGE
+                    or stats.st_mtime > current + 300):
+                raise ScannerUnavailable("ClamAV signatures are missing or stale")
+    except OSError as error:
+        raise ScannerUnavailable("Unable to validate ClamAV signature inventory") from error
 
 
 MAX_ENGINE_OUTPUT_BYTES = 2 * 1024 * 1024

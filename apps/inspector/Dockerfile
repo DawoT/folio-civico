@@ -43,7 +43,8 @@ RUN test "$(dpkg --print-architecture)" = "amd64"
 # poppler-utils as well. Do not break the PDF scanner to remove a dependency.
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ca-certificates qpdf poppler-utils tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng \
+    ca-certificates qpdf poppler-utils tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng zlib1g \
+  && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' zlib1g)" ge "1:1.3.dfsg+really1.3.1-1+deb13u1" \
   && rm -rf /var/lib/apt/lists/*
 
 # The only artifact copied out of the verification stage is the signed .deb.

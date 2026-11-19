@@ -25,7 +25,8 @@ class ScannerTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.signatures = Path(self.temp.name)
-        (self.signatures / "daily.cld").write_bytes(b"synthetic fixture")
+        for database in ("daily.cld", "main.cvd", "bytecode.cvd"):
+            (self.signatures / database).write_bytes(b"synthetic fixture")
         self.called = []
 
     def tearDown(self):
@@ -91,6 +92,68 @@ class ScannerTests(unittest.TestCase):
         os.utime(signature, (old, old))
         with self.assertRaises(inspector.ScannerUnavailable):
             inspector.require_fresh_signatures(self.signatures)
+
+    def test_core_signatures_must_all_be_present_current_and_unambiguous(self):
+        current = time.time()
+        inspector.require_fresh_signatures(self.signatures,now=current)
+        for name in ("daily.cld","main.cvd","bytecode.cvd"):
+            with self.subTest(missing=name):
+                original=(self.signatures/name).read_bytes()
+                (self.signatures/name).unlink()
+                with self.assertRaises(inspector.ScannerUnavailable):
+                    inspector.require_fresh_signatures(self.signatures,now=current)
+                (self.signatures/name).write_bytes(original)
+            with self.subTest(stale=name):
+                os.utime(self.signatures/name,(current-72*3600-1,current-72*3600-1))
+                with self.assertRaises(inspector.ScannerUnavailable):
+                    inspector.require_fresh_signatures(self.signatures,now=current)
+                os.utime(self.signatures/name,(current,current))
+        (self.signatures/"daily.cvd").write_bytes(b"duplicate database")
+        with self.assertRaises(inspector.ScannerUnavailable):
+            inspector.require_fresh_signatures(self.signatures,now=current)
+
+    def test_signature_timestamp_must_not_be_future_or_symlinked(self):
+        current=time.time()
+        original=self.signatures/"daily.cld"
+        os.utime(original,(current+3600,current+3600))
+        with self.assertRaises(inspector.ScannerUnavailable):
+            inspector.require_fresh_signatures(self.signatures,now=current)
+        original.unlink()
+        target=self.signatures/"unsafe.txt"
+        target.write_bytes(b"synthetic")
+        original.symlink_to(target)
+        with self.assertRaises(inspector.ScannerUnavailable):
+            inspector.require_fresh_signatures(self.signatures,now=current)
+
+    def test_signature_expiration_returns_http_503_not_healthy(self):
+        from http.client import HTTPConnection
+        from http.server import HTTPServer
+        from threading import Thread
+        with patch.dict(os.environ,{
+            "FOLIO_INSPECTOR_SERVICE_TOKEN":"synthetic" * 6,
+            "FOLIO_INSPECTOR_OUTPUT_MODE":"unsigned",
+            "CLAMAV_DB_DIR":str(self.signatures)
+        }),patch.object(inspector.shutil,"which",return_value="/usr/bin/fake"),\
+            patch.object(inspector,"command",return_value="ClamAV 1.5.5"):
+            service=HTTPServer(("127.0.0.1",0),inspector.InspectorHandler)
+            thread=Thread(target=service.serve_forever,daemon=True)
+            thread.start()
+            try:
+                def health():
+                    connection=HTTPConnection("127.0.0.1",service.server_port,timeout=3)
+                    connection.request("GET","/health")
+                    response=connection.getresponse()
+                    result=(response.status,response.read())
+                    connection.close()
+                    return result
+                self.assertEqual(health(),(200,b""))
+                stale=time.time()-inspector.MAX_SIGNATURE_AGE-1
+                os.utime(self.signatures/"daily.cld",(stale,stale))
+                self.assertEqual(health(),(503,b""))
+            finally:
+                service.shutdown()
+                thread.join(timeout=3)
+                service.server_close()
 
     def test_encrypted_embedded_and_overlong_docs_are_rejected(self):
         cases = [
