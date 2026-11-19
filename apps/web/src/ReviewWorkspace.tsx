@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import {InspectedTextViewer} from "./InspectedTextViewer";
 import {
-  loadChecklist, loadObservationDrafts, loadObservationDetail, loadVerifiedReviewReport, createCommissionChecklistItem, submitSearchScopeDraft,
+  loadChecklist, loadObservationHistory, loadObservationDetail, loadVerifiedReviewReport, createCommissionChecklistItem, submitSearchScopeDraft,
   transitionObservation as requestTransition,
-  type ChecklistRow, type ObservationRow, type Scope
+  type ChecklistRow, type ObservationRow, type ObservationEvidence, type Scope
 } from "./api";
 
 const labels: Record<ChecklistRow["status"], string> = {
@@ -35,9 +36,49 @@ export function ChecklistStatus({item,onOpenValidation}: {item: ChecklistRow; on
   );
 }
 
+export function ObservationHistoryControls({nextCursor,loading,error,onNext}:{
+  nextCursor:string|null;loading:boolean;error:string;onNext:()=>void;
+}) {
+  if(nextCursor===null) return null;
+  return (
+    <div className="history-controls">
+      {error && <p role="alert" className="message error">{error}</p>}
+      <button className="button secondary" type="button" disabled={loading}
+        onClick={onNext}>
+        {loading?"Cargando historial…":"Cargar observaciones anteriores"}
+      </button>
+    </div>
+  );
+}
+
+export interface InspectedEvidenceReference {
+  versionId:string;sha256:string;page:number;
+}
+
+/** Only inspected text may be navigated; original PDF bytes are never linked. */
+export function DocumentEvidenceAction({proof,onOpen}:{
+  proof:ObservationEvidence;onOpen:(reference:InspectedEvidenceReference)=>void;
+}) {
+  if(proof.type!=="DOCUMENT_PAGE"
+    || typeof proof.documentVersionId!=="string"
+    || !/^[A-Za-z0-9_-]{1,64}$/.test(proof.documentVersionId)
+    || typeof proof.sha256!=="string" || !/^[a-f0-9]{64}$/.test(proof.sha256)
+    || typeof proof.page!=="number" || !Number.isSafeInteger(proof.page)
+    || proof.page<1 || proof.page>100) return null;
+  const reference={versionId:proof.documentVersionId,sha256:proof.sha256,page:proof.page};
+  return <button className="button secondary" type="button"
+    onClick={()=>onOpen(reference)}>
+    Ver página inspeccionada {reference.page}
+  </button>;
+}
+
 export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scope; canDraft: boolean; canManage?:boolean}) {
   const [checklist,setChecklist] = useState<ChecklistRow[]>([]);
   const [observations,setObservations] = useState<ObservationRow[]>([]);
+  const [historyCursor,setHistoryCursor] = useState<string|null>(null);
+  const [historyBusy,setHistoryBusy] = useState(false);
+  const [historyError,setHistoryError] = useState("");
+  const historyEpoch=useRef(0);
   const [itemId,setItemId] = useState("");
   const [title,setTitle] = useState("");
   const [description,setDescription] = useState("");
@@ -54,6 +95,7 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
   const [reviewConfirmed,setReviewConfirmed]=useState(false);
   const [transitionBusy,setTransitionBusy]=useState(false);
   const [linkedRecord,setLinkedRecord]=useState<ObservationRow|null>(null);
+  const [focusedPage,setFocusedPage]=useState<InspectedEvidenceReference|null>(null);
   const [linkedLoading,setLinkedLoading]=useState(false);
   const [linkedError,setLinkedError]=useState("");
   const [exportBusy,setExportBusy]=useState(false);
@@ -67,15 +109,20 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
 
   useEffect(() => {
     let active = true;
+    historyEpoch.current+=1;
+    ++linkedRequest.current;
+    setLinkedRecord(null);setFocusedPage(null);setLinkedLoading(false);setLinkedError("");
     setLoading(true); setError("");
+    setHistoryCursor(null);setHistoryBusy(false);setHistoryError("");
     setChecklist([]); setObservations([]); setItemId("");
     Promise.all([
       loadChecklist(scope.commissionId),
-      loadObservationDrafts(scope.commissionId)
-    ]).then(([items,drafts]) => {
+      loadObservationHistory(scope.commissionId)
+    ]).then(([items,page]) => {
       if (!active) return;
       setChecklist(items);
-      setObservations(drafts);
+      setObservations(page.items);
+      setHistoryCursor(page.nextCursor);
       const eligible = items.filter((item) => item.status === "pending" || item.status === "not_located");
       setItemId((current) => eligible.some((item) => item.id === current) ? current : (eligible[0]?.id ?? ""));
     }).catch((problem: unknown) => {
@@ -83,6 +130,31 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [scope.commissionId,reload]);
+
+  async function loadOlderObservations() {
+    if(!historyCursor || historyBusy || loading) return;
+    const epoch=historyEpoch.current;
+    const cursor=historyCursor;
+    setHistoryBusy(true);setHistoryError("");
+    try {
+      const page=await loadObservationHistory(scope.commissionId,cursor);
+      if(epoch!==historyEpoch.current) return;
+      if(page.nextCursor===cursor) {
+        throw new Error("El servidor devolvió un cursor repetido.");
+      }
+      setObservations(current=>{
+        const seen=new Set(current.map(item=>item.id));
+        return [...current,...page.items.filter(item=>!seen.has(item.id))];
+      });
+      setHistoryCursor(page.nextCursor);
+    } catch(problem) {
+      if(epoch===historyEpoch.current) {
+        setHistoryError(problem instanceof Error?problem.message:"No se pudo cargar el historial.");
+      }
+    } finally {
+      if(epoch===historyEpoch.current) setHistoryBusy(false);
+    }
+  }
 
   async function addChecklistItem(event:FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -179,7 +251,7 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
 
   async function openValidation(observationId:string) {
     const requestNumber=++linkedRequest.current;
-    setLinkedRecord(null);setLinkedError("");setLinkedLoading(true);
+    setLinkedRecord(null);setFocusedPage(null);setLinkedError("");setLinkedLoading(true);
     try {
       const record=await loadObservationDetail(scope.commissionId,observationId);
       if(requestNumber===linkedRequest.current) setLinkedRecord(record);
@@ -287,9 +359,9 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
       {(linkedLoading || linkedRecord || linkedError) && (
         <section className="review-card linked-observation-card" aria-labelledby="linked-observation-title">
           <div className="observation-heading">
-            <h3 id="linked-observation-title">Detalle de la validación</h3>
+            <h3 id="linked-observation-title">Detalle de la observación</h3>
             <button type="button" className="button secondary" onClick={()=>{
-              ++linkedRequest.current;setLinkedRecord(null);setLinkedError("");setLinkedLoading(false);
+              ++linkedRequest.current;setLinkedRecord(null);setFocusedPage(null);setLinkedError("");setLinkedLoading(false);
             }}>Cerrar detalle</button>
           </div>
           {linkedLoading && <p role="status">Consultando evidencia original…</p>}
@@ -315,15 +387,28 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
                       : proof.type==="DOCUMENT_PAGE"
                         ? `Versión ${String(proof.documentVersionId)} · Página ${String(proof.page)}`
                         : "Referencia externa"}
+                    <DocumentEvidenceAction proof={proof}
+                      onOpen={reference=>setFocusedPage(reference)}/>
                   </li>
                 ))}
               </ul>
+              {focusedPage && (
+                <section className="history-document-reference" aria-label="Página documental citada">
+                  <button className="button secondary" type="button"
+                    onClick={()=>setFocusedPage(null)}>Cerrar página inspeccionada</button>
+                  <InspectedTextViewer key={focusedPage.versionId+":"+focusedPage.page}
+                    scope={scope} versionId={focusedPage.versionId}
+                    sha256={focusedPage.sha256} focusPage={focusedPage.page}
+                    canDraft={false}/>
+                </section>
+              )}
             </div>
           )}
         </section>
       )}
       <div className="review-card observations-card">
-        <h3>Borradores y observaciones</h3>
+        <h3>Historial de observaciones</h3>
+        <p className="review-note">Se muestran primero 25 registros. Puedes consultar el historial anterior sin perder las observaciones ya cargadas.</p>
         {loading ? <p>Consultando observaciones…</p> :
           observations.length === 0 ? <p>La comisión todavía no tiene observaciones registradas.</p> :
           <ul className="observation-items">
@@ -334,6 +419,10 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
                 record.status==="validated"?"Validación interna":"Descartada"
               }</span></div>
               <p>{record.description}</p>
+              <button type="button" className="button secondary"
+                onClick={()=>void openValidation(record.id)}>
+                Ver detalle
+              </button>
               {record.evidence.map((proof,index) =>
                 <p className="proof-reference" key={index}>
                   {proof.type === "SEARCH_SCOPE" ? "Búsqueda documentada" : proof.type === "DOCUMENT_PAGE" ? "Página verificada" : "Fuente oficial"}
@@ -380,6 +469,9 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
               )}
             </li>)}
           </ul>}
+        {!loading && <ObservationHistoryControls
+          nextCursor={historyCursor} loading={historyBusy} error={historyError}
+          onNext={()=>void loadOlderObservations()}/>}
       </div>
     </section>
   );

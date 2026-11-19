@@ -151,6 +151,10 @@ h1 { margin: 0; font-size: clamp(29px, 3.2vw, 42px); letter-spacing: -.05em; lin
 .checklist-proof code { overflow-wrap: anywhere; }
 .linked-observation-card { margin-top: 22px; }
 .linked-observation-id { overflow-wrap: anywhere; }
+.history-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
+.history-controls .message { flex-basis: 100%; }
+.history-document-reference { margin-top: 16px; display: grid; gap: 12px; }
+.history-document-reference > button { justify-self: start; }
 .manage-form {
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
   margin: 14px 0 18px; padding: 14px; border-radius: 9px;

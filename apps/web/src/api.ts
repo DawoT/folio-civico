@@ -388,6 +388,45 @@ export async function loadChecklist(commissionId: string, fetcher: typeof fetch 
   return body as ChecklistRow[];
 }
 
+export interface ObservationHistoryPage {
+  items: ObservationRow[];
+  nextCursor: string | null;
+}
+
+const historyCursorPattern=/^[A-Za-z0-9_-]{12,512}$/;
+
+/** Keyset history: original 50-item endpoint remains for legacy clients. */
+export async function loadObservationHistory(
+  commissionId:string,
+  cursor:string|null=null,
+  fetcher:typeof fetch=fetch
+):Promise<ObservationHistoryPage> {
+  if(cursor!==null && !historyCursorPattern.test(cursor)) {
+    throw new ApiError(400,"Cursor del historial no válido.");
+  }
+  const path=commissionPath(commissionId)+"/observations/history?limit=25"
+    +(cursor!==null?"&cursor="+encodeURIComponent(cursor):"");
+  const response=await fetcher(path,{credentials:"same-origin",cache:"no-store"});
+  const body=await expectJson(response);
+  if(!body || typeof body!=="object" || Array.isArray(body)) {
+    throw new ApiError(502,"Respuesta inesperada del historial.");
+  }
+  const page=body as Partial<ObservationHistoryPage>;
+  if(!Array.isArray(page.items) || page.items.length>25
+    || !(page.nextCursor===null
+      || (typeof page.nextCursor==="string"
+        && historyCursorPattern.test(page.nextCursor)))
+    || page.items.some(record=>!record || typeof record!=="object"
+      || !validId.test(record.id) || record.commissionId!==commissionId
+      || typeof record.title!=="string" || typeof record.description!=="string"
+      || !["draft","in_review","validated","dismissed"].includes(record.status)
+      || !Array.isArray(record.evidence))
+    || new Set(page.items.map(item=>item.id)).size!==page.items.length) {
+    throw new ApiError(502,"El historial es inválido o corresponde a otra comisión.");
+  }
+  return {items:page.items,nextCursor:page.nextCursor};
+}
+
 export async function loadObservationDrafts(
   commissionId: string, fetcher: typeof fetch = fetch
 ): Promise<ObservationRow[]> {

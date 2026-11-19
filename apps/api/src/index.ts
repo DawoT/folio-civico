@@ -41,7 +41,7 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
   const checklistProvision = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/checklist\/items$/.exec(url.pathname);
   const route = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/summary$/.exec(url.pathname);
   const documents = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/batches\/([A-Za-z0-9_-]{1,64})\/documents$/.exec(url.pathname);
-  const review = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/(checklist|observations|observations\/drafts|observations\/page-drafts)$/.exec(url.pathname);
+  const review = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/(checklist|observations|observations\/history|observations\/drafts|observations\/page-drafts)$/.exec(url.pathname);
   const transition = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/([A-Za-z0-9_-]{1,64})\/actions$/.exec(url.pathname);
   const reviewExport = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/export$/.exec(url.pathname);
   const observationDetail = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
@@ -76,6 +76,7 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
   if (transition) return handleTransitionRequest(request,{DB:env.DB},subject,transition[1]!,transition[2]!);
   if (review) {
     const action: ReviewAction = review[2] === "observations/page-drafts" ? "page-drafts" : review[2] === "observations/drafts" ? "drafts"
+      : review[2] === "observations/history" ? "history"
       : review[2] === "observations" ? "observations" : "checklist";
     return handleReviewRequest(request, {DB:env.DB},subject,review[1]!,action);
   }

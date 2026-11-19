@@ -27,8 +27,8 @@ export function InspectedPage({
 
 /** Accessible text view, not a PDF renderer. Page drafts always require a human action. */
 export function InspectedTextViewer({
-  scope,versionId,sha256,canDraft,onDraftCreated
-}: {scope:Scope;versionId:string;sha256:string;canDraft:boolean;onDraftCreated?:()=>void}) {
+  scope,versionId,sha256,canDraft,onDraftCreated,focusPage
+}: {scope:Scope;versionId:string;sha256:string;canDraft:boolean;onDraftCreated?:()=>void;focusPage?:number}) {
   const [view,setView]=useState<DocumentTextView|null>(null);
   const [busy,setBusy]=useState(true);
   const [error,setError]=useState("");
@@ -50,12 +50,17 @@ export function InspectedTextViewer({
         setError("Las referencias documentales no coinciden con la versión seleccionada.");
         return;
       }
+      if(focusPage!==undefined && (!Number.isSafeInteger(focusPage)
+        || !result.pages.some(page=>page.page===focusPage))) {
+        setError("La página citada no existe en el texto inspeccionado.");
+        return;
+      }
       setView(result);
     }).catch((reason:unknown)=>{
       if(active)setError(reason instanceof Error?reason.message:"No se pudo recuperar el texto procesado.");
     }).finally(()=>{if(active)setBusy(false);});
     return ()=>{active=false;};
-  },[scope.commissionId,versionId,sha256]);
+  },[scope.commissionId,versionId,sha256,focusPage]);
 
   async function saveCitation(event:FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -89,7 +94,7 @@ export function InspectedTextViewer({
       {error && <p className="message error" role="alert">{error}</p>}
       {notice && <p className="message success" role="status">{notice}</p>}
       {view && <div className="inspected-pages">
-        {view.pages.map(page=><InspectedPage key={page.page}
+        {view.pages.filter(page=>focusPage===undefined || page.page===focusPage).map(page=><InspectedPage key={page.page}
           page={page} versionId={view.versionId} sha256={view.sha256}
           onCite={canDraft?()=>{setActivePage(page.page);setConfirmed(false);setError("");}:undefined}/>)}
       </div>}
