@@ -28,7 +28,9 @@ Por tanto, comprobar únicamente que `pdftoppm` devuelve 0 es insuficiente. La i
 
 El Dockerfile original `Dockerfile.poppler-experiment` se refuerza con `-DFONT_CONFIGURATION=fontconfig` y comprobación explícita de `libfontconfig` en `ldd`. **No** se integró la variante genérica fallida en el diseño del inspector, ni se incorporó su Dockerfile/constructor al repositorio; la imagen de investigación local queda separada y no se publica.
 
-`apps/inspector/verify_raster_guard.sh` permite ejecutar el **harness actualizado del repositorio** dentro del ID inmutable de la imagen experimental anterior, offline, sin mounts ni rebuild, para verificar la nueva aserción en motores reales.
+`apps/inspector/verify_raster_guard.sh` permite ejecutar el **harness actualizado del repositorio** dentro del ID inmutable de la imagen experimental anterior, offline, sin mounts ni rebuild, para verificar la nueva aserción en motores reales. Esta comprobación real terminó con **6/6 motores, exit 0**.
+
+**Verificación de GitHub Actions:** el primer CI del PR R1.6 falló exclusivamente al lanzar los 18 casos Playwright: el runner GitHub no tenía instalado `chromium_headless_shell`, aunque el CI del host local sí contaba con ese binario. El workflow `.github/workflows/ci.yml` ahora instala dependencias PNPM bloqueadas y `pnpm exec playwright install --with-deps chromium` **antes** de ejecutar `sh scripts/ci.sh`. La prueba contractual exige ese orden y que no se añadan despliegues remotos. La aprobación en GitHub debe verificarse después de publicar el cambio.
 
 ## Decisión y próximos bloqueos
 
