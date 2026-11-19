@@ -34,7 +34,7 @@ Los registros de revocación son **denegaciones**, no autorizaciones; no alteran
 
 ## Procedimiento futuro (no automatizado)
 
-La tabla **no tiene ruta HTTP, MCP, cron ni botón**, ni se ha añadido una función para insertar revocaciones desde un caller sin autenticación. Una operación real deberá usar un proceso privado y autorizado de respuesta a incidentes que autentique al responsable, verifique evidencia, ticket y alcance de la revocación, inserte una sola fila en D1 y preserve un registro del actor y su aprobación fuera de esta tabla. El campo `incident_ref` **no prueba** por sí mismo la identidad ni la aprobación.
+La tabla **no tiene ruta HTTP, MCP, cron ni botón**. **R2.8 añade un registrador interno aislado** que exige dos identidades Access distintas y una aprobación de incidente JWS firmada, y persiste en una transacción D1 el [diario global de revocaciones](R2_PRIVATE_REVOCATION_REGISTRATION.md). Sigue sin existir un host operativo autorizado que suministre identidades y claves reales. El campo `incident_ref` **no prueba** por sí mismo la identidad ni la aprobación; la autoridad emisora debe validar el ticket de forma independiente.
 
 La revocación es deliberadamente irreversible mediante SQL ordinario. Falsos positivos requieren un procedimiento explícito de revisión, no eliminar silenciosamente la fila. Una clave rotada puede bloquearse por su huella sin desautorizar automáticamente otras claves de distinto thumbprint.
 

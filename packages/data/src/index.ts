@@ -14,3 +14,4 @@ export * from "./processing-health";
 export * from "./recovery-review";
 export * from "./manual-redrive";
 export * from "./redrive-revocations";
+export * from "./revocation-registration";
