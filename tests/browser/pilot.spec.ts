@@ -41,6 +41,8 @@ test("a11y: initial, empty, and president administration screens",async({page})=
   await expect(page.getByText("No constituye el acta oficial")).toBeVisible();
   await expectA11y(page);
   await page.getByLabel("Identificador de comisión").selectOption("c_a");
+  await expect(page.getByRole("heading",{name:"Administración de miembros"})).toBeHidden();
+  await page.getByRole("link", {name:"Administración"}).click();
   await expect(page.getByRole("heading",{name:"Administración de miembros"})).toBeVisible();
   await expectA11y(page);
 
