@@ -9,12 +9,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
+from unittest.mock import patch
 
 from fixtures import native_pdf, scanned_pdf, malformed_pdf
-from inspector import inspect_pdf, ReviewRequired, command
+from inspector import inspect_pdf, ReviewRequired, command, engine_environment
 from preflight import inspect_host
 
 
@@ -167,12 +169,41 @@ def verify_encrypted_rejection_before_poppler(encrypted: bytes, database: Path) 
         raise AssertionError("Encrypted PDF passed the preflight")
 
 
+SYNTHETIC_UNTRUSTED_ENV = {
+    "FOLIO_INSPECTOR_SERVICE_TOKEN": "synthetic-smoke-private-token",
+    "FOLIO_INSPECTOR_HMAC_KEY": "synthetic-smoke-private-hmac",
+    "LD_LIBRARY_PATH": "/tmp/untrusted-libraries",
+    "FONTCONFIG_FILE": "/tmp/untrusted-fontconfig.xml",
+    "FONTCONFIG_PATH": "/tmp/untrusted-fontconfig",
+    "XDG_CONFIG_HOME": "/tmp/untrusted-user-fonts",
+    "TESSDATA_PREFIX": "/tmp/untrusted-ocr-data",
+}
+
+
+def verify_parser_environment() -> None:
+    """Inspect the REAL child env under poisoned parent values, with no secrets logged."""
+    with patch.dict(os.environ, SYNTHETIC_UNTRUSTED_ENV):
+        raw = command(["/usr/bin/env"], Path(tempfile.gettempdir()))
+    actual: dict[str, str] = {}
+    for row in raw.splitlines():
+        if "=" not in row:
+            raise AssertionError("Malformed parser environment")
+        name, value = row.split("=", 1)
+        if not name or name in actual:
+            raise AssertionError("Malformed parser environment")
+        actual[name] = value
+    if actual != engine_environment():
+        raise AssertionError("Unexpected parser environment or credentials leaked")
+
+
 def exercise_real_engines(database: Path) -> dict[str, str]:
     expected = {"native": "passed", "ocr": "passed",
+                "parser_environment": "isolated",
                 "malformed": "rejected", "encrypted": "rejected",
                 "encrypted_before_poppler": "passed",
                 "embedded_file": "rejected", "antivirus_test": "detected"}
 
+    verify_parser_environment()
     native = native_pdf()
     manifest = inspect_pdf(native, "synthetic_native", hashlib.sha256(native).hexdigest(),
                            signatures=database)
@@ -184,8 +215,13 @@ def exercise_real_engines(database: Path) -> dict[str, str]:
 
     scanned = build_scanned_fixture()
     assert_no_pdf_text(scanned)
-    manifest = inspect_pdf(scanned, "synthetic_ocr", hashlib.sha256(scanned).hexdigest(),
-                           signatures=database)
+    # This run proves real OCR still works even if the parent is contaminated
+    # with attacker-chosen Fontconfig, library-loader and tessdata overrides.
+    with patch.dict(os.environ, SYNTHETIC_UNTRUSTED_ENV):
+        manifest = inspect_pdf(
+            scanned, "synthetic_ocr", hashlib.sha256(scanned).hexdigest(),
+            signatures=database,
+        )
     if len(manifest["pages"]) != 1:
         raise AssertionError("OCR PDF page count differs")
     ocr_text = manifest["pages"][0]["text"].upper()

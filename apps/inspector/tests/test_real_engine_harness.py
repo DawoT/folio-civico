@@ -164,6 +164,18 @@ class PreflightPolicyTests(unittest.TestCase):
                        args=["pdftotext"], returncode=0, stdout=b"\n\f")):
             assert_no_pdf_text(scanned_pdf())
 
+    def test_real_smoke_rejects_parser_environment_leak(self):
+        from smoke_real_engines import verify_parser_environment
+        with patch("smoke_real_engines.command",return_value=(
+            "FOLIO_INSPECTOR_SERVICE_TOKEN=synthetic-leak\n"
+            "FONTCONFIG_FILE=/tmp/unsafe.xml\n"
+        )),self.assertRaisesRegex(AssertionError,"parser environment"):
+            verify_parser_environment()
+        with patch("smoke_real_engines.command",return_value=(
+            "PATH=/usr/bin\n"
+        )),self.assertRaisesRegex(AssertionError,"parser environment"):
+            verify_parser_environment()
+
     def test_real_smoke_qpdf_preflight_forbids_poppler_on_encrypted_input(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
@@ -199,6 +211,7 @@ class PreflightPolicyTests(unittest.TestCase):
                  patch("smoke_real_engines.assert_no_pdf_text"), \
                  patch("smoke_real_engines.build_negative_fixtures", return_value=[("encrypted",scanned_pdf()),("embedded_file",scanned_pdf())]), \
                  patch("smoke_real_engines.verify_encrypted_rejection_before_poppler"), \
+                 patch("smoke_real_engines.verify_parser_environment"), \
                  patch("smoke_real_engines.subprocess.run",
                        return_value=subprocess.CompletedProcess(
                            args=["clamscan"], returncode=0)):
@@ -221,12 +234,14 @@ class PreflightPolicyTests(unittest.TestCase):
                  patch("smoke_real_engines.assert_no_pdf_text"), \
                  patch("smoke_real_engines.build_negative_fixtures", return_value=[("encrypted",scanned_pdf()),("embedded_file",scanned_pdf())]), \
                  patch("smoke_real_engines.verify_encrypted_rejection_before_poppler"), \
+                 patch("smoke_real_engines.verify_parser_environment"), \
                  patch("smoke_real_engines.subprocess.run",
                        return_value=subprocess.CompletedProcess(
                            args=["clamscan"], returncode=1)):
                 self.assertEqual(exercise_real_engines(Path(scratch)), {
                     "native": "passed", "ocr": "passed", "malformed": "rejected",
                     "encrypted":"rejected", "encrypted_before_poppler":"passed",
+                    "parser_environment":"isolated",
                     "embedded_file":"rejected", "antivirus_test": "detected"
                 })
 

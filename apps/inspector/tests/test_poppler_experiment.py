@@ -36,6 +36,9 @@ class ExperimentalPopplerPolicyTests(unittest.TestCase):
         self.assertNotIn('! ldd "',source)
         self.assertIn('libgpgme|libnss3',source)
         self.assertIn("grep -q 'libfontconfig'", source)
+        self.assertIn("test -r /etc/fonts/fonts.conf", source)
+        self.assertIn("test ! -L /etc/fonts/fonts.conf", source)
+        self.assertIn("test -d /etc/fonts/conf.d", source)
         self.assertNotIn("-DFONT_CONFIGURATION=generic", source)
 
     def test_poppler_quality_comparison_is_optional_and_reuses_strict_gate(self):
