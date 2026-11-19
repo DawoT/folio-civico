@@ -1,6 +1,7 @@
-# This image is NOT deployed automatically. The operator must supply up-to-date
-# ClamAV signatures as a read-only mount and run with private networking,
-# read-only filesystem, unprivileged user, tmpfs and resource limits.
+# This image is NOT deployed automatically. Official ClamAV signatures
+# are fetched during the build, then used offline at runtime. Build only
+# after the host-capacity gate passes; never build on the shared host when
+# storage is constrained.
 FROM python:3.12-slim-bookworm
 
 RUN apt-get update \
@@ -19,7 +20,7 @@ RUN mkdir -p /opt/clamdb \
   && chmod -R a+rX /opt/clamdb
 
 WORKDIR /srv/folio-inspector
-COPY --chown=65534:65534 inspector.py /srv/folio-inspector/inspector.py
+COPY --chown=65534:65534 inspector.py fixtures.py preflight.py smoke_real_engines.py /srv/folio-inspector/
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     CLAMAV_DB_DIR=/opt/clamdb FOLIO_INSPECTOR_BIND=0.0.0.0

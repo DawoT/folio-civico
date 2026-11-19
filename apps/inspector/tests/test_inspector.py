@@ -3,6 +3,7 @@ import hmac
 import importlib.util
 import json
 import os
+import sys
 from pathlib import Path
 import tempfile
 import time
@@ -152,6 +153,18 @@ class ScannerTests(unittest.TestCase):
         changed = dict(manifest, sourceSha256="f" * 64)
         different = json.loads(inspector.signed_result(changed, KEY))
         self.assertNotEqual(different["signature"], expected)
+
+    def test_engine_output_is_disk_backed_and_rejected_above_two_mib(self):
+        script = ("import sys; "
+                  "sys.stdout.buffer.write(b'X' * (2 * 1024 * 1024 + 1))")
+        with self.assertRaises(inspector.ReviewRequired):
+            inspector.command([sys.executable, "-c", script], self.signatures)
+        self.assertEqual(list(self.signatures.glob("tmp*")), [])
+
+    def test_engine_output_requires_strict_utf8(self):
+        script = "import sys;sys.stdout.buffer.write(bytes([255,254,0]))"
+        with self.assertRaises(inspector.ReviewRequired):
+            inspector.command([sys.executable, "-c", script], self.signatures)
 
     def test_clamav_engine_error_is_not_mistaken_for_a_virus_detection(self):
         from subprocess import CompletedProcess

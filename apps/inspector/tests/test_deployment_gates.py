@@ -45,6 +45,30 @@ class DeploymentActivationGates(unittest.TestCase):
         self.assertNotIn("vars", config)
         self.assertNotIn("routes", config)
 
+    def test_local_real_engine_runner_requires_preflight_and_is_offline(self):
+        runner=(ROOT / "apps/inspector/validate_real_engines.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("set -euo pipefail", runner)
+        preflight=runner.index("python3 apps/inspector/preflight.py --mode build")
+        build=runner.index("docker build")
+        run=runner.index("docker run")
+        self.assertLess(preflight, build)
+        self.assertLess(build, run)
+        for expected in ("--network none", "--read-only", "--cap-drop ALL",
+                         "--security-opt no-new-privileges", "--memory 4g",
+                         "--memory-swap 4g", "--tmpfs /tmp:", "--rm"):
+            with self.subTest(flag=expected):
+                self.assertIn(expected, runner)
+        self.assertNotIn("--publish", runner)
+        self.assertNotIn("docker system prune", runner)
+        dockerfile=(ROOT / "apps/inspector/Dockerfile").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("freshclam --datadir=/opt/clamdb", dockerfile)
+        self.assertIn("smoke_real_engines.py", dockerfile)
+        self.assertIn("fixtures.py", dockerfile)
+
     def test_private_container_process_never_receives_hmac_signing_key(self):
         source=(ROOT / "apps/inspector-gateway/src/index.ts").read_text(encoding="utf-8")
         self.assertIn('FOLIO_INSPECTOR_OUTPUT_MODE:"unsigned"', source)

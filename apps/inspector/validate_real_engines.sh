@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Explicit opt-in: builds ONLY the Folio Cívico inspector image after safe
+# local disk/RAM/Docker-daemon checks. Does not touch Cloudflare or other images.
+set -euo pipefail
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT"
+
+python3 apps/inspector/preflight.py --mode build
+
+docker build --pull \
+  --tag folio-civico-inspector:validation \
+  apps/inspector
+
+# No network or public ports. The smoke CLI needs no production secrets.
+# 4 GiB is the official ClamAV recommended container memory, not the old
+# insufficient 768 MiB limit. No PDF/test file survives container exit.
+docker run --rm \
+  --network none \
+  --read-only \
+  --cap-drop ALL \
+  --security-opt no-new-privileges \
+  --pids-limit 64 \
+  --cpus 1 \
+  --memory 4g \
+  --memory-swap 4g \
+  --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777 \
+  --entrypoint python3 \
+  folio-civico-inspector:validation \
+  /srv/folio-inspector/smoke_real_engines.py --database /opt/clamdb

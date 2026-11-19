@@ -88,8 +88,8 @@ docker network create --internal folio-inspector-internal
 docker run --rm \
   --network folio-inspector-internal \
   --read-only --cap-drop ALL --security-opt no-new-privileges \
-  --pids-limit 64 --cpus 1 --memory 768m \
-  --tmpfs /tmp:rw,nosuid,nodev,noexec,size=96m,mode=1777 \
+  --pids-limit 64 --cpus 1 --memory 4g --memory-swap 4g \
+  --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777 \
   --mount type=bind,src=/secure/clamav-db,dst=/opt/clamdb,readonly \
   --mount type=bind,src=/secure/inspector-token,dst=/run/secrets/token,readonly \
   --mount type=bind,src=/secure/inspector-hmac,dst=/run/secrets/hmac,readonly \
@@ -111,7 +111,7 @@ Los paths `/secure/*` son ejemplos que el operador debe sustituir. La red debe p
 
 ## Seguridad y límites
 
-- **Sin despliegue, sin Queues activas, sin cron y sin costos remotos habilitados en este incremento.**
+- **Sin despliegue, sin Queues activas, sin cron y sin costos remotos habilitados en este incremento.** La ADR-010 añade preflight de disco/RAM, fixtures sintéticos y smoke real opt-in sin haber ejecutado los motores todavía.
 - No hay URL del inspector configurable por el mensaje, ruta pública de sus originales ni procesamiento en la API frontend.
 - `needs_review` es conservador, nunca aprobación. El pipeline no sustituye revisión normativa ni inspección humana y puede producir falsos positivos o falsos negativos.
 - El scanner no sanea un derivado visual para descarga; el visor seguro PDF sigue pendiente.

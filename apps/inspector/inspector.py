@@ -57,26 +57,34 @@ def require_fresh_signatures(directory: Path, now: float | None = None) -> None:
         raise ScannerUnavailable("ClamAV signatures are missing or stale")
 
 
+MAX_ENGINE_OUTPUT_BYTES = 2 * 1024 * 1024
+
+
 def command(argv: list[str], cwd: Path, seconds: int = MAX_PROCESS_SECONDS) -> str:
     # Never invoke a shell or interpolate a document-controlled command.
-    try:
-        result = subprocess.run(
-            argv, cwd=cwd, check=False, capture_output=True, timeout=seconds
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as error:
-        raise ScannerUnavailable("Required inspector engine unavailable") from error
-    if result.returncode != 0:
-        # ClamAV uses 1 for a detection, 2 for engine/database failures.
-        # A broken antivirus must be retried, never classified as a document finding.
-        if argv[0] == "clamscan" and result.returncode != 1:
-            raise ScannerUnavailable("ClamAV could not complete inspection")
-        raise ReviewRequired("PDF scan, validation, or extraction rejected")
-    if len(result.stdout) > 2 * 1024 * 1024:
-        raise ReviewRequired("Inspector output exceeds limit")
-    try:
-        return result.stdout.decode("utf-8", errors="strict")
-    except UnicodeDecodeError as error:
-        raise ReviewRequired("Non-UTF-8 inspector output") from error
+    # Redirect untrusted parser output to the bounded private tmpfs rather
+    # than accumulating arbitrary decompressed output in Worker memory.
+    with tempfile.TemporaryFile(mode="w+b", dir=cwd) as output:
+        try:
+            result = subprocess.run(
+                argv, cwd=cwd, check=False, stdout=output,
+                stderr=subprocess.DEVNULL, timeout=seconds
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as error:
+            raise ScannerUnavailable("Required inspector engine unavailable") from error
+        if result.returncode != 0:
+            # ClamAV uses 1 for a detection, 2 for engine/database failures.
+            # A broken antivirus must be retried, never classified as a document finding.
+            if argv[0] == "clamscan" and result.returncode != 1:
+                raise ScannerUnavailable("ClamAV could not complete inspection")
+            raise ReviewRequired("PDF scan, validation, or extraction rejected")
+        if os.fstat(output.fileno()).st_size > MAX_ENGINE_OUTPUT_BYTES:
+            raise ReviewRequired("Inspector output exceeds limit")
+        output.seek(0)
+        try:
+            return output.read(MAX_ENGINE_OUTPUT_BYTES + 1).decode("utf-8", errors="strict")
+        except UnicodeDecodeError as error:
+            raise ReviewRequired("Non-UTF-8 inspector output") from error
 
 
 def inspect_pdf(

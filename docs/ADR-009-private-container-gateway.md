@@ -48,6 +48,6 @@ No se ha construido una imagen real con `freshclam`, no hay claves reales, no ha
 
 ## Referencias
 
-[ADR-007](ADR-007-inspected-text-gate.md) · [ADR-008](ADR-008-isolated-inspector-queues.md) · [Guía de Preview](PREVIEW_CHECKLIST.md)
+[ADR-007](ADR-007-inspected-text-gate.md) · [ADR-008](ADR-008-isolated-inspector-queues.md) · [ADR-010](ADR-010-real-inspector-smoke-gates.md) · [Guía de Preview](PREVIEW_CHECKLIST.md)
 
 Documentación oficial consultada el 18-11-2026: [Migración a Durable Object Container API](https://developers.cloudflare.com/containers/guides/migrate-to-durable-object-container-api/), [Ejemplo de instancias stateless](https://developers.cloudflare.com/containers/examples/stateless/), [Configuración Wrangler](https://developers.cloudflare.com/containers/configuration/wrangler/) y [API de Container](https://developers.cloudflare.com/containers/api/durable-object-container/).
