@@ -152,6 +152,8 @@ export interface ChecklistRow {
   area: "works" | "procurement";
   expectedDocument: string;
   status: "pending" | "located" | "not_located" | "observed";
+  statusSource: "stored" | "validated_search";
+  validatedSearchObservationId: string | null;
   reviewedBy: string | null;
   reviewedAt: string | null;
 }

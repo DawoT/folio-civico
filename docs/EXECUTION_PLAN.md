@@ -12,6 +12,18 @@
 - **Separación de autorizaciones:** fusionar código en `main` no autoriza crear recursos, asumir gastos, registrar secretos, migrar D1 remota, procesar documentación institucional ni desplegar. Estas acciones exigen autorización expresa y gates legales/técnicos de [Preview](PREVIEW_CHECKLIST.md).
 - **Evidencia por incremento:** registrar commit, casos Red/Green, salidas de tests, resultados del CI local, riesgos residuales y rollback. No afirmar E2E remotos a partir de pruebas locales.
 
+## Vía funcional paralela (sin tocar el trabajo de seguridad)
+
+| ID | Valor de producto | Criterio medible | Estado |
+| --- | --- | --- | --- |
+| **F1** | Búsqueda documentada → dos revisores → resultado visible en checklist | Solo observaciones `SEARCH_SCOPE` validadas proyectan ausencia; se muestra revisor y referencia; sin mutar checklist original; pruebas API/UI y tenant isolation | **Implementado localmente; en integración a main** |
+| **F2** | Historial y navegación entre checklist, observaciones y documento | Localizar siempre una observación aunque tenga más de 50 registros; permisos y paginación verificadas | Pendiente |
+| **F3** | Exportación verificable de hallazgos manuales | Informe con fuentes, estado humano, identidad y fecha; prueba de integridad sin afirmar carácter oficial | Pendiente |
+| **F4** | Onboarding y administración básica de piloto | Comisiones, lotes, permisos y checklist en flujo administrativo auditable | Pendiente |
+| **F5** | E2E funcional de uso con datos sintéticos | Alta → carga en cuarentena → búsqueda → envío → segunda revisión → consulta/exportación, sin requerir scanner en una búsqueda de ausencia | Pendiente |
+
+La vía de seguridad del inspector continúa con su responsable separado. F1–F5 no habilitan PDF de cuarentena, procesamiento remoto, Preview ni datos reales.
+
 ## Secuencia y criterios de aceptación
 
 | ID | Incremento entregable | Dependencias | Criterio de aceptación para integrarse | Estado al corte |

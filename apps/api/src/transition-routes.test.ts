@@ -2,6 +2,7 @@ import { describe,expect,it } from "vitest";
 import { makeD1 } from "../../../tests/helpers/d1";
 import { persistDraftObservation } from "@folio/data";
 import { handleTransitionRequest } from "./transition-routes";
+import { handleReviewRequest } from "./review-routes";
 
 function fixture() {
   const f=makeD1();
@@ -54,6 +55,32 @@ describe("human decision API",()=>{
       expect(replay.status).toBe(200);
       expect(await replay.json()).toMatchObject({replayed:true});
       expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toMatchObject({n:3});
+    } finally {f.close();}
+  });
+
+  it("exposes confirmed absence through the authorized checklist endpoint only after two-person validation",async()=>{
+    const f=fixture();
+    try {
+      const obs=await draft(f.db);
+      const getChecklist=async (subject:string) => handleReviewRequest(
+        new Request(base+"/checklist"),{DB:f.db},subject,"c_a","checklist");
+      expect(await (await getChecklist("alice")).json()).toMatchObject([
+        {id:"item_a",status:"pending",statusSource:"stored",validatedSearchObservationId:null}
+      ]);
+      await handleTransitionRequest(post(obs.id,"submit"),{DB:f.db},"alice","c_a",obs.id);
+      expect(await (await getChecklist("eva")).json()).toMatchObject([{status:"pending"}]);
+      const result=await handleTransitionRequest(
+        post(obs.id,"validate","Verifiqué personalmente el alcance de esta búsqueda.",{key:"confirm_12345"}),
+        {DB:f.db},"eva","c_a",obs.id
+      );
+      expect(result.status).toBe(200);
+      const checklist=await getChecklist("eva");
+      expect(checklist.headers.get("Cache-Control")).toBe("no-store");
+      expect(await checklist.json()).toMatchObject([
+        {id:"item_a",status:"not_located",statusSource:"validated_search",
+          validatedSearchObservationId:obs.id,reviewedBy:"eva"}
+      ]);
+      expect((await getChecklist("bob")).status).toBe(404);
     } finally {f.close();}
   });
 

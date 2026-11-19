@@ -10,6 +10,23 @@ const labels: Record<ChecklistRow["status"], string> = {
   not_located: "No ubicado", observed: "Observado"
 };
 
+export function ChecklistStatus({item}: {item: ChecklistRow}) {
+  const internallyValidated = item.statusSource === "validated_search"
+    && item.validatedSearchObservationId !== null;
+  return (
+    <>
+      <span className="checklist-status">
+        {labels[item.status]}{internallyValidated ? " · validación interna" : ""}
+      </span>
+      {internallyValidated && (
+        <small className="checklist-proof">
+          Revisor: {item.reviewedBy} · Observación: <code>{item.validatedSearchObservationId}</code>
+        </small>
+      )}
+    </>
+  );
+}
+
 export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: boolean}) {
   const [checklist,setChecklist] = useState<ChecklistRow[]>([]);
   const [observations,setObservations] = useState<ObservationRow[]>([]);
@@ -86,7 +103,7 @@ export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: bool
       setNotice(action==="submit"
         ? "Borrador enviado a revisión. Aún no ha sido validado."
         : action==="validate"
-          ? "Un revisor diferente del autor validó internamente el registro."
+          ? "Registro validado por un segundo revisor. Si documenta una búsqueda sin resultado, el checklist reflejará «No ubicado · validación interna»."
           : "Observación descartada tras revisión humana.");
       setActiveReviewId(null);setReviewNote("");setReviewConfirmed(false);
       setReload(v=>v+1);
@@ -114,11 +131,11 @@ export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: bool
                 <li key={item.id}>
                   <span className="checklist-area">{item.area === "works" ? "Obras" : "Contrataciones"}</span>
                   <strong>{item.expectedDocument}</strong>
-                  <span className="checklist-status">{labels[item.status]}</span>
+                  <ChecklistStatus item={item}/>
                 </li>
               ))}
             </ul>}
-          <p className="review-note">El estado de un checklist no se modifica por crear un borrador.</p>
+          <p className="review-note">Un ítem pasa a «No ubicado · validación interna» solo cuando otro revisor valida la búsqueda documentada. El checklist institucional original no se altera.</p>
         </div>
         <div className="review-card">
           <h3>Registrar búsqueda</h3>

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { loadChecklist, loadObservationDrafts, submitSearchScopeDraft, transitionObservation } from "./api";
-import { ReviewWorkspace } from "./ReviewWorkspace";
+import { ReviewWorkspace, ChecklistStatus } from "./ReviewWorkspace";
+import type { ChecklistRow } from "./api";
 
 describe("review API client", () => {
   it("loads checklist with same-origin credentials and no caching", async () => {
@@ -52,6 +53,25 @@ describe("review API client", () => {
     });
     await expect(transitionObservation({commissionId:"c_a",observationId:"obs_1",
       action:"validate",note:"no"},fetcher)).rejects.toThrow();
+  });
+
+  it("shows confirmed absence as an internal decision with traceable reviewer", () => {
+    const item: ChecklistRow = {
+      id: "item_a", area: "works", expectedDocument: "Expediente",
+      status: "not_located", statusSource: "validated_search",
+      validatedSearchObservationId: "obs_001", reviewedBy: "reviewer", reviewedAt: "2026-11-19 11:00:00"
+    };
+    const markup = renderToStaticMarkup(<ChecklistStatus item={item}/>);
+    expect(markup).toContain("No ubicado");
+    expect(markup).toContain("validación interna");
+    expect(markup).toContain("reviewer");
+    expect(markup).toContain("obs_001");
+    const pending = renderToStaticMarkup(<ChecklistStatus item={{
+      ...item, status: "pending", statusSource: "stored",
+      validatedSearchObservationId: null, reviewedBy: null, reviewedAt: null
+    }}/>);
+    expect(pending).toContain("Pendiente");
+    expect(pending).not.toContain("validación interna");
   });
 
   it("renders review without pretending to validate an observation", () => {
