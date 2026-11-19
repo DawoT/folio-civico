@@ -4,5 +4,5 @@
   "private": true,
   "type": "module",
   "exports": { ".": "./src/index.ts" },
-  "dependencies": { "@folio/domain": "workspace:*" }
+  "dependencies": { "@folio/domain": "workspace:*", "@folio/auth": "workspace:*" }
 }

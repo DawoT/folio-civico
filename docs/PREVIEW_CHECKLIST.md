@@ -36,6 +36,8 @@ Asignar hostnames propios y distintos, bajo dominio administrado por la entidad 
 4. Para MCP no basta un encabezado JWT de Access en desarrollo: el **cliente remoto debe completar un flujo OAuth real**. Diseñar y configurar la integración Access/Managed OAuth o el proveedor OAuth compatible con la versión del SDK y probar descubrimiento, consentimientos, autorización, refresco y revocación.
 5. Mantener MCP solo servidor-servidor, sin CORS y rechazando `Origin`, hasta incorporar un cliente web con modelo de amenazas específico.
 
+**Redrive manual:** además de Access, [R2.6](R2_OPERATOR_SIGNED_AUTHORIZATION.md) exige dos firmas independientes de autoridad de aprobación/MFA y de release del inspector, claves públicas fijadas, digest de imagen real y evidencia externa de auditoría. No conectar el módulo sin firmantes verificados y autorizados ni inferir MFA solo del JWT Access.
+
 La selección de aplicación Access, Managed OAuth o un OAuth provider debe basarse en la configuración real de la cuenta; no introducir credenciales en código, archivos de configuración versionados ni logs.
 
 ## Gate 3 · Configuración del operador MCP

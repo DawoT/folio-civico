@@ -1,4 +1,7 @@
-import {describe,it,expect,vi} from "vitest";
+import {afterEach,describe,it,expect,vi} from "vitest";
+import type {VerifiedRedriveAuthorization} from "@folio/auth";
+import {syntheticOperatorAuthorization} from "../../../packages/auth/src/signed-fixture.test-helper";
+afterEach(()=>vi.unstubAllGlobals());
 import {makeD1} from "../../../tests/helpers/d1";
 import {persistDocumentUpload} from "./documents";
 import {openRecoveryReview,decideRecoveryReview} from "./recovery-review";
@@ -44,15 +47,16 @@ async function fixture(){
       decision:"endorse",requestKey:"recovery_decide_0001",
       rationale:"Document verified only for independent operator consideration."
     });
+    const signed=await syntheticOperatorAuthorization({reviewId:opened.id});
+    env.authorization=await signed.verify();
+    env.requiredInspectorImageDigest=signed.config.requiredImageDigest;
     return opened.id;
   }
   const sent:Array<unknown>=[];
   const queue={send:vi.fn(async(message:unknown)=>{sent.push(message);})};
-  const env={
-    DB:f.db,
-    QUEUE:queue,
-    configuredOperatorSubject:"operator_authorized_001",
-    inspectorReleaseApproved:true
+  const env:{DB:D1Database;QUEUE:typeof queue;
+    authorization?:VerifiedRedriveAuthorization;requiredInspectorImageDigest?:string}={
+    DB:f.db,QUEUE:queue
   };
   const input=(reviewId:string,overrides:Record<string,unknown>={})=>({
     commissionId:"c_a",reviewId,
@@ -61,7 +65,7 @@ async function fixture(){
     ...overrides
   });
   const row=()=>f.sqlite.prepare("SELECT state,attempts,last_sent_at AS lastSentAt FROM document_processing_outbox WHERE document_version_id='version_a'").get();
-  const attempts=()=>f.sqlite.prepare("SELECT state,operator_subject AS operator,request_key AS requestKey FROM processing_manual_redrives").all();
+  const attempts=()=>f.sqlite.prepare("SELECT state,operator_subject AS operator,request_key AS requestKey,authorization_sha256 AS authorizationDigest FROM processing_manual_redrives").all();
   return {...f,env,input,queue,sent,endorse:endorsed,row,attempts};
 }
 
@@ -71,8 +75,12 @@ describe("R2.5 · one-shot manual redrive, no active API/Cloudflare bindings",()
     try{
       const reviewId=await f.endorse();
       for(const envChange of [
-        {configuredOperatorSubject:undefined},{inspectorReleaseApproved:false},
-        {configuredOperatorSubject:"someone_else"}
+        {authorization:undefined},
+        {requiredInspectorImageDigest:"sha256:"+"0".repeat(64)},
+        {requiredInspectorImageDigest:undefined},
+        {authorization:{...f.env.authorization} as VerifiedRedriveAuthorization},
+        {authorization:undefined,inspectorReleaseApproved:true,
+          configuredOperatorSubject:"operator_authorized_001"}
       ]){
         await expect(executeOneShotManualRedrive({...f.env,...envChange},f.input(reviewId)))
           .rejects.toBeInstanceOf(ManualRedriveAccessError);
@@ -133,12 +141,13 @@ describe("R2.5 · one-shot manual redrive, no active API/Cloudflare bindings",()
       expect(f.queue.send).toHaveBeenCalledOnce();
       await expect(executeOneShotManualRedrive(f.env,f.input(reviewId,{
         requestKey:"another_request_key_001"
-      }))).rejects.toBeInstanceOf(ManualRedriveConflictError);
+      }))).rejects.toBeInstanceOf(ManualRedriveAccessError);
       release();
       const final=await first;
       expect(final.state).toBe("sent");
       expect(f.sent).toHaveLength(1);
       expect(f.attempts()).toHaveLength(1);
+      expect(f.attempts()[0]).toMatchObject({authorizationDigest:f.env.authorization!.attestationDigest});
     }finally{release();f.close();}
   });
 
@@ -180,9 +189,9 @@ describe("R2.5 · one-shot manual redrive, no active API/Cloudflare bindings",()
     }
     const f=await fixture();
     try{
-      await expect(executeOneShotManualRedrive(f.env,f.input("absent")))
-        .rejects.toBeInstanceOf(ManualRedriveConflictError);
       const reviewId=await f.endorse();
+      await expect(executeOneShotManualRedrive(f.env,f.input("absent")))
+        .rejects.toBeInstanceOf(ManualRedriveAccessError);
       for(const overrides of [
         {commissionId:"c_b"},{reviewId:"another_review"},{operatorApprovalRef:"../../secret"},
         {operatorApprovalRef:"INC_20261119_001"},{requestKey:"bad"},
@@ -226,6 +235,32 @@ describe("R2.5 · one-shot manual redrive, no active API/Cloudflare bindings",()
     }finally{f.close();}
   });
 
+  it("halts if the signed operation authorization expires after the D1 reservation",async()=>{
+    const f=await fixture();
+    let clock:ReturnType<typeof vi.spyOn>|undefined;
+    try {
+      const reviewId=await f.endorse();
+      let batches=0;
+      const wrapped={
+        prepare:f.db.prepare.bind(f.db),
+        batch:async(statements:Parameters<D1Database["batch"]>[0])=>{
+          const result=await f.db.batch(statements);
+          batches++;
+          if(batches===1)clock=vi.spyOn(Date,"now")
+            .mockReturnValue(f.env.authorization!.expiresAt+1000);
+          return result;
+        }
+      } as D1Database;
+      const result=await executeOneShotManualRedrive({...f.env,DB:wrapped},f.input(reviewId));
+      expect(result.state).toBe("halted");
+      expect(f.queue.send).not.toHaveBeenCalled();
+      expect(f.attempts()).toMatchObject([{
+        state:"halted",authorizationDigest:f.env.authorization!.attestationDigest
+      }]);
+      expect(f.row()).toMatchObject({attempts:10});
+    }finally{clock?.mockRestore();f.close();}
+  });
+
   it("never resends after an ambiguous crash during final D1 write, retaining a durable reservation",async()=>{
     const f=await fixture();
     try{
@@ -257,13 +292,22 @@ describe("R2.5 · one-shot manual redrive, no active API/Cloudflare bindings",()
       expect(()=>f.sqlite.prepare(`
         INSERT INTO processing_manual_redrives(
           id,commission_id,recovery_review_id,document_version_id,source_sha256,
-          operator_subject,request_key,operator_approval_ref,request_sha256
-        ) VALUES(?,?,?,?,?,?,?,?,?)
+          operator_subject,request_key,operator_approval_ref,request_sha256,
+          authorization_sha256
+        ) VALUES(?,?,?,?,?,?,?,?,?,?)
       `).run("fake_001","c_a",reviewId,"version_a",SHA,"president",
-        "forged_redrive_01","OPR_20261119_001",SHA)).toThrow(/MANUAL_REDRIVE_NOT_ELIGIBLE/);
+        "forged_redrive_01","OPR_20261119_001",SHA,SHA)).toThrow(/MANUAL_REDRIVE_NOT_ELIGIBLE/);
+      expect(()=>f.sqlite.exec(`INSERT INTO processing_manual_redrives(
+        id,commission_id,recovery_review_id,document_version_id,source_sha256,
+        operator_subject,request_key,operator_approval_ref,request_sha256
+      ) VALUES('missing_001','c_a','${reviewId}','version_a','${SHA}',
+        'operator_authorized_001','missing_auth_001','OPR_20261119_001','${SHA}')`))
+        .toThrow(/MANUAL_REDRIVE_ATTESTATION_REQUIRED/);
       const result=await executeOneShotManualRedrive(f.env,f.input(reviewId));
       expect(()=>f.sqlite.exec("DELETE FROM processing_manual_redrives")).toThrow(/MANUAL_REDRIVE_IMMUTABLE/);
       expect(()=>f.sqlite.exec("UPDATE processing_manual_redrives SET operator_subject='fake'")).toThrow(/MANUAL_REDRIVE_IMMUTABLE/);
+      expect(()=>f.sqlite.prepare("UPDATE processing_manual_redrives SET authorization_sha256=?").run("0".repeat(64)))
+        .toThrow(/MANUAL_REDRIVE_IMMUTABLE/);
       expect(()=>f.sqlite.exec("UPDATE processing_manual_redrives SET state='reserved'")).toThrow(/MANUAL_REDRIVE_TRANSITION/);
       expect(result.state).toBe("sent");
     }finally{f.close();}

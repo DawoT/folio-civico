@@ -1,14 +1,15 @@
 import type {ProcessingQueueMessage} from "./processing-outbox";
-import {validAccessSubject} from "./membership";
+import {isVerifiedRedriveAuthorization,type VerifiedRedriveAuthorization} from "@folio/auth";
 
 /**
  * Internal, isolated operator operation only. This function is deliberately
  * NOT wired to API/MCP/cron/Queue consumers or live Wrangler bindings.
  *
- * The caller MUST supply independently verified Access identity and a
- * separately approved inspector release gate. Checking these configured
- * values is NOT equivalent to verifying Access/MFA, security CVEs, or a
- * human operator's approval ticket. No remote integration exists.
+ * The caller MUST supply an ephemeral proof from @folio/auth verifying
+ * Access plus independent approval/MFA and inspector-release statements.
+ * Signatures prove only what their trusted issuers attest: the issuer's
+ * real MFA/CVE procedures still require an external audit. No remote host
+ * or release authority is currently configured.
  */
 export class ManualRedriveAccessError extends Error {}
 export class ManualRedriveConflictError extends Error {}
@@ -18,10 +19,10 @@ export interface ManualRedriveEnv {
   DB:D1Database;
   /** Narrow port allows a fake Queue, never a raw DLQ consumer. */
   QUEUE:{send(message:ProcessingQueueMessage):Promise<unknown>};
-  /** Configured outside any request; absent in current runtime. */
-  configuredOperatorSubject?:string;
-  /** Externally authorized release switch; absent/false by default. */
-  inspectorReleaseApproved?:boolean;
+  /** Runtime-sealed proof, issued only after three signed authorities verify. */
+  authorization?:VerifiedRedriveAuthorization;
+  /** Trusted runtime digest of the actual inspector image, not user input. */
+  requiredInspectorImageDigest?:string;
 }
 export interface OneShotRedriveInput {
   commissionId:string;
@@ -58,11 +59,12 @@ async function digest(parts:string[]):Promise<string> {
     .map(x=>x.toString(16).padStart(2,"0")).join("");
 }
 function requireAuthorization(env:ManualRedriveEnv,input:OneShotRedriveInput):void {
-  if(!validAccessSubject(input.operatorSubject)
-    || !validAccessSubject(env.configuredOperatorSubject)
-    || input.operatorSubject!==env.configuredOperatorSubject
-    || env.inspectorReleaseApproved!==true
-    || !env.QUEUE || typeof env.QUEUE.send!=="function") {
+  if(!isVerifiedRedriveAuthorization(env.authorization,{
+    operatorSubject:input.operatorSubject,commissionId:input.commissionId,
+    reviewId:input.reviewId,requestKey:input.requestKey,
+    approvalRef:input.operatorApprovalRef,
+    imageDigest:env.requiredInspectorImageDigest??""
+  }) || !env.QUEUE || typeof env.QUEUE.send!=="function") {
     throw new ManualRedriveAccessError("Explicit independent operator release is required");
   }
 }
@@ -172,10 +174,12 @@ export async function executeOneShotManualRedrive(
       env.DB.prepare(`
         INSERT INTO processing_manual_redrives(
           id,commission_id,recovery_review_id,document_version_id,source_sha256,
-          operator_subject,request_key,operator_approval_ref,request_sha256
-        ) VALUES(?,?,?,?,?,?,?,?,?)
+          operator_subject,request_key,operator_approval_ref,request_sha256,
+          authorization_sha256
+        ) VALUES(?,?,?,?,?,?,?,?,?,?)
       `).bind(id,input.commissionId,input.reviewId,row.versionId,row.sourceSha256,
-        input.operatorSubject,input.requestKey,input.operatorApprovalRef,hash),
+        input.operatorSubject,input.requestKey,input.operatorApprovalRef,hash,
+        env.authorization!.attestationDigest),
       env.DB.prepare(`
         INSERT INTO audit_events(
           id,commission_id,actor_subject,action,resource_type,resource_id,metadata_json
@@ -198,7 +202,13 @@ export async function executeOneShotManualRedrive(
     env.DB,input.reviewId,input.commissionId,input.operatorSubject
   );
   if(!verified || verified.versionId!==row.versionId
-    || verified.sourceSha256!==row.sourceSha256) {
+    || verified.sourceSha256!==row.sourceSha256
+    || !isVerifiedRedriveAuthorization(env.authorization,{
+      operatorSubject:input.operatorSubject,commissionId:input.commissionId,
+      reviewId:input.reviewId,requestKey:input.requestKey,
+      approvalRef:input.operatorApprovalRef,
+      imageDigest:env.requiredInspectorImageDigest??""
+    })) {
     await finalize(env,id,input.commissionId,input.operatorSubject,"halted");
     return {id,state:"halted",replayed:false};
   }
