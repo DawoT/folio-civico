@@ -7,7 +7,7 @@ const stylesPath = new URL("../apps/web/src/styles.css", import.meta.url);
 function tokens(): Record<string, string> {
   const css = readFileSync(tokenPath, "utf8");
   return Object.fromEntries(
-    Array.from(css.matchAll(/(--fc-[a-z0-9-]+):\s*([^;]+);/g), ([, name, value]) => [name, value.trim()])
+    Array.from(css.matchAll(/(--fc-[a-z0-9-]+):\s*([^;]+);/g), ([, name, value]) => [name!, value!.trim()])
   );
 }
 
