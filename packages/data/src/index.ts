@@ -16,3 +16,4 @@ export * from "./manual-redrive";
 export * from "./redrive-revocations";
 export * from "./revocation-registration";
 export * from "./async-revocation";
+export * from "./async-redrive";

@@ -33,7 +33,8 @@ function redriveHeaders(f:Awaited<ReturnType<typeof syntheticOperatorAuthorizati
   };
 }
 const base=(db:D1Database):IsolatedOperatorConfig=>({
-  mode:"synthetic-offline-only",db,allowLegacyCombinedRevocations:true
+  mode:"synthetic-offline-only",db,allowLegacyCombinedRevocations:true,
+  allowLegacyDirectRedrives:true
 });
 async function redriveFixture(db:D1Database,sqlite:ReturnType<typeof makeD1>["sqlite"]){
   sqlite.exec(`

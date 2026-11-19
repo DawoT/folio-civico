@@ -1,6 +1,7 @@
 import type {ProcessingQueueMessage} from "./processing-outbox";
 import {isVerifiedRedriveAuthorization,type VerifiedRedriveAuthorization} from "@folio/auth";
 import {isManualRedriveRevoked} from "./redrive-revocations";
+import {isAsyncRedriveApproverRevoked} from "./async-redrive";
 
 /**
  * Internal, isolated operator operation only. This function is deliberately
@@ -24,6 +25,8 @@ export interface ManualRedriveEnv {
   authorization?:VerifiedRedriveAuthorization;
   /** Trusted runtime digest of the actual inspector image, not user input. */
   requiredInspectorImageDigest?:string;
+  /** R2.11: signed, independently approved D1 proposal; never client input. */
+  asyncRequest?:{id:string;approvalDigest:string};
 }
 export interface OneShotRedriveInput {
   commissionId:string;
@@ -45,6 +48,8 @@ interface OldRequest {
   reviewId:string;
   requestHash:string;
   state:ManualRedriveResult["state"];
+  asyncRequestId:string|null;
+  asyncApprovalDigest:string|null;
 }
 interface ReviewRow {
   versionId:string;
@@ -79,13 +84,16 @@ async function previous(env:ManualRedriveEnv,input:OneShotRedriveInput,hash:stri
 :Promise<ManualRedriveResult|null>{
   const row=await env.DB.prepare(`
     SELECT id,commission_id AS commissionId,recovery_review_id AS reviewId,
-      request_sha256 AS requestHash,state
+      request_sha256 AS requestHash,state,
+      async_request_id AS asyncRequestId,async_approval_sha256 AS asyncApprovalDigest
     FROM processing_manual_redrives
     WHERE operator_subject=? AND request_key=?
   `).bind(input.operatorSubject,input.requestKey).first<OldRequest>();
   if(!row)return null;
   if(row.requestHash!==hash || row.reviewId!==input.reviewId
-    || row.commissionId!==input.commissionId) {
+    || row.commissionId!==input.commissionId
+    || row.asyncRequestId!==(env.asyncRequest?.id??null)
+    || row.asyncApprovalDigest!==(env.asyncRequest?.approvalDigest??null)) {
     throw new ManualRedriveConflictError("Idempotency key belongs to another operation");
   }
   return {id:row.id,state:row.state,replayed:true};
@@ -161,11 +169,16 @@ export async function executeOneShotManualRedrive(
   // A previously verified signature can be revoked after issuance. Check
   // before ANY replay or mutation; D1 outages deny access, never bypass it.
   try{
-    if(await isManualRedriveRevoked(env.DB,env.authorization!)){
+    if(await isManualRedriveRevoked(env.DB,env.authorization!)
+      || (env.asyncRequest && await isAsyncRedriveApproverRevoked(env.DB,env.asyncRequest.id))){
       throw new Error("Revoked");
     }
   }catch{
     throw new ManualRedriveAccessError("Manual redrive authorization unavailable or revoked");
+  }
+  if(env.asyncRequest && (!/^[0-9a-f-]{36}$/.test(env.asyncRequest.id)
+    || !/^[a-f0-9]{64}$/.test(env.asyncRequest.approvalDigest))){
+    throw new ManualRedriveAccessError("Independent redrive approval missing");
   }
   const hash=await digest([
     input.commissionId,input.reviewId,input.operatorSubject,
@@ -186,13 +199,15 @@ export async function executeOneShotManualRedrive(
           id,commission_id,recovery_review_id,document_version_id,source_sha256,
           operator_subject,request_key,operator_approval_ref,request_sha256,
           authorization_sha256,image_digest,
-          approval_key_thumbprint,release_key_thumbprint
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+          approval_key_thumbprint,release_key_thumbprint,
+          async_request_id,async_approval_sha256
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `).bind(id,input.commissionId,input.reviewId,row.versionId,row.sourceSha256,
         input.operatorSubject,input.requestKey,input.operatorApprovalRef,hash,
         env.authorization!.attestationDigest,
         env.authorization!.imageDigest,env.authorization!.approvalKeyThumbprint,
-        env.authorization!.releaseKeyThumbprint),
+        env.authorization!.releaseKeyThumbprint,
+        env.asyncRequest?.id??null,env.asyncRequest?.approvalDigest??null),
       env.DB.prepare(`
         INSERT INTO audit_events(
           id,commission_id,actor_subject,action,resource_type,resource_id,metadata_json
@@ -216,7 +231,8 @@ export async function executeOneShotManualRedrive(
   );
   // If the revocation lookup fails here, leave the durable reservation in
   // place without Queue.send; a subsequent replay cannot resend it.
-  const revoked=await isManualRedriveRevoked(env.DB,env.authorization!);
+  const revoked=await isManualRedriveRevoked(env.DB,env.authorization!)
+    || (env.asyncRequest && await isAsyncRedriveApproverRevoked(env.DB,env.asyncRequest.id));
   if(revoked || !verified || verified.versionId!==row.versionId
     || verified.sourceSha256!==row.sourceSha256
     || !isVerifiedRedriveAuthorization(env.authorization,{

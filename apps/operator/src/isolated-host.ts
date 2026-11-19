@@ -4,7 +4,9 @@ import {
   type RevocationScope,type RevocationAuthorizationConfig,
   type OperatorPreflightConfig,
   verifyAsyncIncidentActor,verifyAsyncIncidentApprover,
-  verifyAsyncIncidentDecision,AsyncRevocationAccessError
+  verifyAsyncIncidentDecision,AsyncRevocationAccessError,
+  verifyAsyncRedriveRequester,verifyAsyncRedriveDecision,
+  signedHash
 } from "../../../packages/auth/src/index";
 import {
   registerRedriveRevocation,RevocationRegistrationAccessError,
@@ -16,12 +18,16 @@ import {
 } from "../../../packages/data/src/manual-redrive";
 import type {ProcessingQueueMessage} from "../../../packages/data/src/processing-outbox";
 import {
+  proposeAsyncRedrive,findAsyncRedrive,approveAsyncRedrive,
+  AsyncRedriveAccessError,AsyncRedriveConflictError
+} from "../../../packages/data/src/async-redrive";
+import {
   proposeAsyncRevocation,findAsyncRevocation,approveAsyncRevocation,
   AsyncRevocationDenied,AsyncRevocationConflict
 } from "../../../packages/data/src/async-revocation";
 
 /**
- * R2.9/R2.10: a synthetic-only private HTTP adapter, not a Cloudflare Worker.
+ * R2.9–R2.11: a synthetic-only private HTTP adapter, not a Cloudflare Worker.
  *
  * Deliberately no default ExportedHandler, Wrangler config, deployment
  * binding, route registration, secrets, or production hostname. A future
@@ -35,6 +41,8 @@ export interface IsolatedOperatorConfig {
   /** R2.8 combined-token route is disabled unless explicitly enabled for legacy tests. */
   allowLegacyCombinedRevocations?:boolean;
   redriveTrust?:OperatorPreflightConfig;
+  /** Deprecated single-request execution; OFF except explicit legacy tests. */
+  allowLegacyDirectRedrives?:boolean;
   /** Injected fake Queue in local tests; NEVER a live binding here. */
   queue?:{send(message:ProcessingQueueMessage):Promise<unknown>};
   /** Trusted image identity, never from a client-supplied JSON body. */
@@ -124,7 +132,9 @@ export async function handleIsolatedOperatorRequest(
     const url=new URL(request.url);
     if(url.origin!==TEST_ORIGIN || url.search || url.hash
       || ![PATH+"revocations",PATH+"redrives",
-        PATH+"revocation-proposals",PATH+"revocation-approvals"].includes(url.pathname))
+        PATH+"revocation-proposals",PATH+"revocation-approvals",
+        PATH+"redrive-proposals",PATH+"redrive-approvals",
+        PATH+"redrive-executions"].includes(url.pathname))
       return failed(404);
     if(request.method!=="POST")return failed(405);
     if(forbiddenBrowserRequest(request))return failed(403);
@@ -177,6 +187,73 @@ export async function handleIsolatedOperatorRequest(
       const outcome=await registerRedriveRevocation(config.db,scope,proof);
       return response(200,outcome);
     }
+    // R2.11: separate Access identity for each human and a third, narrowly
+    // bound operator execution; the approver's Access JWT is never shared.
+    if(url.pathname===PATH+"redrive-proposals"){
+      if(!config.redriveTrust)return failed(503);
+      if(request.headers.has("X-Folio-Redrive-Approval-Jws")
+        || request.headers.has("X-Folio-Inspector-Release-Jws")
+        || request.headers.has("X-Folio-Approver-Access-Jwt"))return failed(403);
+      const scope=fields(await jsonBody(request),[
+        "commissionId","reviewId","requestKey","approvalRef"
+      ]);
+      const operator=await verifyAsyncRedriveRequester(config.redriveTrust,request);
+      const result=await proposeAsyncRedrive(config.db,{
+        commissionId:scope.commissionId!,reviewId:scope.reviewId!,
+        requestKey:scope.requestKey!,approvalRef:scope.approvalRef!
+      },operator);
+      return response(202,result);
+    }
+    if(url.pathname===PATH+"redrive-approvals"){
+      if(!config.redriveTrust)return failed(503);
+      if(request.headers.has("X-Folio-Approver-Access-Jwt")
+        || request.headers.has("X-Folio-Inspector-Release-Jws"))return failed(403);
+      const {requestId}=fields(await jsonBody(request),["requestId"]);
+      const stored=await findAsyncRedrive(config.db,requestId!);
+      if(!stored)return failed(403);
+      const proof=await verifyAsyncRedriveDecision(
+        config.redriveTrust,request,token(request,"X-Folio-Redrive-Approval-Jws"),
+        stored
+      );
+      return response(200,await approveAsyncRedrive(config.db,stored,proof));
+    }
+    if(url.pathname===PATH+"redrive-executions"){
+      if(request.headers.has("X-Folio-Approver-Access-Jwt"))return failed(403);
+      if(!config.redriveTrust || !config.queue
+        || !IMAGE.test(config.runtimeInspectorImageDigest??"")
+        || config.runtimeInspectorImageDigest!==config.redriveTrust.requiredImageDigest)
+        return failed(503);
+      const {requestId}=fields(await jsonBody(request),["requestId"]);
+      const stored=await findAsyncRedrive(config.db,requestId!);
+      if(!stored || stored.status!=="approved"
+        || stored.expiresAt*1000<=Date.now()
+        || stored.approverSubject!==config.redriveTrust.configuredRedriveApproverSubject)
+        return failed(403);
+      const approvalJwt=token(request,"X-Folio-Redrive-Approval-Jws");
+      if(await signedHash(approvalJwt)!==stored.approvalDigest)return failed(403);
+      const proof=await verifyOneShotOperatorAuthorization(config.redriveTrust,{
+        accessRequest:request,approvalJwt,
+        releaseJwt:token(request,"X-Folio-Inspector-Release-Jws")
+      },{
+        commissionId:stored.commissionId,reviewId:stored.reviewId,
+        requestKey:stored.requestKey,approvalRef:stored.approvalRef
+      });
+      if(proof.operatorSubject!==stored.operatorSubject)return failed(403);
+      const outcome=await executeOneShotManualRedrive({
+        DB:config.db,QUEUE:config.queue,authorization:proof,
+        requiredInspectorImageDigest:config.runtimeInspectorImageDigest,
+        asyncRequest:{id:stored.id,approvalDigest:stored.approvalDigest!}
+      },{
+        commissionId:stored.commissionId,reviewId:stored.reviewId,
+        requestKey:stored.requestKey,operatorApprovalRef:stored.approvalRef,
+        operatorSubject:proof.operatorSubject
+      });
+      return response(
+        outcome.state==="reserved"||outcome.state==="uncertain"?202:200,
+        outcome
+      );
+    }
+    if(!config.allowLegacyDirectRedrives)return failed(404);
     if(!config.redriveTrust || !config.queue
       || !IMAGE.test(config.runtimeInspectorImageDigest??"")
       || config.runtimeInspectorImageDigest!==config.redriveTrust.requiredImageDigest)
@@ -214,13 +291,15 @@ export async function handleIsolatedOperatorRequest(
     if(error instanceof TooLarge)return failed(413);
     if(error instanceof BadInput || error instanceof ManualRedriveInputError)
       return failed(400);
-    if(error instanceof AsyncRevocationAccessError
+    if(error instanceof AsyncRedriveAccessError
+      || error instanceof AsyncRevocationAccessError
       || error instanceof AsyncRevocationDenied
       || error instanceof OperatorAuthorizationError
       || error instanceof RevocationAuthorizationError
       || error instanceof RevocationRegistrationAccessError
       || error instanceof ManualRedriveAccessError) return failed(403);
-    if(error instanceof AsyncRevocationConflict
+    if(error instanceof AsyncRedriveConflictError
+      || error instanceof AsyncRevocationConflict
       || error instanceof RevocationRegistrationConflictError
       || error instanceof ManualRedriveConflictError)return failed(409);
     // No exception details, JWT claims, subjects or confidential data in response.

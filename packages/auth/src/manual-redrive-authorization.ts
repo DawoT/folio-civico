@@ -20,6 +20,8 @@ export interface SignedTrustRoot {
 }
 export interface OperatorPreflightConfig extends AccessConfig {
   configuredOperatorSubject?:string;
+  /** Independent human approver for the R2.11 asynchronous workflow. */
+  configuredRedriveApproverSubject?:string;
   approvalAuthority?:SignedTrustRoot;
   releaseAuthority?:SignedTrustRoot;
   /** SHA-256 of the specifically approved inspector image in the trusted host. */
