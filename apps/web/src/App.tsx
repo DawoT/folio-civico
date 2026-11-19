@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ApiError, loadCommissions, loadCommissionBatches, loadDocuments, makeDocumentsPath, uploadPdf, createCommissionBatch, type Commission, type CommissionBatch, type DocumentRow, type Scope } from "./api";
+import { ApiError, loadCommissions, loadCommissionBatches, loadDocuments, loadSession, makeDocumentsPath, uploadPdf, createCommissionBatch, type Commission, type CommissionBatch, type DocumentRow, type Scope, type SessionInfo } from "./api";
 import "./styles.css";
 import { ReviewWorkspace } from "./ReviewWorkspace";
 import { InspectedTextViewer } from "./InspectedTextViewer";
+import { CommissionAdminPanel, BootstrapCommissionPanel } from "./CommissionAdmin";
 
 const statusText: Record<DocumentRow["extractionStatus"], string> = {
   pending: "En cuarentena", processing: "Procesando", ready: "Texto disponible",
@@ -30,6 +31,8 @@ export function App() {
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [batches, setBatches] = useState<CommissionBatch[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
+  const [session,setSession]=useState<SessionInfo|null>(null);
+  const [sessionError,setSessionError]=useState("");
   const [batchesLoading, setBatchesLoading] = useState(false);
   const [catalogError, setCatalogError] = useState("");
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
@@ -46,6 +49,16 @@ export function App() {
   const fileInput = useRef<HTMLInputElement>(null);
   // Preserve the same key on a retry after network failure, while the File remains selected.
   const pendingUpload = useRef<{ file: File; key: string } | null>(null);
+
+  useEffect(()=>{
+    let active=true;
+    loadSession().then(value=>{
+      if(active)setSession(value);
+    }).catch(problem=>{
+      if(active)setSessionError(problem instanceof Error?problem.message:"No se pudo verificar la sesión.");
+    });
+    return()=>{active=false;};
+  },[]);
 
   useEffect(() => {
     let active = true;
@@ -202,6 +215,13 @@ export function App() {
           <span className="status-label">Sin validación automática</span>
         </section>
 
+        {session?.canBootstrap && (
+          <BootstrapCommissionPanel onCreated={()=> {
+            void loadCommissions().then(setCommissions).catch(problem=>
+              setCatalogError(problem instanceof Error?problem.message:"No se actualizaron las comisiones."));
+          }}/>
+        )}
+
         <form className="scope-form" onSubmit={connect} aria-label="Conectar comisión y lote">
           <label>
             <span>Comisión</span>
@@ -246,8 +266,15 @@ export function App() {
           </form>
         )}
 
+        {canManage && session && commissionId && (
+          <CommissionAdminPanel key={commissionId} commissionId={commissionId}
+            currentSubject={session.subject}/>
+        )}
+        {sessionError && <p role="alert" className="message error">
+          La administración no está disponible: {sessionError}
+        </p>}
         {catalogError && <div className="message error" role="alert">{catalogError}</div>}
-        {!catalogLoading && !catalogError && commissions.length === 0 && <div className="message" role="status">No tienes comisiones asignadas. Solicita acceso al administrador de la entidad.</div>}
+        {!catalogLoading && !catalogError && !session?.canBootstrap && commissions.length === 0 && <div className="message" role="status">No tienes comisiones asignadas. Solicita acceso al administrador de la entidad.</div>}
         {(error || notice) && (
           <div className={error ? "message error" : "message success"} role={error ? "alert" : "status"} aria-live="polite">
             {error || notice}

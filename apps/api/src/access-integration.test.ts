@@ -115,6 +115,67 @@ describe("signed Access identity to tenant-aware API", () => {
     } finally {f.close();}
   });
 
+  it("bootstraps by a trusted operator, then revokes a member with signed Access JWTs",async()=>{
+    const f=makeD1();
+    try {
+      const env={DB:f.db,ACCESS_TEAM_DOMAIN:issuer,ACCESS_AUD:audience,
+        COMMISSION_BOOTSTRAP_OPERATOR_SUBJECT:"operator"};
+      // Different actors must share the same real signing key for one Access tenant.
+      const pair=await generateKeyPair("RS256");
+      const jwk=await exportJWK(pair.publicKey);
+      jwk.kid="shared-test-operator-key";
+      vi.stubGlobal("fetch",vi.fn(async()=>Response.json({keys:[jwk]})));
+      const signed=async(subject:string)=>new SignJWT({purpose:"access"})
+        .setProtectedHeader({alg:"RS256",kid:"shared-test-operator-key"})
+        .setIssuer(issuer).setAudience(audience).setSubject(subject)
+        .setIssuedAt().setExpirationTime("5m").sign(pair.privateKey);
+      const send=async (token:string,path:string,method="GET",data?:object,key?:string)=>
+        handleApiRequest(new Request("https://folio.test"+path,{
+          method,headers:{"Cf-Access-Jwt-Assertion":token,
+            ...(data?{"Content-Type":"application/json"}:{}),
+            ...(key?{"Idempotency-Key":key}:{})},
+          ...(data?{body:JSON.stringify(data)}:{})
+        }),env);
+      const outsider=await signed("unauthorized");
+      expect((await send(outsider,"/api/commissions","POST",{
+        name:"Comisión de prueba",initialPresidentSubject:"president"
+      },"bootstrap_unauthorized")).status).toBe(403);
+      const operator=await signed("operator");
+      expect(await (await send(operator,"/api/session")).json())
+        .toMatchObject({subject:"operator",canBootstrap:true});
+      const created=await send(operator,"/api/commissions","POST",{
+        name:"Comisión Distrital Sintética",initialPresidentSubject:"president"
+      },"operator_bootstrap_001");
+      expect(created.status).toBe(201);
+      const commission=await created.json() as {id:string};
+      const president=await signed("president");
+      expect(await (await send(president,"/api/session")).json())
+        .toMatchObject({subject:"president",canBootstrap:false});
+      expect(await (await send(president,"/api/commissions")).json()).toMatchObject([
+        {id:commission.id,role:"president"}
+      ]);
+      const memberPath="/api/commissions/"+commission.id+"/members";
+      const granted=await send(president,memberPath,"POST",{
+        subject:"reviewer",role:"member",expectedRevision:null
+      },"grant_signed_member_001");
+      expect(granted.status).toBe(201);
+      expect(await granted.json()).toMatchObject({subject:"reviewer",revision:1});
+      const reviewer=await signed("reviewer");
+      expect(await (await send(reviewer,"/api/commissions")).json()).toMatchObject([
+        {id:commission.id,role:"member"}
+      ]);
+      expect((await send(reviewer,memberPath)).status).toBe(403);
+      const revoked=await send(president,memberPath+"/revoke","POST",{
+        subject:"reviewer",expectedRevision:1
+      },"revoke_signed_member_001");
+      expect(revoked.status).toBe(200);
+      expect(await revoked.json()).toMatchObject({active:false,revision:2});
+      expect(await (await send(reviewer,"/api/commissions")).json()).toEqual([]);
+      expect((await send(reviewer,"/api/commissions/"+commission.id+"/summary")).status).toBe(404);
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toMatchObject({n:3});
+    }finally{f.close();}
+  });
+
   it("routes a signed human draft with real tenant checks and an auditable record", async () => {
     const f=fixture();
     try {

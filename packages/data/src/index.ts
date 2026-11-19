@@ -1,5 +1,7 @@
 export * from "./commissions";
 export * from "./provisioning";
+export * from "./membership";
+export * from "./bootstrap";
 export * from "./documents";
 export * from "./review";
 export * from "./review-export";

@@ -47,12 +47,12 @@ describe("API authenticated discovery", () => {
     } finally {f.close();}
   });
 
-  it("prohibits mutation and handles malformed discovery routes", async () => {
+  it("denies bootstrap to ordinary signed members and rejects malformed discovery routes", async () => {
     mockAuth.mockResolvedValue("alice");
     const f=fixture();
     try {
       const post=await handleApiRequest(new Request("https://folio.test/api/commissions",{method:"POST"}),{DB:f.db});
-      expect(post.status).toBe(405);
+      expect(post.status).toBe(403); // No trusted operator binding: fail closed.
       const malformed=await handleApiRequest(new Request("https://folio.test/api/commissions/../batches"),{DB:f.db});
       expect(malformed.status).toBe(404);
     } finally {f.close();}
