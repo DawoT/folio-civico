@@ -2,7 +2,7 @@
 
 Actualizado: 2026-11-19. Alcance de piloto: municipalidad distrital, obras y contrataciones, PDF nativo/escaneado.
 
-**Plan ejecutable y criterios de integración en main:** [EXECUTION_PLAN.md](EXECUTION_PLAN.md). El gate obligatorio de integración local es `sh scripts/ci.sh`; el escaneo CVE de imagen permanece separado y bloqueante para cualquier despliegue. El triaje por enlace dinámico de la [ADR-015](ADR-015-runtime-cve-triage.md) prioriza hallazgos, pero no levanta el bloqueo. El incremento funcional de la [ADR-016](ADR-016-validated-search-checklist-projection.md) proyecta búsquedas validadas en el checklist sin cambiar sus estados institucionales almacenados. La [ADR-017](ADR-017-observation-detail-navigation.md) habilita el detalle por identificador fuera del listado reciente.
+**Plan ejecutable y criterios de integración en main:** [EXECUTION_PLAN.md](EXECUTION_PLAN.md). El gate obligatorio de integración local es `sh scripts/ci.sh`; el escaneo CVE de imagen permanece separado y bloqueante para cualquier despliegue. El triaje por enlace dinámico de la [ADR-015](ADR-015-runtime-cve-triage.md) prioriza hallazgos, pero no levanta el bloqueo. El incremento funcional de la [ADR-016](ADR-016-validated-search-checklist-projection.md) proyecta búsquedas validadas en el checklist sin cambiar sus estados institucionales almacenados. La [ADR-017](ADR-017-observation-detail-navigation.md) habilita el detalle por identificador fuera del listado reciente. La [ADR-018](ADR-018-finalized-review-export.md) añade exportación JSON íntegra de decisiones internas y verificación SHA-256; DOCX oficial sigue pendiente.
 
 | Fase | Resultado | Dependencias | Estado |
 | --- | --- | --- | --- |

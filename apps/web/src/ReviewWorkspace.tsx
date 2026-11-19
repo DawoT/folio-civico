@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
-  loadChecklist, loadObservationDrafts, loadObservationDetail, submitSearchScopeDraft,
+  loadChecklist, loadObservationDrafts, loadObservationDetail, loadVerifiedReviewReport, submitSearchScopeDraft,
   transitionObservation as requestTransition,
   type ChecklistRow, type ObservationRow, type Scope
 } from "./api";
@@ -56,6 +56,9 @@ export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: bool
   const [linkedRecord,setLinkedRecord]=useState<ObservationRow|null>(null);
   const [linkedLoading,setLinkedLoading]=useState(false);
   const [linkedError,setLinkedError]=useState("");
+  const [exportBusy,setExportBusy]=useState(false);
+  const [exportError,setExportError]=useState("");
+  const [exportHash,setExportHash]=useState("");
   const linkedRequest=useRef(0);
 
   useEffect(() => {
@@ -124,6 +127,31 @@ export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: bool
     } finally {setTransitionBusy(false);}
   }
 
+  async function exportReviewReport() {
+    if (exportBusy) return;
+    setExportBusy(true);setExportError("");setExportHash("");
+    try {
+      const report=await loadVerifiedReviewReport(scope.commissionId);
+      const url=URL.createObjectURL(new Blob([report.file],{type:"application/json;charset=utf-8"}));
+      try {
+        const link=document.createElement("a");
+        link.href=url;
+        link.download=`folio-civico-${scope.commissionId}-revision-interna.json`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      } finally {
+        // Allow the browser to begin handling the download before releasing it.
+        window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+      }
+      setExportHash(report.sha256);
+    } catch(problem) {
+      setExportError(problem instanceof Error ? problem.message : "No se pudo exportar el informe.");
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
   async function openValidation(observationId:string) {
     const requestNumber=++linkedRequest.current;
     setLinkedRecord(null);setLinkedError("");setLinkedLoading(true);
@@ -145,6 +173,21 @@ export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: bool
         <p className="eyebrow">03 · CONTROL Y OBSERVACIONES</p>
         <h2 id="review-title">Constatación documental</h2>
         <p>Registro de búsquedas realizadas por personas autorizadas. No equivale a declarar una irregularidad.</p>
+        <div className="review-export">
+          <button type="button" className="button secondary" disabled={exportBusy}
+            onClick={()=>void exportReviewReport()}>
+            {exportBusy ? "Preparando informe…" : "Exportar revisión interna (JSON)"}
+          </button>
+          <p className="review-note">
+            Incluye decisiones internas validadas y descartadas, sus evidencias, autores y revisores.
+            No incluye borradores ni archivos PDF. No constituye un acta oficial.
+          </p>
+          {exportError && <p role="alert" className="message error">{exportError}</p>}
+          {exportHash && <p role="status" className="review-note">
+            Integridad verificada. SHA-256: <code className="report-digest">{exportHash}</code>.
+            Conserva esta huella por separado; no es una firma digital.
+          </p>}
+        </div>
       </div>
       {error && <p role="alert" className="message error">{error}</p>}
       {notice && <p role="status" className="message success">{notice}</p>}

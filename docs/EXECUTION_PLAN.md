@@ -18,7 +18,7 @@
 | --- | --- | --- | --- |
 | **F1** | Búsqueda documentada → dos revisores → resultado visible en checklist | Solo observaciones `SEARCH_SCOPE` validadas proyectan ausencia; se muestra revisor y referencia; sin mutar checklist original; pruebas API/UI y tenant isolation | **Completado: integrado en `main` (commit `33fb29d`) y CI local aprobado** |
 | **F2** | Historial y navegación entre checklist, observaciones y documento | Localizar siempre una observación aunque tenga más de 50 registros; permisos y paginación verificadas | **Parcial:** acceso exacto por ID con permisos y UI; paginación y vínculo documental pendientes |
-| **F3** | Exportación verificable de hallazgos manuales | Informe con fuentes, estado humano, identidad y fecha; prueba de integridad sin afirmar carácter oficial | Pendiente |
+| **F3** | Exportación verificable de hallazgos manuales | Informe con fuentes, estado humano, identidad y fecha; prueba de integridad sin afirmar carácter oficial | **Implementado localmente:** JSON de decisiones finalizadas con verificador SHA-256; sin DOCX, firma oficial ni lotes >500. Pendiente integración en `main` |
 | **F4** | Onboarding y administración básica de piloto | Comisiones, lotes, permisos y checklist en flujo administrativo auditable | Pendiente |
 | **F5** | E2E funcional de uso con datos sintéticos | Alta → carga en cuarentena → búsqueda → envío → segunda revisión → consulta/exportación, sin requerir scanner en una búsqueda de ausencia | Pendiente |
 

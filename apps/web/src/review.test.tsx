@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { loadChecklist, loadObservationDrafts, loadObservationDetail, submitSearchScopeDraft, transitionObservation } from "./api";
+import { loadChecklist, loadObservationDrafts, loadObservationDetail, loadVerifiedReviewReport, submitSearchScopeDraft, transitionObservation } from "./api";
 import { ReviewWorkspace, ChecklistStatus } from "./ReviewWorkspace";
 import type { ChecklistRow } from "./api";
 
@@ -32,6 +32,31 @@ describe("review API client", () => {
     await expect(loadObservationDetail("c_a","../unsafe",fetcher)).rejects.toThrow();
     const forged=vi.fn(async()=>Response.json({...saved,commissionId:"other"}));
     await expect(loadObservationDetail("c_a","obs_123",forged)).rejects.toThrow();
+  });
+
+  it("downloads a complete, correctly hashed review export from the authorized commission", async () => {
+    const payload=JSON.stringify({
+      schemaVersion:1,kind:"internal_human_review",
+      commission:{id:"c_a"},completeness:{truncated:false,included:1},
+      observations:[{status:"validated",id:"review_1"}]
+    });
+    const sha256=Array.from(new Uint8Array(await crypto.subtle.digest(
+      "SHA-256",new TextEncoder().encode(payload))),x=>x.toString(16).padStart(2,"0")).join("");
+    const envelope={format:"folio-civico.review-export.v1",sha256,payload};
+    const fetcher=vi.fn(async()=>Response.json(envelope));
+    const result=await loadVerifiedReviewReport("c_a",fetcher);
+    expect(result.sha256).toBe(sha256);
+    expect(result.count).toBe(1);
+    expect(JSON.parse(result.file)).toEqual(envelope);
+    expect(fetcher).toHaveBeenCalledWith("/api/commissions/c_a/observations/export",{
+      credentials:"same-origin",cache:"no-store"
+    });
+    const tampered=vi.fn(async()=>Response.json({...envelope,payload:payload+" "}));
+    await expect(loadVerifiedReviewReport("c_a",tampered)).rejects.toThrow();
+    const wrongCommission=vi.fn(async()=>Response.json({...envelope,
+      payload:JSON.stringify({...JSON.parse(payload),commission:{id:"c_b"}})}));
+    await expect(loadVerifiedReviewReport("c_a",wrongCommission)).rejects.toThrow();
+    await expect(loadVerifiedReviewReport("../c_b",fetcher)).rejects.toThrow();
   });
 
   it("submits manual search with no client-supplied reviewer, date or validation status", async () => {

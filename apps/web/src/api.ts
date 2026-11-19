@@ -238,6 +238,62 @@ export async function loadObservationDetail(
   return record as ObservationRow;
 }
 
+export interface VerifiedReviewReport {
+  file: string;
+  sha256: string;
+  count: number;
+}
+
+/** Verifies the payload hash before a browser may download the internal report. */
+export async function loadVerifiedReviewReport(
+  commissionId: string, fetcher: typeof fetch = fetch
+): Promise<VerifiedReviewReport> {
+  const response = await fetcher(commissionPath(commissionId)+"/observations/export", {
+    credentials: "same-origin", cache: "no-store"
+  });
+  const value = await expectJson(response);
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ApiError(502, "Formato de exportación no válido.");
+  }
+  const report = value as Record<string, unknown>;
+  if (report.format !== "folio-civico.review-export.v1"
+    || typeof report.payload !== "string"
+    || typeof report.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(report.sha256)) {
+    throw new ApiError(502, "La exportación no tiene un manifiesto de integridad válido.");
+  }
+  const encoded = new TextEncoder().encode(report.payload);
+  if (encoded.byteLength > 8 * 1024 * 1024) {
+    throw new ApiError(502, "La exportación supera el límite seguro.");
+  }
+  const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoded)),
+    byte => byte.toString(16).padStart(2, "0")).join("");
+  if (digest !== report.sha256 || (response.headers.get("X-Report-SHA256")
+    && response.headers.get("X-Report-SHA256") !== digest)) {
+    throw new ApiError(502, "La huella SHA-256 de la exportación no coincide.");
+  }
+  let payload: unknown;
+  try {
+    payload = JSON.parse(report.payload);
+  } catch {
+    throw new ApiError(502, "El contenido de la exportación no es válido.");
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new ApiError(502, "El contenido de la exportación no es válido.");
+  }
+  const data = payload as Record<string, unknown>;
+  const commission = data.commission as { id?: unknown } | undefined;
+  const completeness = data.completeness as { included?: unknown; truncated?: unknown } | undefined;
+  const observations = data.observations;
+  if (data.schemaVersion !== 1 || data.kind !== "internal_human_review"
+    || commission?.id !== commissionId || !Array.isArray(observations)
+    || completeness?.truncated !== false || completeness.included !== observations.length
+    || !observations.every(item => item && typeof item === "object"
+      && ["validated","dismissed"].includes(item.status))) {
+    throw new ApiError(502, "La exportación está incompleta o corresponde a otra comisión.");
+  }
+  return { file: JSON.stringify(report), sha256: digest, count: observations.length };
+}
+
 export interface ObservationTransitionInput {
   commissionId: string;
   observationId: string;

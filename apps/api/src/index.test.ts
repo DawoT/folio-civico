@@ -23,6 +23,14 @@ describe("API authorization boundary", () => {
     expect(response.status).toBe(401);
   });
 
+  it("requires signed Access for a report export even though it is a GET", async () => {
+    const response=await handleApiRequest(new Request(
+      "https://api.test/api/commissions/c_a/observations/export"
+    ),{} as never);
+    expect(response.status).toBe(401);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
   it("denies unauthenticated commission requests", async () => {
     const response = await handleApiRequest(
       new Request("https://api.test/api/commissions/com_1/summary"),
