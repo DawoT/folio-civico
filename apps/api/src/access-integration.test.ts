@@ -56,6 +56,26 @@ describe("signed Access identity to tenant-aware API", () => {
     } finally {f.close();}
   });
 
+  it("authenticates history using signed Access JWT and preserves tenant scope",async()=>{
+    const f=fixture();
+    try {
+      f.sqlite.prepare("INSERT INTO observations(id,commission_id,author_subject,title,description) VALUES('history_001','c_a','alice','Registro histórico','Prueba de consulta histórica')").run();
+      const {token}=await tokenFor("alice");
+      const response=await call(f.db,token,"/api/commissions/c_a/observations/history?limit=2");
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      expect(await response.json()).toMatchObject({
+        items:[{id:"history_001",commissionId:"c_a"}],nextCursor:null
+      });
+      const other=await call(f.db,token,"/api/commissions/c_b/observations/history?limit=2");
+      expect(other.status).toBe(404);
+      const forged=await handleApiRequest(new Request(
+        "https://folio.test/api/commissions/c_a/observations/history?limit=2"
+      ),{DB:f.db,ACCESS_TEAM_DOMAIN:issuer,ACCESS_AUD:audience});
+      expect(forged.status).toBe(401);
+    }finally{f.close();}
+  });
+
   it("reuses cached Access signing keys between requests", async () => {
     const f=fixture();
     try {

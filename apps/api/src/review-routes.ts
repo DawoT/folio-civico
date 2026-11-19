@@ -1,11 +1,12 @@
 import {
   getCommissionSummary, getDocumentTextPages,
-  listChecklist, listObservationDrafts, persistDraftObservation, findIdempotentDraft,
+  listChecklist, listObservationDrafts, listObservationPage, ObservationCursorError,
+  persistDraftObservation, findIdempotentDraft,
   ReviewAccessError, ReviewEvidenceError
 } from "@folio/data";
 import type { Evidence } from "@folio/domain";
 
-export type ReviewAction = "checklist" | "observations" | "drafts" | "page-drafts";
+export type ReviewAction = "checklist" | "observations" | "history" | "drafts" | "page-drafts";
 
 export interface ReviewEnv { DB: D1Database; }
 
@@ -107,6 +108,25 @@ export async function handleReviewRequest(
     if (!membership) return json({error:"Not found"},404);
     if (action === "checklist") return json(await listChecklist(env.DB, subject, commissionId),200);
     if (action === "observations") return json(await listObservationDrafts(env.DB, subject, commissionId),200);
+    if (action === "history") {
+      const params=new URL(request.url).searchParams;
+      if ([...params.keys()].some(key=>key!=="cursor" && key!=="limit")
+        || params.getAll("cursor").length>1 || params.getAll("limit").length>1) {
+        return json({error:"Unsupported history filters"},400);
+      }
+      const rawLimit=params.get("limit");
+      if(rawLimit!==null && !/^(?:[1-9]|[1-4][0-9]|50)$/.test(rawLimit)) {
+        return json({error:"Invalid history page size"},400);
+      }
+      const rawCursor=params.get("cursor");
+      if(rawCursor!==null && rawCursor.length===0) {
+        return json({error:"Invalid history cursor"},400);
+      }
+      const page=await listObservationPage(env.DB,subject,commissionId,{
+        limit:rawLimit===null?25:Number(rawLimit),cursor:rawCursor
+      });
+      return json(page,200);
+    }
     if (membership.status !== "active") return json({error:"Commission is closed"},409);
     if (membership.role === "observer") return json({error:"Forbidden"},403);
 
@@ -165,6 +185,7 @@ export async function handleReviewRequest(
     }
   } catch (error) {
     if (error instanceof RequestError) return json({error:error.message},error.status);
+    if (error instanceof ObservationCursorError) return json({error:"Invalid history pagination"},400);
     if (error instanceof ReviewEvidenceError) return json({error:"Evidence is not available in this commission"},422);
     if (error instanceof ReviewAccessError) return json({error:"Forbidden"},403);
     return json({error:"Request could not be completed"},503);
