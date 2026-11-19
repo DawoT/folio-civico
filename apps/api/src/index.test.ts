@@ -31,6 +31,17 @@ describe("API authorization boundary", () => {
     expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
 
+  it("blocks new session and bootstrap operations without verified Access identity",async()=>{
+    const session=await handleApiRequest(new Request("https://api.test/api/session"),{} as never);
+    expect(session.status).toBe(401);
+    const bootstrap=await handleApiRequest(new Request("https://api.test/api/commissions",{
+      method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":"forged_12345",
+        "Cf-Access-Authenticated-User-Email":"operator@example.test"},
+      body:JSON.stringify({name:"Comisión falsa",initialPresidentSubject:"operator"})
+    }),{} as never);
+    expect(bootstrap.status).toBe(401);
+  });
+
   it("denies unauthenticated commission requests", async () => {
     const response = await handleApiRequest(
       new Request("https://api.test/api/commissions/com_1/summary"),

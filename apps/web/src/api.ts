@@ -189,6 +189,149 @@ export async function createCommissionChecklistItem(
   return await expectJson(response) as CreatedChecklist;
 }
 
+export type CommissionMemberRole = Commission["role"];
+export interface SessionInfo { subject: string; canBootstrap: boolean; }
+export interface CommissionMember {
+  subject: string;
+  role: CommissionMemberRole;
+  active: boolean;
+  revision: number;
+}
+export interface MembershipResult extends CommissionMember { replayed: boolean; }
+export interface BootstrapCommissionResult {
+  id: string;
+  name: string;
+  initialPresidentSubject: string;
+  replayed: boolean;
+}
+
+const validMemberSubject=/^[\x21-\x7E]{1,200}$/;
+const memberRoles:CommissionMemberRole[]=["president","member","advisor","observer"];
+function assertMemberSubject(subject:string):void {
+  if(typeof subject!=="string" || !validMemberSubject.test(subject)
+    || subject!==subject.trim()) {
+    throw new ApiError(400,"Identificador de identidad Access inválido.");
+  }
+}
+function assertMemberRevision(revision:number|null,required:boolean):void {
+  if((required&&revision===null)
+    || (revision!==null && (!Number.isSafeInteger(revision)
+      || revision<1 || revision>2147483646))) {
+    throw new ApiError(400,"Versión de membresía inválida.");
+  }
+}
+function assertMember(record:unknown):record is CommissionMember {
+  if(!record || typeof record!=="object" || Array.isArray(record)) return false;
+  const row=record as Record<string,unknown>;
+  return typeof row.subject==="string" && validMemberSubject.test(row.subject)
+    && memberRoles.includes(row.role as CommissionMemberRole)
+    && typeof row.active==="boolean"
+    && Number.isSafeInteger(row.revision)
+    && (row.revision as number)>0;
+}
+async function expectAdminJson(response:Response):Promise<unknown> {
+  if(response.status===409) throw new ApiError(409,
+    "La membresía cambió o la clave ya se utilizó. Actualiza los datos y vuelve a intentarlo.");
+  if(response.status===413) throw new ApiError(413,"Los datos superan el tamaño permitido.");
+  return expectJson(response);
+}
+
+/** The subject always comes from the server-verified Access JWT. */
+export async function loadSession(fetcher:typeof fetch=fetch):Promise<SessionInfo> {
+  const response=await fetcher("/api/session",{credentials:"same-origin",cache:"no-store"});
+  const data=await expectAdminJson(response);
+  if(!data || typeof data!=="object" || Array.isArray(data)) {
+    throw new ApiError(502,"La sesión devolvió un formato inesperado.");
+  }
+  const session=data as Partial<SessionInfo>;
+  if(typeof session.subject!=="string" || !validMemberSubject.test(session.subject)
+    || typeof session.canBootstrap!=="boolean") {
+    throw new ApiError(502,"No pudo verificarse la identidad de la sesión.");
+  }
+  return {subject:session.subject,canBootstrap:session.canBootstrap};
+}
+
+export async function loadCommissionMembers(
+  commissionId:string,fetcher:typeof fetch=fetch
+):Promise<CommissionMember[]> {
+  const response=await fetcher(commissionPath(commissionId)+"/members",{
+    credentials:"same-origin",cache:"no-store"
+  });
+  const data=await expectAdminJson(response);
+  if(!Array.isArray(data) || data.length>100 || !data.every(assertMember)) {
+    throw new ApiError(502,"El listado de miembros es inválido o incompleto.");
+  }
+  return data;
+}
+
+export async function grantCommissionMember(
+  input:{commissionId:string;subject:string;role:CommissionMemberRole;expectedRevision:number|null},
+  fetcher:typeof fetch=fetch,
+  key:()=>string=()=>crypto.randomUUID()
+):Promise<MembershipResult> {
+  assertMemberSubject(input.subject);
+  assertMemberRevision(input.expectedRevision,false);
+  if(!memberRoles.includes(input.role)) throw new ApiError(400,"Rol inválido.");
+  const response=await fetcher(commissionPath(input.commissionId)+"/members",{
+    method:"POST",credentials:"same-origin",cache:"no-store",
+    headers:{"Content-Type":"application/json","Idempotency-Key":key()},
+    body:JSON.stringify({subject:input.subject,role:input.role,expectedRevision:input.expectedRevision})
+  });
+  const data=await expectAdminJson(response);
+  if(!assertMember(data) || typeof (data as MembershipResult).replayed!=="boolean") {
+    throw new ApiError(502,"Respuesta de alta de miembro inválida.");
+  }
+  return data as MembershipResult;
+}
+
+export async function revokeCommissionMember(
+  input:{commissionId:string;subject:string;expectedRevision:number},
+  fetcher:typeof fetch=fetch,
+  key:()=>string=()=>crypto.randomUUID()
+):Promise<MembershipResult> {
+  assertMemberSubject(input.subject);
+  assertMemberRevision(input.expectedRevision,true);
+  const response=await fetcher(commissionPath(input.commissionId)+"/members/revoke",{
+    method:"POST",credentials:"same-origin",cache:"no-store",
+    headers:{"Content-Type":"application/json","Idempotency-Key":key()},
+    body:JSON.stringify({subject:input.subject,expectedRevision:input.expectedRevision})
+  });
+  const data=await expectAdminJson(response);
+  if(!assertMember(data) || typeof (data as MembershipResult).replayed!=="boolean") {
+    throw new ApiError(502,"Respuesta de revocación inválida.");
+  }
+  return data as MembershipResult;
+}
+
+/** Disabled server-side unless a separate trusted operator subject is configured. */
+export async function bootstrapPilotCommission(
+  input:{name:string;initialPresidentSubject:string},
+  fetcher:typeof fetch=fetch,
+  key:()=>string=()=>crypto.randomUUID()
+):Promise<BootstrapCommissionResult> {
+  const name=input.name.trim();
+  assertMemberSubject(input.initialPresidentSubject);
+  if(name.length<6 || name.length>160 || /[\u0000-\u001f\u007f]/.test(input.name)) {
+    throw new ApiError(400,"El nombre de comisión debe tener entre 6 y 160 caracteres.");
+  }
+  const response=await fetcher("/api/commissions",{
+    method:"POST",credentials:"same-origin",cache:"no-store",
+    headers:{"Content-Type":"application/json","Idempotency-Key":key()},
+    body:JSON.stringify({name,initialPresidentSubject:input.initialPresidentSubject})
+  });
+  const data=await expectAdminJson(response);
+  if(!data || typeof data!=="object" || Array.isArray(data)) {
+    throw new ApiError(502,"Respuesta de alta de comisión inválida.");
+  }
+  const result=data as Partial<BootstrapCommissionResult>;
+  if(typeof result.id!=="string" || !validId.test(result.id)
+    || result.name!==name || result.initialPresidentSubject!==input.initialPresidentSubject
+    || typeof result.replayed!=="boolean") {
+    throw new ApiError(502,"Los datos de la nueva comisión no coinciden con la solicitud.");
+  }
+  return result as BootstrapCommissionResult;
+}
+
 export interface ChecklistRow {
   id: string;
   area: "works" | "procurement";

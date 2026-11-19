@@ -6,10 +6,14 @@ import { handleTransitionRequest } from "./transition-routes";
 import { handleObservationDetailRequest } from "./observation-detail";
 import { handleReviewExportRequest } from "./review-export-routes";
 import { handleProvisioningRequest } from "./provisioning-routes";
+import { handleMemberRequest } from "./member-routes";
+import { handleBootstrapRequest } from "./bootstrap-routes";
 import { runQuarantineAudit, runProcessingAudit } from "./maintenance";
 import { handleTextRequest } from "./text-routes";
 
 export interface ApiEnv extends AccessConfig {
+  /** Unset by default. Only the exact verified Access JWT sub may bootstrap. */
+  COMMISSION_BOOTSTRAP_OPERATOR_SUBJECT?: string;
   DB?: D1Database;
   DOCUMENTS?: R2Bucket;
   /** Optional until operator configures an isolated Folio Cívico Queue. */
@@ -29,8 +33,11 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
     return json({ status: "ok" }, 200);
   }
 
+  const bootstrapCapability = url.pathname === "/api/session";
   const discovery = url.pathname === "/api/commissions";
   const batches = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/batches$/.exec(url.pathname);
+  const memberRevoke = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/members\/revoke$/.exec(url.pathname);
+  const members = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/members$/.exec(url.pathname);
   const checklistProvision = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/checklist\/items$/.exec(url.pathname);
   const route = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/summary$/.exec(url.pathname);
   const documents = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/batches\/([A-Za-z0-9_-]{1,64})\/documents$/.exec(url.pathname);
@@ -39,13 +46,18 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
   const reviewExport = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/export$/.exec(url.pathname);
   const observationDetail = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
   const textPages = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/documents\/([A-Za-z0-9_-]{1,64})\/pages$/.exec(url.pathname);
-  if (!discovery && !batches && !checklistProvision && !route && !documents && !review && !transition && !reviewExport && !observationDetail && !textPages) return json({ error: "Not found" }, 404);
-  if (((discovery || route) && request.method !== "GET")
+  if (!bootstrapCapability && !discovery && !batches && !members && !memberRevoke && !checklistProvision && !route && !documents && !review && !transition && !reviewExport && !observationDetail && !textPages) return json({ error: "Not found" }, 404);
+  if (((bootstrapCapability || route) && request.method !== "GET")
+    || (discovery && request.method !== "GET" && request.method !== "POST")
     || (batches && request.method !== "GET" && request.method !== "POST")) return json({ error: "Method not allowed" }, 405);
 
   const subject = await authenticateAccess(request, env);
   if (!subject) return json({ error: "Unauthorized" }, 401);
   if (!env.DB) return json({ error: "Service not configured" }, 503);
+  if (bootstrapCapability) return handleBootstrapRequest(request,{DB:env.DB,operatorSubject:env.COMMISSION_BOOTSTRAP_OPERATOR_SUBJECT},subject,"capability");
+  if (discovery && request.method === "POST") return handleBootstrapRequest(request,{DB:env.DB,operatorSubject:env.COMMISSION_BOOTSTRAP_OPERATOR_SUBJECT},subject,"create");
+  if (memberRevoke) return handleMemberRequest(request,{DB:env.DB},subject,memberRevoke[1]!,"revoke");
+  if (members) return handleMemberRequest(request,{DB:env.DB},subject,members[1]!,"members");
   if (batches && request.method === "POST") return handleProvisioningRequest(request,{DB:env.DB},subject,batches[1]!,"batch");
   if (checklistProvision) return handleProvisioningRequest(request,{DB:env.DB},subject,checklistProvision[1]!,"checklist");
   if (discovery || batches) {
