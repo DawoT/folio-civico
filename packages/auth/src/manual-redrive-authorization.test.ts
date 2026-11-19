@@ -38,6 +38,9 @@ describe("R2.6 · independent signed operator + MFA approval + inspector release
     expect(isVerifiedRedriveAuthorization(auth,{...expected,requestKey:"different_key"})).toBe(false);
     expect(isVerifiedRedriveAuthorization(auth,{...expected,imageDigest:"sha256:"+"0".repeat(64)})).toBe(false);
     expect(auth.attestationDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(auth.approvalKeyThumbprint).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(auth.releaseKeyThumbprint).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(auth.approvalKeyThumbprint).not.toBe(auth.releaseKeyThumbprint);
     const clock=vi.spyOn(Date,"now").mockReturnValue(auth.expiresAt+10);
     expect(isVerifiedRedriveAuthorization(auth,expected)).toBe(false);
     clock.mockRestore();

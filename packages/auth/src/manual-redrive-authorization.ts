@@ -58,6 +58,8 @@ export type VerifiedRedriveAuthorization=Readonly<{
   approvalRef:string;
   imageDigest:string;
   attestationDigest:string;
+  approvalKeyThumbprint:string;
+  releaseKeyThumbprint:string;
   expiresAt:number;
   readonly [proofBrand]:true;
 }>;
@@ -103,7 +105,9 @@ export function isVerifiedRedriveAuthorization(
     && auth.requestKey===expected.requestKey
     && auth.approvalRef===expected.approvalRef
     && auth.imageDigest===expected.imageDigest
-    && /^[a-f0-9]{64}$/.test(auth.attestationDigest);
+    && /^[a-f0-9]{64}$/.test(auth.attestationDigest)
+    && /^[A-Za-z0-9_-]{43}$/.test(auth.approvalKeyThumbprint)
+    && /^[A-Za-z0-9_-]{43}$/.test(auth.releaseKeyThumbprint);
 }
 
 export async function verifyOneShotOperatorAuthorization(
@@ -188,7 +192,9 @@ export async function verifyOneShotOperatorAuthorization(
     const proof=Object.freeze({
       operatorSubject,commissionId:scope.commissionId,reviewId:scope.reviewId,
       requestKey:scope.requestKey,approvalRef:scope.approvalRef,
-      imageDigest:requiredDigest,attestationDigest,expiresAt,
+      imageDigest:requiredDigest,attestationDigest,
+      approvalKeyThumbprint:approvalThumbprint,
+      releaseKeyThumbprint:releaseThumbprint,expiresAt,
       [proofBrand]:true as const
     });
     signedProofs.add(proof);

@@ -13,3 +13,4 @@ export * from "./processing-outbox";
 export * from "./processing-health";
 export * from "./recovery-review";
 export * from "./manual-redrive";
+export * from "./redrive-revocations";

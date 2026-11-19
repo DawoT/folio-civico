@@ -293,15 +293,22 @@ describe("R2.5 · one-shot manual redrive, no active API/Cloudflare bindings",()
         INSERT INTO processing_manual_redrives(
           id,commission_id,recovery_review_id,document_version_id,source_sha256,
           operator_subject,request_key,operator_approval_ref,request_sha256,
-          authorization_sha256
-        ) VALUES(?,?,?,?,?,?,?,?,?,?)
+          authorization_sha256,image_digest,
+          approval_key_thumbprint,release_key_thumbprint
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
       `).run("fake_001","c_a",reviewId,"version_a",SHA,"president",
-        "forged_redrive_01","OPR_20261119_001",SHA,SHA)).toThrow(/MANUAL_REDRIVE_NOT_ELIGIBLE/);
+        "forged_redrive_01","OPR_20261119_001",SHA,SHA,
+        f.env.authorization!.imageDigest,f.env.authorization!.approvalKeyThumbprint,
+        f.env.authorization!.releaseKeyThumbprint)).toThrow(/MANUAL_REDRIVE_NOT_ELIGIBLE/);
       expect(()=>f.sqlite.exec(`INSERT INTO processing_manual_redrives(
         id,commission_id,recovery_review_id,document_version_id,source_sha256,
-        operator_subject,request_key,operator_approval_ref,request_sha256
+        operator_subject,request_key,operator_approval_ref,request_sha256,
+        image_digest,approval_key_thumbprint,release_key_thumbprint
       ) VALUES('missing_001','c_a','${reviewId}','version_a','${SHA}',
-        'operator_authorized_001','missing_auth_001','OPR_20261119_001','${SHA}')`))
+        'operator_authorized_001','missing_auth_001','OPR_20261119_001','${SHA}',
+        '${f.env.authorization!.imageDigest}',
+        '${f.env.authorization!.approvalKeyThumbprint}',
+        '${f.env.authorization!.releaseKeyThumbprint}')`))
         .toThrow(/MANUAL_REDRIVE_ATTESTATION_REQUIRED/);
       const result=await executeOneShotManualRedrive(f.env,f.input(reviewId));
       expect(()=>f.sqlite.exec("DELETE FROM processing_manual_redrives")).toThrow(/MANUAL_REDRIVE_IMMUTABLE/);
@@ -309,7 +316,172 @@ describe("R2.5 · one-shot manual redrive, no active API/Cloudflare bindings",()
       expect(()=>f.sqlite.prepare("UPDATE processing_manual_redrives SET authorization_sha256=?").run("0".repeat(64)))
         .toThrow(/MANUAL_REDRIVE_IMMUTABLE/);
       expect(()=>f.sqlite.exec("UPDATE processing_manual_redrives SET state='reserved'")).toThrow(/MANUAL_REDRIVE_TRANSITION/);
+      expect(()=>f.sqlite.prepare("UPDATE processing_manual_redrives SET release_key_thumbprint=?").run("A".repeat(43)))
+        .toThrow(/MANUAL_REDRIVE_IMMUTABLE/);
       expect(result.state).toBe("sent");
+    }finally{f.close();}
+  });
+
+  it("rejects every independently revoked operator, approval, attestation, image and signing key without reserving or sending",async()=>{
+    for(const kind of ["operator","approval_ref","attestation","image","approval_key","release_key"] as const){
+      const f=await fixture();
+      try{
+        const reviewId=await f.endorse();
+        const proof=f.env.authorization!;
+        const target={
+          operator:proof.operatorSubject,
+          approval_ref:proof.approvalRef,
+          attestation:proof.attestationDigest,
+          image:proof.imageDigest,
+          approval_key:proof.approvalKeyThumbprint,
+          release_key:proof.releaseKeyThumbprint
+        }[kind];
+        f.sqlite.prepare(`
+          INSERT INTO processing_redrive_revocations(kind,target,incident_ref)
+          VALUES(?,?,?)
+        `).run(kind,target,"INC_REVOKE_20261119_0001");
+        await expect(executeOneShotManualRedrive(f.env,f.input(reviewId)))
+          .rejects.toBeInstanceOf(ManualRedriveAccessError);
+        expect(f.queue.send).not.toHaveBeenCalled();
+        expect(f.attempts()).toHaveLength(0);
+        expect(f.row()).toMatchObject({attempts:10});
+      }finally{f.close();}
+    }
+  });
+
+  it("halts a durable one-shot claim when its signing key is revoked just before Queue and never retries",async()=>{
+    const f=await fixture();
+    try{
+      const reviewId=await f.endorse();
+      const proof=f.env.authorization!;
+      let batches=0;
+      const wrapped={
+        prepare:f.db.prepare.bind(f.db),
+        batch:async(statements:Parameters<D1Database["batch"]>[0])=>{
+          const result=await f.db.batch(statements);
+          batches++;
+          if(batches===1){
+            f.sqlite.prepare(`
+              INSERT INTO processing_redrive_revocations(kind,target,incident_ref)
+              VALUES('release_key',?,?)
+            `).run(proof.releaseKeyThumbprint,"INC_REVOKE_20261119_0002");
+          }
+          return result;
+        }
+      } as D1Database;
+      const result=await executeOneShotManualRedrive({...f.env,DB:wrapped},f.input(reviewId));
+      expect(result.state).toBe("halted");
+      expect(f.queue.send).not.toHaveBeenCalled();
+      expect(f.attempts()).toMatchObject([{
+        state:"halted",authorizationDigest:proof.attestationDigest
+      }]);
+      await expect(executeOneShotManualRedrive(f.env,f.input(reviewId)))
+        .rejects.toBeInstanceOf(ManualRedriveAccessError);
+      expect(f.queue.send).not.toHaveBeenCalled();
+    }finally{f.close();}
+  });
+
+  it("fails closed when the independent D1 revocation read is unavailable",async()=>{
+    const f=await fixture();
+    try{
+      const reviewId=await f.endorse();
+      const wrapped={
+        prepare:(query:string)=>{
+          if(query.includes("processing_redrive_revocations")){
+            throw new Error("Revocation database is unavailable");
+          }
+          return f.db.prepare(query);
+        },
+        batch:f.db.batch.bind(f.db)
+      } as D1Database;
+      await expect(executeOneShotManualRedrive({...f.env,DB:wrapped},f.input(reviewId)))
+        .rejects.toBeInstanceOf(ManualRedriveAccessError);
+      expect(f.queue.send).not.toHaveBeenCalled();
+      expect(f.attempts()).toHaveLength(0);
+    }finally{f.close();}
+  });
+
+  it("D1 atomically refuses a revocation inserted after preflight but just before the claim",async()=>{
+    const f=await fixture();
+    try{
+      const reviewId=await f.endorse();
+      let batches=0;
+      const wrapped={
+        prepare:f.db.prepare.bind(f.db),
+        batch:async(statements:Parameters<D1Database["batch"]>[0])=>{
+          batches++;
+          if(batches===1) {
+            f.sqlite.prepare(`
+              INSERT INTO processing_redrive_revocations(kind,target,incident_ref)
+              VALUES('image',?,?)
+            `).run(f.env.authorization!.imageDigest,"INC_REVOKE_20261119_0004");
+          }
+          return f.db.batch(statements);
+        }
+      } as D1Database;
+      await expect(executeOneShotManualRedrive({...f.env,DB:wrapped},f.input(reviewId)))
+        .rejects.toBeInstanceOf(ManualRedriveConflictError);
+      expect(f.attempts()).toHaveLength(0);
+      expect(f.queue.send).not.toHaveBeenCalled();
+    }finally{f.close();}
+  });
+
+  it("fails closed if revocation lookup fails after the reservation",async()=>{
+    const f=await fixture();
+    try{
+      const reviewId=await f.endorse();
+      let batches=0;
+      const wrapped={
+        prepare:(query:string)=>{
+          if(batches>0 && query.includes("processing_redrive_revocations"))
+            throw new Error("D1 revocation read failed after claim");
+          return f.db.prepare(query);
+        },
+        batch:async(statements:Parameters<D1Database["batch"]>[0])=>{
+          batches++;
+          return f.db.batch(statements);
+        }
+      } as D1Database;
+      await expect(executeOneShotManualRedrive({...f.env,DB:wrapped},f.input(reviewId)))
+        .rejects.toThrow(/revocation read failed/);
+      expect(f.attempts()).toMatchObject([{state:"reserved"}]);
+      expect(f.queue.send).not.toHaveBeenCalled();
+      // A repeated request must not re-enqueue a version whose reservation
+      // could have reached Queue under a different failure scenario.
+      expect((await executeOneShotManualRedrive(f.env,f.input(reviewId))))
+        .toMatchObject({state:"reserved",replayed:true});
+      expect(f.queue.send).not.toHaveBeenCalled();
+    }finally{f.close();}
+  });
+
+  it("enforces append-only revocations, unique fingerprints and cannot forge a redrive through direct SQL",async()=>{
+    const f=await fixture();
+    try{
+      const reviewId=await f.endorse();
+      const proof=f.env.authorization!;
+      f.sqlite.prepare(`
+        INSERT INTO processing_redrive_revocations(kind,target,incident_ref)
+        VALUES('attestation',?,?)
+      `).run(proof.attestationDigest,"INC_REVOKE_20261119_0003");
+      expect(()=>f.sqlite.exec("UPDATE processing_redrive_revocations SET incident_ref='INC_FORGED_0001'"))
+        .toThrow(/REDRIVE_REVOCATION_IMMUTABLE/);
+      expect(()=>f.sqlite.exec("DELETE FROM processing_redrive_revocations"))
+        .toThrow(/REDRIVE_REVOCATION_IMMUTABLE/);
+      expect(()=>f.sqlite.prepare(`
+        INSERT INTO processing_redrive_revocations(kind,target,incident_ref)
+        VALUES('attestation',?,?)
+      `).run(proof.attestationDigest,"INC_REVOKE_20261119_0003")).toThrow();
+      expect(()=>f.sqlite.prepare(`
+        INSERT INTO processing_manual_redrives(
+          id,commission_id,recovery_review_id,document_version_id,source_sha256,
+          operator_subject,request_key,operator_approval_ref,request_sha256,
+          authorization_sha256,image_digest,approval_key_thumbprint,release_key_thumbprint
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `).run("direct_revoked_001","c_a",reviewId,"version_a",SHA,
+        proof.operatorSubject,"direct_revoked_key","OPR_20261119_001",
+        SHA,proof.attestationDigest,proof.imageDigest,proof.approvalKeyThumbprint,
+        proof.releaseKeyThumbprint)).toThrow(/MANUAL_REDRIVE_REVOKED/);
+      expect(f.attempts()).toHaveLength(0);
     }finally{f.close();}
   });
 
