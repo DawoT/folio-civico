@@ -23,7 +23,7 @@ Migración **`0018_recovery_review_attestations.sql`**:
 - `processing_recovery_actions`: historial de solicitudes idempotentes con clave por comisión/actor, huella SHA-256 del contenido y estado resultante. Triggers rechazan `UPDATE` y `DELETE`, así como inserciones cuyo actor, comisión, acción o resultado no correspondan exactamente al caso.
 - Triggers de `processing_recovery_reviews`: impiden inserciones sin presidencia o sin agotamiento real; la única transición es de `in_review` a un estado terminal con persona distinta y membresía vigente. Los campos identificadores son inmutables; no se pueden borrar casos.
 - Cada apertura y decisión utiliza una **transacción D1 `batch` de tres operaciones**: transición CAS, diario de solicitud y `audit_events`. Si alguna no afecta exactamente una fila, la transacción falla. Las claves repetidas del mismo payload devuelven la respuesta registrada; un cambio de payload causa conflicto.
-- El detalle de la justificación (24–600 caracteres) se digiere mediante SHA-256; el texto no se persiste ni aparece en logs. El sistema de incidentes externo debe custodiar el contenido, de manera que ese resumen pueda comprobarse contra la evidencia original. No introduce datos personales en el registro del caso.
+- El detalle de la justificación (24–600 caracteres) se digiere mediante SHA-256 sobre el UTF-8 de `JSON.stringify(rationale.trim())`; el texto no se persiste ni aparece en logs. El sistema de incidentes externo debe custodiar el contenido, de manera que ese resumen pueda comprobarse contra la evidencia original. No introduce datos personales en el registro del caso.
 
 El outbox, sus diez intentos, los informes inspeccionados y los objetos R2 permanecen **sin modificar** durante ambas decisiones.
 
