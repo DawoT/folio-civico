@@ -6,12 +6,17 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 IMAGE="folio-civico-inspector:validation"
-# Optional additive prioritization. Never changes the vulnerability gate.
-if [[ "$#" -gt 1 ]] || { [[ "$#" -eq 1 ]] && [[ "$1" != "--triage" ]]; }; then
+# A separately named candidate can be scanned without overwriting the
+# previously validated image. Both modes execute the exact same CVE gate.
+TRIAGE_MODE="${1:-}"
+if [[ "$#" -gt 1 ]] || { [[ -n "$TRIAGE_MODE" ]] && [[ "$TRIAGE_MODE" != "--triage" && "$TRIAGE_MODE" != "--candidate" ]]; }; then
   printf '{"status":"error","reason":"unsupported_audit_option"}\n'
   exit 3
 fi
-TRIAGE_MODE="${1:-}"
+if [[ "$TRIAGE_MODE" == "--candidate" ]]; then
+  IMAGE="folio-civico-inspector:ocr-integrated"
+  TRIAGE_MODE=""
+fi
 command -v docker >/dev/null
 command -v trivy >/dev/null
 # Repo and Docker daemon must have adequate space, and the daemon must be local.

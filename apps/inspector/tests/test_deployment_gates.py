@@ -66,6 +66,34 @@ class DeploymentActivationGates(unittest.TestCase):
         self.assertIn("dpkg --compare-versions",dockerfile)
         self.assertIn("1:1.3.dfsg+really1.3.1-1+deb13u1",dockerfile)
 
+    def test_tesseract_source_is_pinned_and_optional_archive_stack_disabled(self):
+        source=(ROOT / "apps/inspector/Dockerfile").read_text(encoding="utf-8")
+        for expected in (
+            "AS ocr_builder",
+            "ARG TESSERACT_VERSION=5.5.4",
+            "a8dbf8b8c8ee427ff6ad1d99116502feaf59440af1adb893caf60a6576826cf4",
+            "sha256sum --check",
+            "-DDISABLE_ARCHIVE=ON",
+            "-DDISABLE_CURL=ON",
+            "-DDISABLED_LEGACY_ENGINE=ON",
+            "COPY --from=ocr_builder",
+            "ldconfig",
+            "libxml2",
+            "libarchive",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, source)
+        self.assertNotIn("FROM folio-civico-inspector:validation", source)
+
+    def test_runtime_does_not_install_packaged_tesseract(self):
+        source=(ROOT / "apps/inspector/Dockerfile").read_text(encoding="utf-8")
+        runtime=source.split("FROM python:3.12-slim-trixie", 1)[1]
+        self.assertIn("tesseract-ocr-spa tesseract-ocr-eng", runtime)
+        self.assertNotIn("tesseract-ocr tesseract-ocr-spa", runtime)
+        self.assertIn("libtesseract.so", runtime)
+        self.assertIn("! ldd", runtime)
+        self.assertNotIn("apt-get purge", runtime)
+
     def test_vendor_download_tools_do_not_survive_into_pdf_runtime(self):
         source=(ROOT/"apps/inspector/Dockerfile").read_text(encoding="utf-8")
         self.assertIn("AS clamav_verifier",source)
@@ -109,6 +137,8 @@ class DeploymentActivationGates(unittest.TestCase):
         self.assertNotIn("--ignorefile",source)
         self.assertNotIn("docker system prune",source)
         self.assertIn('TRIAGE_MODE="${1:-}"',source)
+        self.assertIn("--candidate", source)
+        self.assertIn("folio-civico-inspector:ocr-integrated", source)
 
     def test_local_real_engine_runner_requires_preflight_and_is_offline(self):
         runner=(ROOT / "apps/inspector/validate_real_engines.sh").read_text(
@@ -137,6 +167,9 @@ class DeploymentActivationGates(unittest.TestCase):
         self.assertEqual(runner.count("--network none"), 3)
         self.assertIn("/srv/folio-inspector/smoke_http_real.py", runner)
         self.assertIn("! command -v curl",runner)
+        self.assertIn("/opt/folio-ocr/source-provenance.json", runner)
+        self.assertIn("libxml2.so.2", runner)
+        self.assertIn("libtesseract.so.5.5.4", runner)
 
     def test_private_container_process_never_receives_hmac_signing_key(self):
         source=(ROOT / "apps/inspector-gateway/src/index.ts").read_text(encoding="utf-8")

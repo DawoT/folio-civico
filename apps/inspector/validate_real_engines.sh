@@ -11,12 +11,20 @@ docker build --pull \
   --tag folio-civico-inspector:validation \
   apps/inspector
 
-# The runtime must not retain the build-only curl downloader.
-# GPG is a required transitive dependency of Poppler in Debian Trixie.
+# GPG is required by Poppler in Trixie; curl is build-only. The source-built
+# OCR binary must not reintroduce archive/XML libraries via dynamic links.
 docker run --rm --network none --read-only --cap-drop ALL \
   --security-opt no-new-privileges \
   --entrypoint /bin/sh folio-civico-inspector:validation \
-  -c '! command -v curl'
+  -c 'set -eu
+      ! command -v curl
+      test -r /opt/folio-ocr/source-provenance.json
+      test ! -e /lib/x86_64-linux-gnu/libxml2.so.2
+      test ! -e /lib/x86_64-linux-gnu/libarchive.so.13
+      ! ldd /opt/folio-ocr/bin/tesseract | grep -E "(libarchive|libcurl|libxml2)"
+      ! ldd /opt/folio-ocr/lib/libtesseract.so.5.5.4 | grep -E "(libarchive|libcurl|libxml2)"
+      ! dpkg-query -W -f="\${Status}\\n" libxml2 libarchive13t64 libtesseract5 tesseract-ocr 2>/dev/null | grep -q "^install ok installed$"
+      python3 -c "import json; p=json.load(open(\"/opt/folio-ocr/source-provenance.json\")); assert p == {\"name\":\"tesseract\",\"version\":\"5.5.4\",\"source_sha256\":\"a8dbf8b8c8ee427ff6ad1d99116502feaf59440af1adb893caf60a6576826cf4\",\"archive\":False,\"curl\":False}"'
 
 # No network or public ports. The smoke CLI needs no production secrets.
 # 4 GiB is the official ClamAV recommended container memory, not the old

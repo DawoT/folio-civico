@@ -35,6 +35,36 @@ RUN set -eux; \
     --keyring /tmp/clamav-vendor/talos-keyring.gpg --verify \
     /tmp/clamav-vendor/clamav.deb.sig /tmp/clamav-vendor/clamav.deb
 
+# Tesseract is built separately, not installed as an opaque binary package.
+# Only the official English/Spanish models are retained in the runtime.
+# The source tarball digest was independently matched with upstream 5.5.4.
+FROM debian:trixie-slim AS ocr_builder
+ARG TESSERACT_VERSION=5.5.4
+ARG TESSERACT_SOURCE_SHA256=a8dbf8b8c8ee427ff6ad1d99116502feaf59440af1adb893caf60a6576826cf4
+RUN test "$(dpkg --print-architecture)" = "amd64"
+RUN apt-get update \
+  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ca-certificates curl cmake build-essential pkg-config libleptonica-dev \
+  && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /src \
+  && curl --fail --silent --show-error --location --proto '=https' \
+    "https://deb.debian.org/debian/pool/main/t/tesseract/tesseract_${TESSERACT_VERSION}.orig.tar.gz" \
+    --output /tmp/tesseract.tar.gz \
+  && echo "${TESSERACT_SOURCE_SHA256}  /tmp/tesseract.tar.gz" | sha256sum --check - \
+  && tar --extract --file /tmp/tesseract.tar.gz --directory /src --strip-components=1 \
+  && rm /tmp/tesseract.tar.gz
+RUN cmake -S /src -B /tmp/ocr-build \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/folio-ocr \
+    -DCMAKE_INSTALL_LIBDIR=lib -DBUILD_SHARED_LIBS=ON \
+    -DBUILD_TRAINING_TOOLS=OFF -DBUILD_TESTS=OFF \
+    -DDISABLE_ARCHIVE=ON -DDISABLE_CURL=ON \
+    -DGRAPHICS_DISABLED=ON -DDISABLED_LEGACY_ENGINE=ON \
+  && cmake --build /tmp/ocr-build --parallel 4 \
+  && cmake --install /tmp/ocr-build \
+  && printf '{"name":"tesseract","version":"%s","source_sha256":"%s","archive":false,"curl":false}\n' \
+    "${TESSERACT_VERSION}" "${TESSERACT_SOURCE_SHA256}" \
+    > /opt/folio-ocr/source-provenance.json
+
 FROM python:3.12-slim-trixie
 RUN test "$(dpkg --print-architecture)" = "amd64"
 
@@ -43,9 +73,25 @@ RUN test "$(dpkg --print-architecture)" = "amd64"
 # poppler-utils as well. Do not break the PDF scanner to remove a dependency.
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ca-certificates qpdf poppler-utils tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng zlib1g \
+    ca-certificates qpdf poppler-utils libleptonica6 tesseract-ocr-spa tesseract-ocr-eng zlib1g \
   && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' zlib1g)" ge "1:1.3.dfsg+really1.3.1-1+deb13u1" \
   && rm -rf /var/lib/apt/lists/*
+
+# The source-verified OCR executable and shared library do not depend on
+# libarchive/libcurl, removing libxml2 from the Tesseract dependency chain.
+COPY --from=ocr_builder /opt/folio-ocr /opt/folio-ocr
+RUN printf '%s\n' /opt/folio-ocr/lib > /etc/ld.so.conf.d/folio-ocr.conf \
+  && ldconfig \
+  && /opt/folio-ocr/bin/tesseract --version \
+  && ldd /opt/folio-ocr/bin/tesseract \
+  && ldd /opt/folio-ocr/lib/libtesseract.so.5.5.4 \
+  && ! ldd /opt/folio-ocr/bin/tesseract | grep -E '(libarchive|libcurl|libxml2)' \
+  && ! ldd /opt/folio-ocr/lib/libtesseract.so.5.5.4 | grep -E '(libarchive|libcurl|libxml2)' \
+  && ! dpkg-query -W -f='${Status}\n' libxml2 libarchive13t64 libtesseract5 tesseract-ocr 2>/dev/null | grep -q '^install ok installed$' \
+  && test ! -e /lib/x86_64-linux-gnu/libxml2.so.2 \
+  && test ! -e /lib/x86_64-linux-gnu/libarchive.so.13 \
+  && /opt/folio-ocr/bin/tesseract --list-langs | grep -q 'spa'
+ENV PATH="/opt/folio-ocr/bin:${PATH}"
 
 # The only artifact copied out of the verification stage is the signed .deb.
 COPY --from=clamav_verifier /tmp/clamav-vendor/clamav.deb /tmp/clamav.deb
