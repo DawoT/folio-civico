@@ -16,7 +16,7 @@
 
 | ID | Incremento entregable | Dependencias | Criterio de aceptación para integrarse | Estado al corte |
 | --- | --- | --- | --- | --- |
-| **R0** | Troncal `main`, CI shell independiente del proveedor, contrato de pruebas, roadmap y controles de integración | Historia lineal existente | `sh scripts/ci.sh` con exit 0; pruebas de orden, fail-fast, local-only y rechazo de flags; árbol limpio, push no forzado | **En ejecución** |
+| **R0** | Troncal `main`, CI shell independiente del proveedor, contrato de pruebas, roadmap y controles de integración | Historia lineal existente | `sh scripts/ci.sh` con exit 0; pruebas de orden, fail-fast, local-only y rechazo de flags; árbol limpio, push no forzado | **Completado:** `main` publicada; CI local verde |
 | **R1** | Remediación del inspector, CVE triage y cadena de suministro | R0, ADR-013/014 | Imagen reproducible con SBOM/digest; hallazgos CRITICAL/HIGH/UNKNOWN remediados o VEX granular formalmente aprobado; `audit:inspector:image` y smoke Docker aprobados; prueba de caducidad/renovación `< 72h` | **Bloqueado:** 1 CRITICAL, 149 HIGH, 19 UNKNOWN; rotación no implementada |
 | **R2** | Cadena documental resiliente y comprobaciones E2E locales | R0, R1 para validar imagen final | Escenarios sintéticos R2 → outbox D1 → Queue simulada → Processor → Gateway → inspector → D1; éxito, duplicados, errores 422/503, reintentos, agotamiento, HMAC inválido, caída temporal y reconciliación. Sin exposición de original | **Parcial:** contratos y pruebas unitarias/integración locales existentes |
 | **R3** | Preview Cloudflare aislado, identidad y OAuth MCP | R1, R2 y aprobación de recursos/costes | D1/R2/Queues/DLQ/Containers exclusivamente `folio-civico-*`; Access/MFA, OAuth real, mínimo privilegio, prohibición de rutas públicas, revocación, backup/rollback y E2E con datos sintéticos | **Pendiente; operador Preview no configurado** |
@@ -47,4 +47,4 @@ Registrar aquí los commits de cada entrega, las pruebas efectivamente ejecutada
 
 | Fecha | Incremento | Resultado |
 | --- | --- | --- |
-| 2026-11-19 | R0 | Verificación inicial: `main` inexistente en remoto; historia lineal `feat/*`; CVE gate de inspector bloqueado. Implantación del CI shell en curso. |
+| 2026-11-19 | R0 | `main` creada y publicada mediante avance lineal sin force-push desde el commit `bc5dd86`; `sh scripts/ci.sh` exit 0: 4 tests del runner, 173 Vitest, 58 Python y 5 workerd, typecheck, build y 13 migraciones D1 locales verificadas en API/MCP/Processor. Auditoría CVE sigue bloqueada; no se desplegó. |
