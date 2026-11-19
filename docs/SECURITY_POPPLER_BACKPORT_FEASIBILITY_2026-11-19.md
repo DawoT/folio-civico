@@ -53,6 +53,13 @@ sh scripts/ci.sh
 bash apps/inspector/audit_image.sh --experiment --advisories  # exit 2 esperado
 ```
 
+## Validación ejecutada
+
+- Probe contra los **10 archivos oficiales** descargados en un temporal privado: **exit 0** con 2 parches textualmente aplicables, 5 para revisión manual y `release_authorized=false`. Los 3 artefactos fuente y los 7 patches coincidieron con los diez SHA-256 fijados.
+- Suite Python del inspector en la rama R1.12 sobre la base integrada R2.8: **125/125 aprobadas**.
+- `sh scripts/ci.sh`: **exit 0**, incluidos tests de Workers, typecheck, compilaciones en dry-run, Chromium E2E/accesibilidad y migraciones D1 **locales** hasta `0022`.
+- `bash apps/inspector/audit_image.sh --experiment --advisories`: **exit 2, bloqueado**, 0 CRITICAL / 70 HIGH / 19 UNKNOWN, dos componentes fuente sin evaluación completa. No cambia el inventario CVE ni se aprueba una imagen.
+
 ## Siguiente trabajo y puertas de decisión
 
 1. **Backports:** revisar semánticamente primero los dos candidatos de aplicación limpia y preparar los cinco que fallan, mediante ramas o builders de investigación aislados, con pruebas negativas y sanitizadores pertinentes. Los casos JBIG2/Splash/Decrypt requieren atención especial. La salida de `patch` por sí sola no acredita una corrección.
