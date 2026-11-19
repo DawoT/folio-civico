@@ -36,6 +36,46 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 .eyebrow { font-size: 11px; color: var(--fc-color-brand-primary); font-weight: 780; letter-spacing: .13em; margin: 0 0 9px; }
 h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; line-height: 1.15; }
 .intro p:not(.eyebrow) { margin: 12px 0 0; font-size: 15px; color: #536773; }
+/* DS-002: semantic status labels; the visible text is always authoritative. */
+.status-badge {
+  display: inline-flex; align-items: center; width: fit-content;
+  padding: 5px 9px; border-radius: 6px; border: 1px solid transparent;
+  font-size: var(--fc-type-caption); line-height: 1.4; font-weight: 600;
+  background: var(--fc-color-surface-subtle);
+  color: var(--fc-color-status-draft-fg);
+}
+.status-badge--warning,
+.status-badge--quarantined,
+.status-badge--reviewing,
+.status-badge--processing {
+  color: var(--fc-color-status-warning-fg);
+  background: var(--fc-color-status-warning-bg);
+  border-color: var(--fc-color-status-warning-border);
+}
+.status-badge--success,
+.status-badge--validated {
+  color: var(--fc-color-status-success-fg);
+  background: var(--fc-color-status-success-bg);
+  border-color: var(--fc-color-status-success-border);
+}
+/* Extracted text is available; this does not imply a validated finding. */
+.status-badge--ready {
+  color: var(--fc-color-brand-primary);
+  background: var(--fc-color-surface-subtle);
+  border-color: var(--fc-color-border-default);
+}
+.status-badge--error,
+.status-badge--dismissed {
+  color: var(--fc-color-status-error-fg);
+  background: var(--fc-color-status-error-bg);
+  border-color: var(--fc-color-status-error-border);
+}
+.message.info {
+  color: var(--fc-color-text-secondary);
+  background: var(--fc-color-surface-subtle);
+  border: 1px solid var(--fc-color-border-default);
+}
+
 .status-label {
   color: var(--fc-color-status-reviewing-fg); background: var(--fc-color-status-warning-bg); border: 1px solid #eed8a5;
   border-radius: 999px; font-size: 12px; padding: 9px 13px; white-space: nowrap;
