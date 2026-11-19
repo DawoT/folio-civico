@@ -38,6 +38,7 @@ def source_inventory():
          "tool_sha256":({tool:"d"*64 for tool in (
              "pdfinfo","pdftotext","pdftoppm","pdfdetach","pdfattach")}
              if name == "poppler" else {}),
+         "model_sha256":({"eng":"e"*64,"spa":"f"*64} if name=="tesseract" else {}),
          "cve_assessment":"required",
          "automated_cve_coverage":"not_verified"}
         for name,version in [

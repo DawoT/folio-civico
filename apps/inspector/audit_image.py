@@ -27,7 +27,7 @@ BLOCKING_SEVERITIES = frozenset(("CRITICAL", "HIGH", "UNKNOWN"))
 
 
 def verify_native_source_inventory(inventory: dict, image: str) -> int:
-    """Verify runtime ELF fingerprints; never treat a hash as a CVE assessment."""
+    """Verify native ELF and OCR model hashes, not CVE applicability or authenticity."""
     mode = SOURCE_MODES.get(image)
     if mode is None or not isinstance(inventory, dict):
         raise ValueError("Unknown image or missing native source inventory")
@@ -61,6 +61,13 @@ def verify_native_source_inventory(inventory: dict, image: str) -> int:
                 not isinstance(value, str) or not SHA256.fullmatch(value)
                 for value in tool_hashes.values())):
             raise ValueError("Native source utility fingerprints incomplete")
+        model_hashes = component.get("model_sha256")
+        expected_models = {"eng", "spa"} if name == "tesseract" else set()
+        if (not isinstance(model_hashes, dict)
+                or set(model_hashes) != expected_models
+                or any(not isinstance(value, str) or not SHA256.fullmatch(value)
+                       for value in model_hashes.values())):
+            raise ValueError("Native OCR model identity is not attested")
         names.append(name)
     required = {
         "validation": set(),
@@ -129,6 +136,7 @@ def evaluate_image_audit(
             {field: component[field] for field in (
                 "name", "version", "executable_sha256",
                 "library_sha256", "provenance_sha256", "tool_sha256",
+                "model_sha256",
             )}
             for component in source_inventory["components"]
         ],

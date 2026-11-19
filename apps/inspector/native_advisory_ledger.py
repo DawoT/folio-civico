@@ -3,8 +3,8 @@
 These are selected open issues in the *Debian trixie source-package trackers*
 as observed on 2026-11-19. They are NOT an exhaustive upstream advisory feed,
 NOT proof that the custom source binary is affected, and never a VEX.
-Binding each row to the strict offline ELF provenance inventory makes the
-review backlog attributable to a particular local image. The release gate
+Binding each row to the strict offline ELF/model provenance inventory makes the
+review backlog attributable to a particular local image and OCR model set. The release gate
 is evaluated separately and must stay blocked for unassessed native code.
 """
 from __future__ import annotations
@@ -64,6 +64,7 @@ def source_cve_ledger(inventory: dict, image: str) -> dict:
             "library_sha256": item["library_sha256"],
             "provenance_sha256": item["provenance_sha256"],
             "tool_sha256": item["tool_sha256"],
+            "model_sha256": item["model_sha256"],
             "source_build_status": "unassessed",
             "tracker": "https://security-tracker.debian.org/tracker/source-package/" + name,
             "cve_count": len(cves),
