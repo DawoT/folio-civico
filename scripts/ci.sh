@@ -44,6 +44,9 @@ pnpm test:workers
 step 'Real Chromium browser E2E and WCAG A/AA checks (synthetic API)'
 pnpm test:browser
 
+step 'Loopback guided demo E2E (real API, signed local JWT, SQLite in-memory)'
+pnpm test:demo
+
 for config in \
   apps/api/wrangler.jsonc \
   apps/mcp/wrangler.jsonc \
