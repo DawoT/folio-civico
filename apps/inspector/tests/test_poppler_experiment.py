@@ -40,6 +40,13 @@ class ExperimentalPopplerPolicyTests(unittest.TestCase):
         self.assertIn("test ! -L /etc/fonts/fonts.conf", source)
         self.assertIn("test -d /etc/fonts/conf.d", source)
         self.assertNotIn("-DFONT_CONFIGURATION=generic", source)
+        # Debian signed APT metadata is necessary but not sufficient for a
+        # reproducible source revision; pin its three source artifacts too.
+        from poppler_source_patch_probe import ARCHIVE_HASHES, ARCHIVE_NAMES
+        self.assertIn("sha256sum --check -", source)
+        for filename in ARCHIVE_NAMES.values():
+            self.assertIn(filename, source)
+            self.assertIn(ARCHIVE_HASHES[filename], source)
 
     def test_poppler_quality_comparison_is_optional_and_reuses_strict_gate(self):
         source=(ROOT/"apps/inspector/compare_ocr_quality.sh").read_text(encoding="utf-8")
