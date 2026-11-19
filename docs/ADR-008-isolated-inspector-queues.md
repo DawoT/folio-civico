@@ -19,7 +19,7 @@ Las migraciones `0011_document_processing_outbox.sql` y `0012_processing_outbox_
 {"kind":"folio.process.pdf","versionId":"<id>","sourceSha256":"<64 hexadecimal>"}
 ```
 
-No transmite el contenido PDF, clave R2, nombres de archivo ni datos de la comisión. Marca `sent` **después** de confirmar el envío; un fallo de Queue no altera el registro. Reintenta un mensaje `sent` tras 15 minutos y limita cada trabajo a 10 entregas del outbox. Las entregas pueden duplicarse: el consumidor y la admisión firmada son idempotentes.
+No transmite el contenido PDF, clave R2, nombres de archivo ni datos de la comisión. **Actualización ADR-024:** antes de llamar a Queue, el despachador realiza un *claim* CAS atómico en D1 que registra `sent`, el intento y su lease. Solo el ganador envía; si Queue falla, revierte el claim de forma condicional sin reabrir trabajos ya cerrados. Si el proceso cae, el lease de 15 minutos permite recuperación, con un máximo de 10 intentos. **No existe exactamente-una-vez entre D1 y Queue:** redelivery ambiguo es posible y el consumidor/admisión firmada siguen siendo idempotentes. Véase [ADR-024](ADR-024-atomic-processing-outbox-leases.md).
 
 El manejador `scheduled` del Worker API ahora puede despachar si `PROCESSING_QUEUE` está enlazado, **pero no hay ni Queue ni cron configurados** en `apps/api/wrangler.jsonc`.
 
