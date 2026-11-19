@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { loadChecklist, loadObservationDrafts, submitSearchScopeDraft, transitionObservation } from "./api";
+import { loadChecklist, loadObservationDrafts, loadObservationDetail, submitSearchScopeDraft, transitionObservation } from "./api";
 import { ReviewWorkspace, ChecklistStatus } from "./ReviewWorkspace";
 import type { ChecklistRow } from "./api";
 
@@ -19,6 +19,19 @@ describe("review API client", () => {
     await loadObservationDrafts("c_a",fetcher);
     expect(fetcher).toHaveBeenCalledWith("/api/commissions/c_a/observations",expect.anything());
     await expect(loadObservationDrafts("../c_b",fetcher)).rejects.toThrow();
+  });
+
+  it("loads an exact observation using the same-origin authenticated route, rejecting mismatched responses", async () => {
+    const saved = {id:"obs_123",commissionId:"c_a",title:"Búsqueda revisada",status:"validated",evidence:[],
+      reviewedBy:"eva",reviewNote:"Validación independiente suficiente."};
+    const fetcher = vi.fn(async (_url:RequestInfo|URL,_opts?:RequestInit)=>Response.json(saved));
+    expect(await loadObservationDetail("c_a","obs_123",fetcher)).toMatchObject(saved);
+    expect(fetcher).toHaveBeenCalledWith("/api/commissions/c_a/observations/obs_123",{
+      credentials:"same-origin",cache:"no-store"
+    });
+    await expect(loadObservationDetail("c_a","../unsafe",fetcher)).rejects.toThrow();
+    const forged=vi.fn(async()=>Response.json({...saved,commissionId:"other"}));
+    await expect(loadObservationDetail("c_a","obs_123",forged)).rejects.toThrow();
   });
 
   it("submits manual search with no client-supplied reviewer, date or validation status", async () => {
@@ -66,6 +79,7 @@ describe("review API client", () => {
     expect(markup).toContain("validación interna");
     expect(markup).toContain("reviewer");
     expect(markup).toContain("obs_001");
+    expect(renderToStaticMarkup(<ChecklistStatus item={item} onOpenValidation={()=>{}}/>)).toContain("Ver validación");
     const pending = renderToStaticMarkup(<ChecklistStatus item={{
       ...item, status: "pending", statusSource: "stored",
       validatedSearchObservationId: null, reviewedBy: null, reviewedAt: null

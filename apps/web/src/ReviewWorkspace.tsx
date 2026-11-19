@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
-  loadChecklist, loadObservationDrafts, submitSearchScopeDraft,
+  loadChecklist, loadObservationDrafts, loadObservationDetail, submitSearchScopeDraft,
   transitionObservation as requestTransition,
   type ChecklistRow, type ObservationRow, type Scope
 } from "./api";
@@ -10,7 +10,7 @@ const labels: Record<ChecklistRow["status"], string> = {
   not_located: "No ubicado", observed: "Observado"
 };
 
-export function ChecklistStatus({item}: {item: ChecklistRow}) {
+export function ChecklistStatus({item,onOpenValidation}: {item: ChecklistRow; onOpenValidation?: (id:string)=>void}) {
   const internallyValidated = item.statusSource === "validated_search"
     && item.validatedSearchObservationId !== null;
   return (
@@ -19,9 +19,17 @@ export function ChecklistStatus({item}: {item: ChecklistRow}) {
         {labels[item.status]}{internallyValidated ? " · validación interna" : ""}
       </span>
       {internallyValidated && (
-        <small className="checklist-proof">
-          Revisor: {item.reviewedBy} · Observación: <code>{item.validatedSearchObservationId}</code>
-        </small>
+        <>
+          <small className="checklist-proof">
+            Revisor: {item.reviewedBy} · Observación: <code>{item.validatedSearchObservationId}</code>
+          </small>
+          {onOpenValidation && (
+            <button className="button secondary" type="button"
+              onClick={()=>onOpenValidation(item.validatedSearchObservationId!)}>
+              Ver validación
+            </button>
+          )}
+        </>
       )}
     </>
   );
@@ -45,6 +53,10 @@ export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: bool
   const [reviewNote,setReviewNote]=useState("");
   const [reviewConfirmed,setReviewConfirmed]=useState(false);
   const [transitionBusy,setTransitionBusy]=useState(false);
+  const [linkedRecord,setLinkedRecord]=useState<ObservationRow|null>(null);
+  const [linkedLoading,setLinkedLoading]=useState(false);
+  const [linkedError,setLinkedError]=useState("");
+  const linkedRequest=useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -112,6 +124,21 @@ export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: bool
     } finally {setTransitionBusy(false);}
   }
 
+  async function openValidation(observationId:string) {
+    const requestNumber=++linkedRequest.current;
+    setLinkedRecord(null);setLinkedError("");setLinkedLoading(true);
+    try {
+      const record=await loadObservationDetail(scope.commissionId,observationId);
+      if(requestNumber===linkedRequest.current) setLinkedRecord(record);
+    } catch(problem) {
+      if(requestNumber===linkedRequest.current) {
+        setLinkedError(problem instanceof Error ? problem.message : "No se pudo consultar la validación.");
+      }
+    } finally {
+      if(requestNumber===linkedRequest.current) setLinkedLoading(false);
+    }
+  }
+
   return (
     <section className="review-area" aria-labelledby="review-title">
       <div className="review-heading">
@@ -131,7 +158,7 @@ export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: bool
                 <li key={item.id}>
                   <span className="checklist-area">{item.area === "works" ? "Obras" : "Contrataciones"}</span>
                   <strong>{item.expectedDocument}</strong>
-                  <ChecklistStatus item={item}/>
+                  <ChecklistStatus item={item} onOpenValidation={(id)=>void openValidation(id)}/>
                 </li>
               ))}
             </ul>}
@@ -168,6 +195,44 @@ export function ReviewWorkspace({scope, canDraft}: {scope: Scope; canDraft: bool
           {!canDraft && <p className="review-note">No puedes crear observaciones con tu rol o en una comisión cerrada.</p>}
         </div>
       </div>
+      {(linkedLoading || linkedRecord || linkedError) && (
+        <section className="review-card linked-observation-card" aria-labelledby="linked-observation-title">
+          <div className="observation-heading">
+            <h3 id="linked-observation-title">Detalle de la validación</h3>
+            <button type="button" className="button secondary" onClick={()=>{
+              ++linkedRequest.current;setLinkedRecord(null);setLinkedError("");setLinkedLoading(false);
+            }}>Cerrar detalle</button>
+          </div>
+          {linkedLoading && <p role="status">Consultando evidencia original…</p>}
+          {linkedError && <p role="alert" className="message error">{linkedError}</p>}
+          {linkedRecord && (
+            <div>
+              <p className="review-note">Registro de revisión interna · No constituye decisión oficial.</p>
+              <h4>{linkedRecord.title}</h4>
+              <p>{linkedRecord.description}</p>
+              <dl>
+                <div><dt>Identificador</dt><dd className="linked-observation-id">{linkedRecord.id}</dd></div>
+                <div><dt>Autor</dt><dd>{linkedRecord.authorSubject}</dd></div>
+                <div><dt>Revisor</dt><dd>{linkedRecord.reviewedBy ?? "Sin decisión"}</dd></div>
+                <div><dt>Fecha de revisión</dt><dd>{linkedRecord.reviewedAt ?? "Pendiente"}</dd></div>
+                <div><dt>Justificación</dt><dd>{linkedRecord.reviewNote ?? "Pendiente"}</dd></div>
+              </dl>
+              <h4>Evidencia registrada</h4>
+              <ul className="observation-items">
+                {linkedRecord.evidence.map((proof,index)=>(
+                  <li key={index}>
+                    {proof.type==="SEARCH_SCOPE"
+                      ? `Búsqueda en lote ${String(proof.batchId)} · Ítem ${String(proof.checklistItemId)} · Fecha ${String(proof.searchedAt)}`
+                      : proof.type==="DOCUMENT_PAGE"
+                        ? `Versión ${String(proof.documentVersionId)} · Página ${String(proof.page)}`
+                        : "Referencia externa"}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
       <div className="review-card observations-card">
         <h3>Borradores y observaciones</h3>
         {loading ? <p>Consultando observaciones…</p> :

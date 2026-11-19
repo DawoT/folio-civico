@@ -16,6 +16,13 @@ describe("API authorization boundary", () => {
     expect(response.status).toBe(401);
   });
 
+  it("recognizes the observation detail endpoint but rejects unauthenticated requests", async () => {
+    const response=await handleApiRequest(new Request(
+      "https://api.test/api/commissions/c_a/observations/obs_123"
+    ),{} as never);
+    expect(response.status).toBe(401);
+  });
+
   it("denies unauthenticated commission requests", async () => {
     const response = await handleApiRequest(
       new Request("https://api.test/api/commissions/com_1/summary"),

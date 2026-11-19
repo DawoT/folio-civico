@@ -3,6 +3,7 @@ import { getCommissionSummary, listAccessibleCommissions, listCommissionBatches,
 import { handleDocumentRequest } from "./document-routes";
 import { handleReviewRequest, type ReviewAction } from "./review-routes";
 import { handleTransitionRequest } from "./transition-routes";
+import { handleObservationDetailRequest } from "./observation-detail";
 import { runQuarantineAudit, runProcessingAudit } from "./maintenance";
 import { handleTextRequest } from "./text-routes";
 
@@ -32,8 +33,9 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
   const documents = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/batches\/([A-Za-z0-9_-]{1,64})\/documents$/.exec(url.pathname);
   const review = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/(checklist|observations|observations\/drafts|observations\/page-drafts)$/.exec(url.pathname);
   const transition = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/([A-Za-z0-9_-]{1,64})\/actions$/.exec(url.pathname);
+  const observationDetail = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
   const textPages = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/documents\/([A-Za-z0-9_-]{1,64})\/pages$/.exec(url.pathname);
-  if (!discovery && !batches && !route && !documents && !review && !transition && !textPages) return json({ error: "Not found" }, 404);
+  if (!discovery && !batches && !route && !documents && !review && !transition && !observationDetail && !textPages) return json({ error: "Not found" }, 404);
   if ((discovery || batches || route) && request.method !== "GET") return json({ error: "Method not allowed" }, 405);
 
   const subject = await authenticateAccess(request, env);
@@ -58,6 +60,7 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
       : review[2] === "observations" ? "observations" : "checklist";
     return handleReviewRequest(request, {DB:env.DB},subject,review[1]!,action);
   }
+  if (observationDetail) return handleObservationDetailRequest(request,{DB:env.DB},subject,observationDetail[1]!,observationDetail[2]!);
 
   if (!route) return json({ error: "Not found" }, 404);
   try {

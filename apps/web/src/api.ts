@@ -214,6 +214,30 @@ export async function loadObservationDrafts(
   return body as ObservationRow[];
 }
 
+/** Fetches a specific record even when it is older than the 50-item recent list. */
+export async function loadObservationDetail(
+  commissionId: string, observationId: string, fetcher: typeof fetch = fetch
+): Promise<ObservationRow> {
+  if (!validId.test(observationId)) {
+    throw new ApiError(400,"Identificador de observación no válido.");
+  }
+  const response = await fetcher(
+    commissionPath(commissionId)+`/observations/${observationId}`,
+    {credentials:"same-origin",cache:"no-store"}
+  );
+  const body = await expectJson(response);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new ApiError(502,"Respuesta inesperada de la observación.");
+  }
+  const record = body as Partial<ObservationRow>;
+  if (record.id !== observationId || record.commissionId !== commissionId
+    || !Array.isArray(record.evidence) || typeof record.title !== "string"
+    || !["draft","in_review","validated","dismissed"].includes(record.status ?? "")) {
+    throw new ApiError(502,"La evidencia consultada no coincide con la solicitud.");
+  }
+  return record as ObservationRow;
+}
+
 export interface ObservationTransitionInput {
   commissionId: string;
   observationId: string;

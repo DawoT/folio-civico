@@ -149,6 +149,8 @@ h1 { margin: 0; font-size: clamp(29px, 3.2vw, 42px); letter-spacing: -.05em; lin
 .checklist-status { display: inline-flex; width: fit-content; background: #eef3f1; padding: 5px 8px; border-radius: 5px; color: #435b58; font-size: 12px; }
 .checklist-proof { color: #465e61; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .checklist-proof code { overflow-wrap: anywhere; }
+.linked-observation-card { margin-top: 22px; }
+.linked-observation-id { overflow-wrap: anywhere; }
 .review-form { display: flex; flex-direction: column; gap: 10px; }
 .review-form > label:not(.attestation) { font-size: 13px; font-weight: 700; margin-top: 5px; }
 .review-form input:not([type="checkbox"]), .review-form select, .review-form textarea {
