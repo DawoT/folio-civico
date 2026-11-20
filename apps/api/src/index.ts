@@ -33,6 +33,9 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
     return json({ status: "ok" }, 200);
   }
 
+  // Readiness is operator-only and scoped to the API/D1 core. It does not
+  // certify R2, Queue, inspector, Access MFA configuration, or Preview release.
+  const coreReadiness = url.pathname === "/api/readiness/core";
   const bootstrapCapability = url.pathname === "/api/session";
   const discovery = url.pathname === "/api/commissions";
   const batches = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/batches$/.exec(url.pathname);
@@ -46,13 +49,33 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
   const reviewExport = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/export$/.exec(url.pathname);
   const observationDetail = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
   const textPages = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/documents\/([A-Za-z0-9_-]{1,64})\/pages$/.exec(url.pathname);
-  if (!bootstrapCapability && !discovery && !batches && !members && !memberRevoke && !checklistProvision && !route && !documents && !review && !transition && !reviewExport && !observationDetail && !textPages) return json({ error: "Not found" }, 404);
-  if (((bootstrapCapability || route) && request.method !== "GET")
+  if (!coreReadiness && !bootstrapCapability && !discovery && !batches && !members && !memberRevoke && !checklistProvision && !route && !documents && !review && !transition && !reviewExport && !observationDetail && !textPages) return json({ error: "Not found" }, 404);
+  if (((bootstrapCapability || route || coreReadiness) && request.method !== "GET")
     || (discovery && request.method !== "GET" && request.method !== "POST")
     || (batches && request.method !== "GET" && request.method !== "POST")) return json({ error: "Method not allowed" }, 405);
 
   const subject = await authenticateAccess(request, env);
   if (!subject) return json({ error: "Unauthorized" }, 401);
+  if (coreReadiness) {
+    // A signed Access identity alone is insufficient to inspect deployment health.
+    // Fail closed when the operator binding has not been explicitly configured.
+    if (!env.COMMISSION_BOOTSTRAP_OPERATOR_SUBJECT
+      || subject !== env.COMMISSION_BOOTSTRAP_OPERATOR_SUBJECT) {
+      return json({ error: "Forbidden" }, 403);
+    }
+    if (!env.DB) return json({ error: "Service unavailable" }, 503);
+    try {
+      const result = await env.DB.prepare(`
+        SELECT COUNT(*) AS found FROM sqlite_master WHERE type='table'
+          AND name IN ('commissions','commission_members','document_batches',
+            'document_versions','audit_events')
+      `).first<{found:number}>();
+      if (result?.found !== 5) return json({ error: "Service unavailable" }, 503);
+      return json({ status: "ready", scope: "api-core" }, 200);
+    } catch {
+      return json({ error: "Service unavailable" }, 503);
+    }
+  }
   if (!env.DB) return json({ error: "Service not configured" }, 503);
   if (bootstrapCapability) return handleBootstrapRequest(request,{DB:env.DB,operatorSubject:env.COMMISSION_BOOTSTRAP_OPERATOR_SUBJECT},subject,"capability");
   if (discovery && request.method === "POST") return handleBootstrapRequest(request,{DB:env.DB,operatorSubject:env.COMMISSION_BOOTSTRAP_OPERATOR_SUBJECT},subject,"create");
