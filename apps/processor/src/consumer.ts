@@ -77,18 +77,45 @@ function reportResponse(raw:unknown):{manifest:InspectedTextManifest;signature:s
   }
   return {manifest:obj.manifest as InspectedTextManifest,signature:obj.signature};
 }
+/**
+ * Cross-request commission closure can occur while reading private R2 or
+ * awaiting the inspector. Recheck before disclosing bytes and before writes.
+ * SQL triggers independently protect the final D1 transaction.
+ */
+async function isActivePendingVersion(
+ db:D1Database,versionId:string,sourceSha256:string
+):Promise<boolean>{
+ const row=await db.prepare(`
+  SELECT 1 AS allowed FROM document_versions v
+  JOIN documents d ON d.id=v.document_id
+  JOIN commissions c ON c.id=d.commission_id
+  WHERE v.id=? AND v.sha256=? AND v.extraction_status='pending'
+    AND c.status='active'
+ `).bind(versionId,sourceSha256).first<{allowed:number}>();
+ return row!==null;
+}
 async function recordUnsafeInspection(db:D1Database,versionId:string,commissionId:string):Promise<void>{
   const result=await db.batch([
     db.prepare(`
       UPDATE document_versions SET extraction_status='needs_review'
       WHERE id=? AND extraction_status='pending'
-    `).bind(versionId),
+        AND EXISTS (
+          SELECT 1 FROM documents d
+          JOIN commissions c ON c.id=d.commission_id
+          WHERE d.id=document_versions.document_id
+            AND c.id=? AND c.status='active'
+        )
+    `).bind(versionId,commissionId),
     db.prepare(`
       INSERT INTO audit_events(id,commission_id,actor_subject,action,resource_type,resource_id,metadata_json)
-      SELECT ?,?,'inspector:isolated','document.inspection_rejected','document_version',v.id,
+      SELECT ?,d.commission_id,'inspector:isolated','document.inspection_rejected','document_version',v.id,
         json_object('result','needs_review')
-      FROM document_versions v WHERE v.id=? AND v.extraction_status='needs_review'
-    `).bind(crypto.randomUUID(),commissionId,versionId)
+      FROM document_versions v
+      JOIN documents d ON d.id=v.document_id
+      JOIN commissions c ON c.id=d.commission_id
+      WHERE v.id=? AND v.extraction_status='needs_review'
+        AND c.id=? AND c.status='active'
+    `).bind(crypto.randomUUID(),versionId,commissionId)
   ]);
   if(result.some(item=>!item.success || item.meta.changes!==1)){
     throw new Error("Unsafe inspection state update rejected");
@@ -132,6 +159,7 @@ export async function processProcessingMessage(
   if(!await isProcessingRedriveAuthorized(
     env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
   ))return "stale";
+  if(!await isActivePendingVersion(env.DB,message.versionId,message.sourceSha256))return "stale";
   // Service binding only: an operator-deployed and isolated inspection service.
   // No arbitrary URL from messages, credentials, hostnames or D1 records.
   const response=await env.INSPECTOR.fetch(new Request("https://inspector.internal/inspect",{
@@ -148,12 +176,14 @@ export async function processProcessingMessage(
     if(!await isProcessingRedriveAuthorized(
       env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
     ))return "stale";
+    if(!await isActivePendingVersion(env.DB,message.versionId,message.sourceSha256))return "stale";
     try {
       await recordUnsafeInspection(env.DB,message.versionId,version.commissionId);
     }catch(error){
       if(!await isProcessingRedriveAuthorized(
         env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
       ))return "stale";
+      if(!await isActivePendingVersion(env.DB,message.versionId,message.sourceSha256))return "stale";
       throw error;
     }
     return "needs_review";
@@ -168,6 +198,7 @@ export async function processProcessingMessage(
   if(!await isProcessingRedriveAuthorized(
     env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
   ))return "stale";
+  if(!await isActivePendingVersion(env.DB,message.versionId,message.sourceSha256))return "stale";
   try {
     const result=await publishInspectedText(
       env.DB,env.DOCUMENTS,manifest,signature,env.INSPECTOR_HMAC_KEY
@@ -177,6 +208,7 @@ export async function processProcessingMessage(
     if(!await isProcessingRedriveAuthorized(
       env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
     ))return "stale";
+    if(!await isActivePendingVersion(env.DB,message.versionId,message.sourceSha256))return "stale";
     throw error;
   }
 }

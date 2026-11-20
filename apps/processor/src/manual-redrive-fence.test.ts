@@ -156,6 +156,25 @@ function insertSyntheticReport(f:Awaited<ReturnType<typeof fixture>>):void{
 }
 
 describe("R2.12b/P6 transactional consumer authority fence",()=>{
+  it("halts a redrive 422 outcome when commission closes during inspection",async()=>{
+    const f=await fixture();
+    try {
+      f.inspectorFetch.mockImplementationOnce(async()=>{
+        f.sqlite.prepare(
+          "UPDATE commissions SET status='closed' WHERE id='commission_p5'"
+        ).run();
+        return new Response(null,{status:422});
+      });
+      expect(await processProcessingMessage(message(MANUAL_ID),f.env)).toBe("stale");
+      expect(f.sqlite.prepare(
+        "SELECT extraction_status FROM document_versions WHERE id='version_p5'"
+      ).get()).toMatchObject({extraction_status:"pending"});
+      expect(f.sqlite.prepare(
+        "SELECT count(*) AS n FROM audit_events WHERE action='document.inspection_rejected'"
+      ).get()).toMatchObject({n:0});
+    }finally{f.close();}
+  });
+
   it("rejects a report and 422 state write when the SQL clock exceeds approval expiry",async()=>{
     const f=await fixture();
     try{
