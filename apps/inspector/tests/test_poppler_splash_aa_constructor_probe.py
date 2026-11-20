@@ -1,6 +1,7 @@
 """R1.27: fail-closed proof of actual Debian Poppler Splash constructors."""
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -13,7 +14,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from poppler_splash_aa_constructor_probe import (
     CONSTRUCTORS, DONE, EXPECTED, OVERFLOW, PROBE_FILENAME, PROBE_SHA256,
-    SCENARIOS, SCRIPT, SOURCE_SHA256, build_args, check_prototypes,
+    SCENARIOS, SCRIPT, SCRIPT_SHA256, SOURCE_SHA256, build_args, check_prototypes,
     inspect_constructor, main, verify_results,
 )
 
@@ -138,6 +139,11 @@ class RealSplashConstructorProbeTests(unittest.TestCase):
         self.assertEqual(SCRIPT, "/prototypes/run_splash_aa_width_constructor.sh")
         self.assertEqual(len(SOURCE_SHA256), 64)
         self.assertEqual(len(PROBE_SHA256), 64)
+        self.assertEqual(len(SCRIPT_SHA256), 64)
+        self.assertEqual(
+            hashlib.sha256((root / Path(SCRIPT).name).read_bytes()).hexdigest(),
+            SCRIPT_SHA256,
+        )
         self.assertIn("-DBUILD_SHARED_LIBS=OFF", script)
         self.assertIn("libpoppler.a", script)
         self.assertIn("-fsanitize=address,undefined", script)
@@ -166,6 +172,21 @@ class RealSplashConstructorProbeTests(unittest.TestCase):
             runner.write_text(runner.read_text().replace(
                 "-DBUILD_SHARED_LIBS=OFF", "-DBUILD_SHARED_LIBS=ON",
             ))
+            with self.assertRaises(ValueError):
+                check_prototypes(directory)
+
+    def test_runner_tampering_preserving_all_markers_must_fail_closed(self):
+        # The previous text-only guard accepted an altered executable shell
+        # script if its expected markers were left intact. No CI/release
+        # evidence may be accepted from that unpinned runner.
+        original = Path(__file__).resolve().parents[1] / "research_patches"
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            for name in (PROBE_FILENAME, Path(SCRIPT).name):
+                shutil.copy2(original / name, directory / name)
+            check_prototypes(directory)
+            runner = directory / Path(SCRIPT).name
+            runner.write_text(runner.read_text() + "\n: 'synthetic extra shell command'\n")
             with self.assertRaises(ValueError):
                 check_prototypes(directory)
 
