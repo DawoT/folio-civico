@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-STUDY_VERSION = "ux5.2-v1"
+STUDY_VERSION = "ux5.3-v1"
 TASK_IDS = [
     "scope_opened",
     "pdf_quarantined",
@@ -29,7 +29,16 @@ TASK_IDS = [
     "observer_read_only",
     "sha256_export_verified",
 ]
-ROLES = frozenset({"president", "author", "reviewer", "observer"})
+# These are *study assignments*, not a replacement for authorization checks.
+# A task not assigned to a profile cannot be scored for that profile.
+ROLE_TASKS: dict[str, tuple[str, ...]] = {
+    "president": ("scope_opened",),
+    "author": ("scope_opened", "pdf_quarantined", "draft_registered",
+               "submitted_for_review"),
+    "reviewer": ("scope_opened", "independent_decision"),
+    "observer": ("scope_opened", "observer_read_only", "sha256_export_verified"),
+}
+ROLES = frozenset(ROLE_TASKS)
 OUTCOMES = frozenset({
     "not_attempted", "completed_unassisted", "completed_assisted", "failed"
 })
@@ -74,12 +83,14 @@ def _integer(value: Any, low: int, high: int, field: str) -> int:
     return value
 
 
-def new_session_template() -> dict[str, Any]:
-    """Deliberately invalid for submission until consent and observation occur."""
+def new_session_template(role: str | None = None) -> dict[str, Any]:
+    """Role-aware template; still invalid until real consent and observation."""
+    if role is not None and (type(role) is not str or role not in ROLES):
+        raise StudyDataError("Perfil de sesión desconocido.")
     return {
         "schema_version": 1,
         "study_version": STUDY_VERSION,
-        "role": None,
+        "role": role,
         "consent_obtained": False,
         "moderated_observation": False,
         "synthetic_environment": True,
@@ -132,6 +143,8 @@ def validate_session(data: Any) -> dict[str, Any]:
                 or any(type(code) is not str or code not in INCIDENT_CODES for code in codes)
                 or len(set(codes)) != len(codes)):
             raise StudyDataError("Categorías de incidente desconocidas o duplicadas.")
+        if entry["outcome"] != "not_attempted" and entry["id"] not in ROLE_TASKS[value["role"]]:
+            raise StudyDataError("Tarea no asignada al perfil del participante.")
         if entry["outcome"] == "not_attempted":
             if (entry["duration_seconds"] is not None
                     or entry["navigation_errors"] is not None
@@ -226,7 +239,9 @@ def main(argv: list[str] | None = None) -> int:
         description="UX-5.2: captura local y agregación estricta de sesiones moderadas."
     )
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("template", help="Imprime un formulario JSON sin consentimiento ni datos reales.")
+    template = sub.add_parser("template",
+                              help="Imprime formulario sin consentimiento, opcionalmente asignado a un perfil.")
+    template.add_argument("--role", choices=sorted(ROLES), default=None)
     validate = sub.add_parser("validate", help="Valida una sesión sin publicar datos.")
     validate.add_argument("file")
     summarize = sub.add_parser("summarize", help="Publica únicamente métricas agregadas.")
@@ -234,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "template":
-            print(json.dumps(new_session_template(), ensure_ascii=False, indent=2))
+            print(json.dumps(new_session_template(role=args.role), ensure_ascii=False, indent=2))
         elif args.command == "validate":
             _load_file(args.file)
             print("VALID")
