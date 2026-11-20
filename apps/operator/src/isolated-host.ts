@@ -18,6 +18,11 @@ import {
 } from "../../../packages/data/src/manual-redrive";
 import type {ProcessingQueueMessage} from "../../../packages/data/src/processing-outbox";
 import {
+  checkCurrentInstitutionalEvidence,
+  InstitutionalEvidenceDenied,InstitutionalEvidenceUnavailable,
+  type InstitutionalEvidenceReader,type InstitutionalEvidenceQuery
+} from "./institutional-authority";
+import {
   proposeAsyncRedrive,findAsyncRedrive,approveAsyncRedrive,
   AsyncRedriveAccessError,AsyncRedriveConflictError
 } from "../../../packages/data/src/async-redrive";
@@ -47,6 +52,12 @@ export interface IsolatedOperatorConfig {
   queue?:{send(message:ProcessingQueueMessage):Promise<unknown>};
   /** Trusted image identity, never from a client-supplied JSON body. */
   runtimeInspectorImageDigest?:string;
+  /**
+   * R2.12b staged institutional preflight. Explicitly opt in for synthetic
+   * contract tests. With an empty gate object, ALL protected decisions fail
+   * closed. Never supplied by a client or wired to a production host.
+   */
+  institutionalGate?:Readonly<{reader?:InstitutionalEvidenceReader}>;
 }
 
 const TEST_ORIGIN="https://operator.local";
@@ -64,6 +75,22 @@ const SECURITY_HEADERS={
 
 class BadInput extends Error {}
 class TooLarge extends Error {}
+async function requireInstitutionalGate(
+  config:IsolatedOperatorConfig,query:InstitutionalEvidenceQuery
+):Promise<void>{
+  // The ONLY runnable mode is synthetic-offline-only. Existing fixture flows
+  // remain cryptographic test cases, never a route authorized for production.
+  if(config.institutionalGate){
+    await checkCurrentInstitutionalEvidence(config.institutionalGate.reader,query);
+  }
+}
+async function redriveScopeDigest(stored:{
+  commissionId:string;reviewId:string;requestKey:string;approvalRef:string
+}):Promise<string>{
+  return signedHash([
+    stored.commissionId,stored.reviewId,stored.requestKey,stored.approvalRef
+  ]);
+}
 
 function response(status:number,body:object):Response {
   return new Response(JSON.stringify(body),{
@@ -168,6 +195,17 @@ export async function handleIsolatedOperatorRequest(
         config.revocationTrust,approverProof,
         token(request,"X-Folio-Incident-Approval-Jws"),stored
       );
+      await requireInstitutionalGate(config,{
+        purpose:"revocation",caseRef:stored.incidentRef,
+        requestId:stored.id,actorSubject:stored.actorSubject,
+        approverSubject:decision.approverSubject,
+        scopeDigest:await signedHash([
+          stored.kind,stored.targetHash,stored.reasonHash,
+          stored.requestKey,stored.incidentRef
+        ]),
+        approvalDigest:decision.approvalDigest,
+        expiresAt:stored.expiresAt*1000
+      });
       const result=await approveAsyncRevocation(config.db,stored,decision);
       return response(200,result);
     }
@@ -215,6 +253,14 @@ export async function handleIsolatedOperatorRequest(
         config.redriveTrust,request,token(request,"X-Folio-Redrive-Approval-Jws"),
         stored
       );
+      await requireInstitutionalGate(config,{
+        purpose:"redrive",caseRef:stored.approvalRef,
+        requestId:stored.id,actorSubject:stored.operatorSubject,
+        approverSubject:proof.approverSubject,
+        scopeDigest:await redriveScopeDigest(stored),
+        approvalDigest:proof.approvalDigest,
+        expiresAt:stored.expiresAt*1000
+      });
       return response(200,await approveAsyncRedrive(config.db,stored,proof));
     }
     if(url.pathname===PATH+"redrive-executions"){
@@ -239,6 +285,14 @@ export async function handleIsolatedOperatorRequest(
         requestKey:stored.requestKey,approvalRef:stored.approvalRef
       });
       if(proof.operatorSubject!==stored.operatorSubject)return failed(403);
+      await requireInstitutionalGate(config,{
+        purpose:"redrive",caseRef:stored.approvalRef,
+        requestId:stored.id,actorSubject:stored.operatorSubject,
+        approverSubject:stored.approverSubject,
+        scopeDigest:await redriveScopeDigest(stored),
+        approvalDigest:stored.approvalDigest!,
+        expiresAt:stored.expiresAt*1000
+      });
       const outcome=await executeOneShotManualRedrive({
         DB:config.db,QUEUE:config.queue,authorization:proof,
         requiredInspectorImageDigest:config.runtimeInspectorImageDigest,
@@ -291,6 +345,8 @@ export async function handleIsolatedOperatorRequest(
     if(error instanceof TooLarge)return failed(413);
     if(error instanceof BadInput || error instanceof ManualRedriveInputError)
       return failed(400);
+    if(error instanceof InstitutionalEvidenceDenied)return failed(403);
+    if(error instanceof InstitutionalEvidenceUnavailable)return failed(503);
     if(error instanceof AsyncRedriveAccessError
       || error instanceof AsyncRevocationAccessError
       || error instanceof AsyncRevocationDenied
