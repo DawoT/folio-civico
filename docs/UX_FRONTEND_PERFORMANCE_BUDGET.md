@@ -31,7 +31,7 @@ sh scripts/ci.sh
 
 ## Fuera del alcance y próximos instrumentos
 
-- **No medido:** LCP, INP, CLS, TTFB, memoria, CPU, caché, latencia, carga en red lenta ni calidad de lectores de pantalla.
-- La comparación de tiempos requiere un perfil de hardware y red documentado, navegador/versión fijos y varias ejecuciones; Lighthouse real deberá ser un experimento separado, nunca inferirse del gzip.
+- **Fuera de PERF-001:** LCP, INP, CLS, TTFB, memoria, CPU, caché, latencia, carga en red lenta ni calidad de lectores de pantalla. La captura local inicial TTFB/FCP/LCP/CLS se añade por separado en [PERF-002](UX_FRONTEND_BROWSER_PERFORMANCE_LAB.md); no equivale a métricas de campo.
+- La comparación de tiempos requiere un perfil de hardware y red documentado, navegador/versión fijos y múltiples series. PERF-002 registra tres navegaciones iniciales sin throttling; Lighthouse real sigue siendo un experimento separado, nunca inferido del gzip o de una sola serie.
 - La investigación UX-5.6 con personas autorizadas y los gates manuales de NVDA/VoiceOver/zoom siguen pendientes; este control no los sustituye.
 - Sin cambios en Cloudflare remoto, retención, cuarentena, roles ni inspector.
