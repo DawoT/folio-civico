@@ -108,3 +108,29 @@ reproducirse, así como el overflow de glyph/loca TrueType. La exención
 `vptr` R1.15 tampoco afecta a estas compilaciones. Véase
 [el dossier R1.17](../../../docs/SECURITY_POPPLER_METHOD_REACHABILITY_2026-11-19.md).
 Sin imagen operativa, OCI, despliegue, VEX ni PDF institucional.
+
+
+## R1.19 · Overlay aislado para SplashClip::yMaxAA (NO RELEASE)
+
+`SplashClip-ymax-checked-research-overlay.patch` es un **sexto cambio
+independiente** que protege las tres operaciones aritméticas de
+`(yMaxI+1)*splashAASize-1` mediante
+`checkedAdd`, `checkedMultiply` y `checkedSubtraction`. Se aplica
+**después** de los cinco cambios R1.13 (fuente y parches SHA-pinned)
+exclusivamente a la tercera copia temporal de Poppler; **no** actualiza
+ni sustituye los tres parches CVE prototipo con hashes inmutables.
+
+`../poppler_splash_ymax_probe.py` invoca
+`run_splash_ymax_overlay.sh` dentro del builder Docker aislado.
+El `splash_ymax_method_probe.cc` compila por separado los **métodos
+C++ reales** desde las tres variantes original, cinco prototipos y
+overlay R1.19. Nueve resultados ASan/UBSan permiten verificar que el
+overflow `yMaxAA` del método persiste en los dos primeros árboles,
+pero se rechaza en el tercero sin perder el guard previo de `yMinAA`.
+**NO** reproduce la ruta a través de PDF, ni compila el parser completo
+con el sexto cambio. El CLI falla cerrado cuando la evidencia o los
+hashes no coinciden y siempre declara `release_authorized=false`.
+
+Véase [dossier R1.19](../../../docs/SECURITY_SPLASH_YMAX_CHECKED_OVERLAY_2026-11-19.md).
+Sin imágenes operativas, publicación OCI, VEX, despliegue ni CVE declarados
+corregidos.
