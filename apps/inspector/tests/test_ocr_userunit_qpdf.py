@@ -9,6 +9,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from png_fixtures import rgb_png
+
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("folio_ocr_unit", ROOT / "inspector.py")
 assert SPEC and SPEC.loader
@@ -170,7 +172,7 @@ class UserUnitPipelineTests(unittest.TestCase):
             page = int(args[args.index("-f") + 1])
             return "Native page text" if only_text or page == 2 else ""
         if args[0] == "pdftoppm":
-            (cwd / "ocr-page.png").write_bytes(b"synthetic")
+            (cwd / "ocr-page.png").write_bytes(rgb_png(500, 500))
             return ""
         if args[0] == "tesseract":
             return "Texto recuperado en OCR"

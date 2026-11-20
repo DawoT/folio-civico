@@ -16,12 +16,15 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
+import struct
 import subprocess
 import tempfile
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Callable
+import zlib
 
 MAX_PDF_BYTES = 8 * 1024 * 1024
 MAX_PAGES = 100
@@ -32,6 +35,7 @@ MAX_PAGE_TEXT = 8000
 OCR_DPI = 180
 OCR_MAX_SIDE_PX = 8192
 OCR_MAX_PIXELS = 32_000_000
+OCR_MAX_RASTER_BYTES = 32 * 1024 * 1024
 OCR_MAX_COORDINATE_PT = Decimal("1000000")
 OCR_GEOMETRY_ROUNDING_MARGIN_PT = Decimal("0.02")
 OCR_MAX_METADATA_BYTES = 65_536
@@ -363,6 +367,60 @@ def require_ocr_raster_geometry(
     return width_px, height_px
 
 
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_PNG_END = b"\x00\x00\x00\x00IEND\xaeB\x60\x82"
+
+
+def require_ocr_png_envelope(
+    image: Path, upper: tuple[int, int],
+) -> tuple[int, int]:
+    """Verify bounded PNG dimensions before opening the raster in Tesseract.
+
+    An untrusted renderer may produce a very compressed but extremely wide
+    image. The filesystem byte limit alone does not bound decoder allocation.
+    Inspect PNG signature, IHDR, CRC, IEND and pixel budget using a file
+    descriptor opened without symlink traversal, reading only 45 bytes.
+    This is not a PNG sanitizer or a full IDAT decoder.
+    """
+    if (not isinstance(image, Path) or type(upper) is not tuple
+            or len(upper) != 2 or any(type(n) is not int for n in upper)
+            or any(n < 1 or n > OCR_MAX_SIDE_PX for n in upper)
+            or upper[0] * upper[1] > OCR_MAX_PIXELS):
+        raise ReviewRequired("Invalid OCR raster geometry budget")
+    try:
+        fd = os.open(
+            image,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK,
+        )
+    except OSError as error:
+        raise ReviewRequired("OCR raster unavailable or unsafe") from error
+    try:
+        meta = os.fstat(fd)
+        if (not stat.S_ISREG(meta.st_mode) or meta.st_nlink != 1
+                or not 57 <= meta.st_size <= OCR_MAX_RASTER_BYTES):
+            raise ReviewRequired("OCR raster unavailable or oversized")
+        header = os.pread(fd, 33, 0)
+        trailer = os.pread(fd, 12, meta.st_size - 12)
+        if (len(header) != 33 or header[:8] != _PNG_SIGNATURE
+                or header[8:16] != b"\x00\x00\x00\x0dIHDR"
+                or header[24] != 8 or header[25] not in (2, 6)
+                or header[26:29] != b"\x00\x00\x00"
+                or trailer != _PNG_END):
+            raise ReviewRequired("Unsupported OCR raster PNG envelope")
+        expected_crc = struct.unpack(">I", header[29:33])[0]
+        if expected_crc != (zlib.crc32(header[12:29]) & 0xffffffff):
+            raise ReviewRequired("OCR raster PNG header checksum mismatch")
+        width, height = struct.unpack(">II", header[16:24])
+        if (not 1 <= width <= upper[0] or not 1 <= height <= upper[1]
+                or width * height > OCR_MAX_PIXELS):
+            raise ReviewRequired("OCR raster dimensions exceed preflight budget")
+        return width, height
+    except OSError as error:
+        raise ReviewRequired("OCR raster unreadable") from error
+    finally:
+        os.close(fd)
+
+
 def inspect_pdf(
     pdf: bytes, version_id: str, expected_sha256: str, *,
     signatures: Path, run: Callable[[list[str], Path], str] = command
@@ -439,7 +497,7 @@ def inspect_pdf(
                         "pdfinfo", "-f", str(page), "-l", str(page),
                         "-box", str(source),
                     ], directory)
-                    require_ocr_raster_geometry(
+                    raster_budget = require_ocr_raster_geometry(
                         box_info, page=page, count=count, user_unit=user_unit,
                     )
                     # Rasterize ONLY in the isolated sandbox; never serve these
@@ -449,8 +507,7 @@ def inspect_pdf(
                          "-singlefile", "-r", str(OCR_DPI), "-png",
                          str(source), str(output_prefix)], directory)
                     image = directory / "ocr-page.png"
-                    if not image.is_file() or image.stat().st_size > 32 * 1024 * 1024:
-                        raise ReviewRequired("OCR raster unavailable or oversized")
+                    require_ocr_png_envelope(image, raster_budget)
                     text = run(["tesseract", str(image), "stdout",
                                 "-l", "spa+eng"], directory).strip()
                     image.unlink(missing_ok=True)

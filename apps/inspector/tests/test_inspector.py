@@ -10,6 +10,8 @@ import time
 import unittest
 from unittest.mock import patch
 
+from png_fixtures import rgb_png
+
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("folio_inspector", ROOT / "inspector.py")
 assert SPEC is not None and SPEC.loader is not None
@@ -335,7 +337,7 @@ class ScannerTests(unittest.TestCase):
             if argv[0] == "pdftotext":
                 return ""
             if argv[0] == "pdftoppm":
-                (cwd / "ocr-page.png").write_bytes(b"synthetic raster")
+                (cwd / "ocr-page.png").write_bytes(rgb_png(500, 500))
             if argv[0] == "tesseract":
                 return "Página recuperada con OCR"
             return self.fake_runner(argv, cwd)
