@@ -85,6 +85,49 @@ describe("finalized observations export API",()=>{
     }
   });
 
+  it.each([
+    ["unrecognized evidence type", JSON.stringify({ type: "UNKNOWN", commissionId: "commission_a" })],
+    ["missing evidence join", null],
+    ["malformed evidence date", JSON.stringify({
+      type: "SEARCH_SCOPE", commissionId: "commission_a", checklistItemId: "item_a",
+      batchId: "batch_a", reviewerId: "author", searchedAt: "yesterday"
+    })]
+  ])("never signs a review export with %s", async (_label, corruptedEvidence) => {
+    const f = fixture();
+    try {
+      await finalized(f.db);
+      // Simulate corrupt/past-migration D1 rows without bypassing database
+      // immutability triggers on finalized records.
+      const corrupted = {
+        prepare: (sql: string) => {
+          const statement = f.db.prepare(sql);
+          if (!sql.includes("WITH picked AS")) return statement;
+          return {
+            bind: (...params: Parameters<typeof statement.bind>) => {
+              const query = statement.bind(...params);
+              return {
+                all: async () => {
+                  const rows = await query.all<Record<string, unknown>>();
+                  return { ...rows, results: rows.results.map(row => ({
+                    ...row, evidenceJson: corruptedEvidence
+                  })) };
+                }
+              };
+            }
+          };
+        }
+      } as unknown as D1Database;
+      const response = await handleReviewExportRequest(
+        new Request(base), { DB: corrupted }, "reader", "commission_a"
+      );
+      expect(response.status).toBe(503);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      expect(response.headers.get("Content-Disposition")).toBeNull();
+      expect(response.headers.get("X-Report-SHA256")).toBeNull();
+      expect(await response.json()).toEqual({ error: "Report could not be generated" });
+    } finally { f.close(); }
+  });
+
   it("returns 404 without exporting committee metadata when membership is revoked mid-query",async()=>{
     const f=fixture();
     try{

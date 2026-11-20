@@ -47,7 +47,9 @@ function validObservation(value, commissionId) {
     && nonempty(value.reviewedBy) && value.reviewedBy !== value.authorSubject
     && timestamp(value.reviewedAt) && nonempty(value.reviewNote)
     && (value.status === "validated" || value.status === "dismissed")
-    && Array.isArray(value.evidence)
+    // A finalized decision must retain at least one verifiable reference.
+    // Array.every() alone would incorrectly accept an empty evidence list.
+    && Array.isArray(value.evidence) && value.evidence.length > 0
     && value.evidence.every(item => validEvidence(item, commissionId));
 }
 
