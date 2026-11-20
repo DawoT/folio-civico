@@ -71,4 +71,6 @@ bash apps/inspector/scan_util_linux_cve_scope.sh  # exit 2 esperado
 FOLIO_E2E_PORT=43130 sh scripts/ci.sh
 ```
 
-La CI de este proyecto es **local mediante el shell script**, no depende de GitHub Actions. Debe continuar diferenciándose una CI funcional verde del **gate independiente de seguridad**, que sigue bloqueado por 59 HIGH / 15 UNKNOWN. 
+**CI local integral verificada (después de los cambios R1.30):** `FOLIO_E2E_PORT=43130 sh scripts/ci.sh` terminó **exit 0**, con **414/414 pruebas Vitest TypeScript** (72 suites), **230/230 pruebas Python inspector**, **5/5 Workers locales**, **81/81 Chromium/Playwright** (desktop, móvil y reflow), 7 tests del contrato de CI local, `tsc --noEmit`, compilaciones Web/API/MCP/Processor/Gateway, cuatro dry-runs Workers y migraciones D1 **únicamente locales**. El puerto 43130 estaba libre y evita interferir con otros worktrees; **no se cambió el script de CI**.
+
+La CI de este proyecto es **local mediante el shell script**. No se utilizó GitHub Actions. Debe seguir diferenciándose una CI funcional aprobada del **gate independiente de seguridad**, que permanece bloqueado (59 HIGH / 15 UNKNOWN). 
