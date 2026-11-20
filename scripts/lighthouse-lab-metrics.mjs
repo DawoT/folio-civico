@@ -63,3 +63,16 @@ export function summarizeLighthouseRuns(lhrs, expectedUrl) {
     )
   };
 }
+
+
+/** Detect the exact startup URL of our spawned Vite process, not log chatter.
+ * Under CI=true Vite colors even the port inside its URL; strip ANSI SGR.
+ */
+export function hasOwnVitePreviewUrl(output, expectedUrl) {
+  if (typeof output !== "string" || typeof expectedUrl !== "string"
+      || !/^http:\/\/127\.0\.0\.1:[0-9]+\/$/.test(expectedUrl)) return false;
+  const plain = output.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+  return plain.split(/\r?\n/).some(line =>
+    /\bLocal:\s+/.test(line) && line.includes(expectedUrl)
+  );
+}

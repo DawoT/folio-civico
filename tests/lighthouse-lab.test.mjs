@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  validateLighthouseReport, summarizeLighthouseRuns, validateLighthousePort
+  validateLighthouseReport, summarizeLighthouseRuns, validateLighthousePort,
+  hasOwnVitePreviewUrl
 } from "../scripts/lighthouse-lab-metrics.mjs";
 
 function report(score=0.86, fcp=800, lcp=1200, cls=0.02, tbt=42) {
@@ -19,6 +20,18 @@ function report(score=0.86, fcp=800, lcp=1200, cls=0.02, tbt=42) {
   };
 }
 describe("PERF-003 Lighthouse fail-closed local report", () => {
+  it("recognizes its own CI-colored Vite URL and rejects foreign startup text", () => {
+    const own = "http://127.0.0.1:4181/";
+    const colored =
+      "  \u001b[32m➜\u001b[39m  \u001b[1mLocal\u001b[22m:   " +
+      "\u001b[36mhttp://127.0.0.1:\u001b[1m4181\u001b[22m/\u001b[39m\n";
+    expect(hasOwnVitePreviewUrl(colored, own)).toBe(true);
+    expect(hasOwnVitePreviewUrl("  ➜  Local:   " + own + "\n", own)).toBe(true);
+    expect(hasOwnVitePreviewUrl("  ➜  Local:   http://127.0.0.1:4182/\n", own)).toBe(false);
+    expect(hasOwnVitePreviewUrl("text only " + own + "\n", own)).toBe(false);
+    expect(hasOwnVitePreviewUrl("  ➜  Local:   https://outside.invalid/\n", own)).toBe(false);
+  });
+
   it("requires strictly validated unprivileged ports", () => {
     expect(validateLighthousePort(undefined)).toBe(4181);
     expect(validateLighthousePort("4519")).toBe(4519);

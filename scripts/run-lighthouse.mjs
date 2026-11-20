@@ -11,7 +11,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { chromium } from "@playwright/test";
 import { enforceFrontendBudget } from "./check-frontend-budget.mjs";
 import {
-  summarizeLighthouseRuns, validateLighthousePort
+  summarizeLighthouseRuns, validateLighthousePort, hasOwnVitePreviewUrl
 } from "./lighthouse-lab-metrics.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -50,10 +50,11 @@ function startPreview() {
     }
     child.stdout.on("data", data => {
       output = (output + data.toString()).slice(-8000);
-      if (output.includes(url)) finish(null);
+      if (hasOwnVitePreviewUrl(output, url)) finish(null);
     });
     child.stderr.on("data", data => {
       output = (output + data.toString()).slice(-8000);
+      if (hasOwnVitePreviewUrl(output, url)) finish(null);
     });
     child.once("error", error => finish(error));
     child.once("exit", code => {
