@@ -40,7 +40,7 @@ Esto verifica reproducibilidad **en el mismo entorno**. No acredita reproducibil
 
 Los **cuatro controles adversarios reales** devolvieron **exit 3**: descriptor Debian adulterado, `debian.tar.xz` adulterado, clave del mantenedor sustituida por otra, y parche upstream alterado. Ningún artefacto binario/OCI se creó; los temporales se eliminan automáticamente.
 
-**Pruebas TDD nuevas:** 9/9, incluyendo pines, cobertura de los archivos `.dsc`, orden exacto de patches, prevención de inversión, sello `UNRELEASED`, marcas temporales reproducibles y negativa a liberar ante faltantes.
+**Pruebas TDD nuevas:** 10/10, incluyendo la prohibición de ejecución como root, pines, cobertura de los archivos `.dsc`, orden exacto de patches, prevención de inversión, sello `UNRELEASED`, marcas temporales reproducibles y negativa a liberar ante faltantes.
 
 ## Límites y siguientes pasos
 
