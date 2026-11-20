@@ -6,7 +6,7 @@
 
 `apps/inspector/inspector.py` ahora consulta `pdfinfo -f PAGE -l PAGE -box` **solo si una página necesita OCR** (`pdftotext` devuelve texto vacío) y ejecuta `require_ocr_raster_geometry` **antes de `pdftoppm -singlefile -r 180 -png`**.
 
-- Requiere un inventario de páginas coincidente con el `pdfinfo` inicial y una línea completa por `size`, `rot`, `MediaBox` y `CropBox` de la página exacta. Rechaza duplicados, rotaciones inválidas, números no finitos, rectángulos sin área, texto truncado/inesperado, metadatos no ASCII y dimensiones o coordenadas excesivas.
+- Requiere un inventario de páginas coincidente con el `pdfinfo` inicial y una línea completa por `size`, `rot`, `MediaBox` y `CropBox` de la página exacta. Rechaza duplicados, rotaciones inválidas, números no finitos, rectángulos sin área, texto truncado/inesperado, caracteres de control inseguros y dimensiones o coordenadas excesivas (admite metadatos descriptivos en Unicode).
 - Calcula presupuesto sobre **MediaBox**, no sobre `Page size` (que Poppler reporta con el tamaño del `CropBox`). Usa `Decimal` y techo hacia arriba a 180 DPI, sumando 0.02 pt para compensar redondeos de las coordenadas textuales de `pdfinfo -box`.
 - Las páginas solo texto **no incurren en una llamada adicional** a `pdfinfo` ni son rechazadas por este presupuesto OCR.
 - Herencia de MediaBox: el resultado `pdfinfo -box` exhibe el MediaBox efectivo en los controles originales de R1.34. R1.35 valida la línea resultante por página; no parsea directamente la sintaxis o los objetos PDF.
@@ -29,7 +29,7 @@ Estas cotas se aplican por página **antes** de invocar el rasterizador. Documen
 
 ## TDD y regresión
 
-Se añadió `apps/inspector/tests/test_ocr_mediabox_preflight.py` con **15 pruebas** y **40 subtests**. Comenzó en **Red** (el preflight no existía); tras implementar y corregir el harness se obtuvo **Green**:
+Se añadió `apps/inspector/tests/test_ocr_mediabox_preflight.py` con **16 pruebas** y **40 subtests**. Comenzó en **Red** (el preflight no existía); tras implementar y corregir el harness se obtuvo **Green**:
 
 - Medición sobre MediaBox con CropBox más pequeño, incluidas cajas heredadas.
 - Rotación 0/90/180/270, páginas heterogéneas, A1/A2 y rechazo A0/extremos (`536870919×1`).
@@ -37,7 +37,7 @@ Se añadió `apps/inspector/tests/test_ocr_mediabox_preflight.py` con **15 prueb
 - Integración del orden QPDF → `pdftotext` → `pdfinfo -box` → `pdftoppm` → Tesseract, con ausencia de raster al fallar el preflight.
 - Ningún coste de preflight adicional en páginas únicamente textuales.
 
-`test_inspector.py` actualiza el mock de `pdfinfo -box` a un inventario sintético con geometría correcta. La regresión Python completa del inspector: **379/379 pruebas, 499 subtests**, en la rama aislada.
+`test_inspector.py` actualiza el mock de `pdfinfo -box` a un inventario sintético con geometría correcta. La regresión Python completa del inspector: **380/380 pruebas, 499 subtests**, en la rama aislada.
 
 ## Límites explícitos de la evidencia
 

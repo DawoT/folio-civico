@@ -64,6 +64,13 @@ class GeometryBudgetTests(unittest.TestCase):
                 page=2, count=2,
             )
 
+    def test_legitimate_spanish_unicode_in_metadata_is_not_rejected(self):
+        report = "Title: Expediente técnico de hidráulica\n" + box_report(2)
+        self.assertEqual(
+            inspector.require_ocr_raster_geometry(report, page=2, count=2),
+            (1488, 2106),
+        )
+
     def test_negative_origin_is_allowed_only_for_bounded_extent(self):
         dims = inspector.require_ocr_raster_geometry(
             box_report(2, media="-100 -100 100 100", size="200 x 200"),

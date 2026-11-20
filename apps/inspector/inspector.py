@@ -205,8 +205,8 @@ def require_ocr_raster_geometry(raw: str, *, page: int, count: int) -> tuple[int
     """
     if (type(page) is not int or type(count) is not int
             or not 1 <= page <= count <= MAX_PAGES or not isinstance(raw, str)
-            or not raw or not raw.isascii() or "\r" in raw or "\x00" in raw
-            or len(raw) > OCR_MAX_METADATA_BYTES):
+            or not raw or CONTROL.search(raw)
+            or len(raw.encode("utf-8")) > OCR_MAX_METADATA_BYTES):
         raise ReviewRequired("Invalid OCR page geometry report")
     pages = re.findall(r"^Pages:[ \t]*(\d+)[ \t]*$", raw, re.M)
     encryptions = re.findall(r"^Encrypted:[ \t]*(yes|no)\b[^\r\n]*$", raw, re.M)
