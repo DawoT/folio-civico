@@ -356,12 +356,15 @@ class UX5ModeratedStudyTests(unittest.TestCase):
             self.assertEqual(clean["task_coverage"], "not_released")
             self.assertNotIn("session_count", clean)
             self.assertNotIn("unassisted_rate", public.stdout)
+            target = ".ux5-study/internal-report.json"
             detailed = subprocess.run(
-                [sys.executable, str(MODULE_PATH), "summarize", "--internal", str(path)],
-                cwd=ROOT, capture_output=True, text=True
+                [sys.executable, str(MODULE_PATH), "summarize", "--internal",
+                 "--output", target, str(path)],
+                cwd=directory, capture_output=True, text=True
             )
             self.assertEqual(detailed.returncode, 0, detailed.stderr)
-            self.assertEqual(json.loads(detailed.stdout)["session_count"], 1)
+            self.assertEqual(detailed.stdout, "")
+            self.assertEqual(json.loads((Path(directory) / target).read_text())["session_count"], 1)
             self.assertIn("solo uso local", detailed.stderr.lower())
             self.assertNotIn("author", detailed.stderr)
 
@@ -374,6 +377,135 @@ class UX5ModeratedStudyTests(unittest.TestCase):
         internal["tasks"][0]["id"] = "fabricated"
         with self.assertRaises(study.StudyDataError):
             study.public_summary(internal)
+
+    def test_private_template_creates_owner_only_files_and_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "template", "--role", "author",
+                 "--output", ".ux5-study/sessions/session-01.json"],
+                cwd=directory, capture_output=True, text=True
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "")
+            root = Path(directory) / ".ux5-study"
+            folder = root / "sessions"
+            record = folder / "session-01.json"
+            self.assertEqual(record.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(folder.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(root.stat().st_mode & 0o777, 0o700)
+            self.assertFalse(json.loads(record.read_text())["consent_obtained"])
+
+    def test_internal_summary_requires_private_output_instead_of_stdout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = observed_session("author")
+            observed_task(session, "scope_opened")
+            source = Path(directory) / "source.json"
+            source.write_text(json.dumps(session))
+            rejected = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "summarize",
+                 "--internal", str(source)],
+                cwd=directory, capture_output=True, text=True
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertEqual(rejected.stdout, "")
+            self.assertIn("--output", rejected.stderr)
+            target = ".ux5-study/internal-review.json"
+            result = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "summarize", "--internal",
+                 "--output", target, str(source)],
+                cwd=directory, capture_output=True, text=True
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("solo uso local", result.stderr.lower())
+            report = Path(directory) / target
+            self.assertEqual(report.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(json.loads(report.read_text())["session_count"], 1)
+
+    def test_secure_outputs_refuse_existing_files_without_data_loss(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = ".ux5-study/sessions/session-01.json"
+            argv = [sys.executable, str(MODULE_PATH), "template",
+                    "--role", "author", "--output", output]
+            first = subprocess.run(argv, cwd=directory, capture_output=True, text=True)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            path = Path(directory) / output
+            before = path.read_bytes()
+            second = subprocess.run(argv, cwd=directory, capture_output=True, text=True)
+            self.assertNotEqual(second.returncode, 0)
+            self.assertEqual(second.stdout, "")
+            self.assertEqual(path.read_bytes(), before)
+
+    def test_secure_outputs_refuse_escape_paths_and_symlinked_roots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory) / "external.json"
+            for path in [str(outside), "external.json",
+                         ".ux5-study/../external.json"]:
+                with self.subTest(path=path):
+                    result = subprocess.run(
+                        [sys.executable, str(MODULE_PATH), "template",
+                         "--output", path],
+                        cwd=directory, capture_output=True, text=True
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stdout, "")
+                    self.assertFalse(outside.exists())
+            root = Path(directory) / ".ux5-study"
+            root.symlink_to(Path(directory), target_is_directory=True)
+            rejected = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "template", "--output",
+                 ".ux5-study/sessions/forbidden.json"],
+                cwd=directory, capture_output=True, text=True
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertFalse((Path(directory) / "sessions/forbidden.json").exists())
+
+    def test_secure_outputs_reject_symlinked_sessions_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / ".ux5-study"
+            root.mkdir(mode=0o700)
+            outside = Path(directory) / "elsewhere"
+            outside.mkdir()
+            (root / "sessions").symlink_to(outside, target_is_directory=True)
+            result = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "template", "--output",
+                 ".ux5-study/sessions/protected.json"],
+                cwd=directory, capture_output=True, text=True
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+            self.assertFalse((outside / "protected.json").exists())
+
+    def test_reduced_summary_can_be_written_privately_without_stdout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            record = observed_session("observer")
+            observed_task(record, "scope_opened")
+            source = Path(directory) / "observed.json"
+            source.write_text(json.dumps(record))
+            result = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "summarize", "--output",
+                 ".ux5-study/coverage.json", str(source)],
+                cwd=directory, capture_output=True, text=True
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "")
+            target = Path(directory) / ".ux5-study/coverage.json"
+            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(json.loads(target.read_text())["task_coverage"], "not_released")
+
+    def test_secure_outputs_reject_world_readable_private_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / ".ux5-study"
+            root.mkdir(mode=0o755)
+            root.chmod(0o755)
+            result = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "template", "--output",
+                 ".ux5-study/sessions/session-01.json"],
+                cwd=directory, capture_output=True, text=True
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+            self.assertFalse((root / "sessions/session-01.json").exists())
 
     def test_cli_rejects_duplicate_json_keys_and_duplicate_input_paths(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -400,16 +532,20 @@ class UX5ModeratedStudyTests(unittest.TestCase):
             sample = observed_session()
             observed_task(sample, "scope_opened")
             path.write_text(json.dumps(sample), encoding="utf-8")
+            dest = ".ux5-study/aggregate.json"
             result = subprocess.run(
-                [sys.executable, str(MODULE_PATH), "summarize", "--internal", str(path)],
-                cwd=ROOT, capture_output=True, text=True
+                [sys.executable, str(MODULE_PATH), "summarize", "--internal",
+                 "--output", dest, str(path)],
+                cwd=directory, capture_output=True, text=True
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            report = json.loads(result.stdout)
+            self.assertEqual(result.stdout, "")
+            body = (Path(directory) / dest).read_text()
+            report = json.loads(body)
             self.assertEqual(report["session_count"], 1)
-            self.assertNotIn("consent_obtained", result.stdout)
-            self.assertNotIn("synthetic_environment", result.stdout)
-            self.assertNotIn('"role": "author"', result.stdout)
+            self.assertNotIn("consent_obtained", body)
+            self.assertNotIn("synthetic_environment", body)
+            self.assertNotIn('"role": "author"', body)
 
 
 if __name__ == "__main__":

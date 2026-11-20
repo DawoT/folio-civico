@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """UX-5.2 local-only moderated observation helper.
 
-Reads strictly structured JSON files and writes ONLY a sanitized aggregate
-to stdout. Does not contact the network, persist participant data, or certify
-WCAG, the inspector, or institutional pilot readiness.
+Reads strictly structured JSON files; emits reduced-disclosure status
+by default and writes internal reports only to private files. Does not
+contact the network or certify WCAG, the inspector, or pilot readiness.
 
 Usage:
-    python3 scripts/ux5_study.py template
-    python3 scripts/ux5_study.py validate .ux5-study/session-01.json
-    python3 scripts/ux5_study.py summarize .ux5-study/session-*.json
+    python3 scripts/ux5_study.py template --role author --output .ux5-study/sessions/session-01.json
+    python3 scripts/ux5_study.py validate .ux5-study/sessions/session-01.json
+    python3 scripts/ux5_study.py summarize .ux5-study/sessions/*.json
+    python3 scripts/ux5_study.py summarize --internal --output .ux5-study/internal.json .ux5-study/sessions/*.json
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import stat
 import statistics
 import sys
 from pathlib import Path
@@ -269,6 +272,53 @@ def public_summary(internal: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _private_write_json(filename: str, value: dict[str, Any]) -> None:
+    """Create an owner-only local artifact, refusing symlinks and overwrites.
+
+    Private output is limited to .ux5-study/ and .ux5-study/sessions/ under
+    the current working directory. This does not replace host disk encryption
+    or an approved records-retention policy.
+    """
+    try:
+        requested = Path(filename)
+        if ".." in requested.parts:
+            raise StudyDataError("La ruta privada no admite saltos de directorio.")
+        target = Path(os.path.abspath(requested))
+        root = Path.cwd() / ".ux5-study"
+        if (target.parent not in (root, root / "sessions")
+                or target.suffix != ".json"
+                or target.name.startswith(".")):
+            raise StudyDataError("La salida debe ser un JSON bajo .ux5-study/.")
+        # All directories must be exclusively accessible by the current user.
+        dirs = (root,) if target.parent == root else (root, root / "sessions")
+        for directory in dirs:
+            try:
+                directory.mkdir(mode=0o700)
+            except FileExistsError:
+                pass
+            entry = directory.lstat()
+            if (not stat.S_ISDIR(entry.st_mode)
+                    or entry.st_mode & 0o077
+                    or entry.st_uid != os.getuid()):
+                raise StudyDataError("Directorio privado inseguro o enlazado.")
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(target, flags, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(value, stream, ensure_ascii=False, indent=2)
+                stream.write("\n")
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
+    except StudyDataError:
+        raise
+    except OSError as exc:
+        raise StudyDataError(
+            "No se pudo crear el archivo privado (ruta, permisos o archivo existente)."
+        ) from exc
+
+
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     value: dict[str, Any] = {}
     for key, item in pairs:
@@ -303,18 +353,26 @@ def main(argv: list[str] | None = None) -> int:
     template = sub.add_parser("template",
                               help="Imprime formulario sin consentimiento, opcionalmente asignado a un perfil.")
     template.add_argument("--role", choices=sorted(ROLES), default=None)
+    template.add_argument("--output", help="Crear JSON privado nuevo bajo .ux5-study/.")
     validate = sub.add_parser("validate", help="Valida una sesión sin publicar datos.")
     validate.add_argument("file")
     summarize = sub.add_parser(
         "summarize", help="Estado de baja divulgación por defecto; detalle solo con --internal."
     )
     summarize.add_argument("--internal", action="store_true",
-                           help="Expone recuentos de cohortes pequeñas; solo uso local restringido.")
+                           help="Expone recuentos de cohortes pequeñas; requiere --output privado.")
+    summarize.add_argument("--output", help="Crear JSON privado nuevo bajo .ux5-study/.")
     summarize.add_argument("files", nargs="+")
     args = parser.parse_args(argv)
     try:
         if args.command == "template":
-            print(json.dumps(new_session_template(role=args.role), ensure_ascii=False, indent=2))
+            record = new_session_template(role=args.role)
+            if args.output:
+                _private_write_json(args.output, record)
+                print("Plantilla privada creada; consentimiento y resultados aún pendientes.",
+                      file=sys.stderr)
+            else:
+                print(json.dumps(record, ensure_ascii=False, indent=2))
         elif args.command == "validate":
             _load_file(args.file)
             print("VALID")
@@ -325,13 +383,19 @@ def main(argv: list[str] | None = None) -> int:
             if len(set(resolved)) != len(resolved):
                 raise StudyDataError("Ruta de sesión duplicada.")
             detailed = summarize_sessions([_load_file(item) for item in args.files])
-            if args.internal:
-                print("AVISO: solo uso local restringido; no compartir recuentos detallados.",
-                      file=sys.stderr)
-            print(json.dumps(
-                detailed if args.internal else public_summary(detailed),
-                ensure_ascii=False, indent=2
-            ))
+            if args.internal and not args.output:
+                raise StudyDataError("El informe interno requiere --output privado.")
+            report = detailed if args.internal else public_summary(detailed)
+            if args.output:
+                _private_write_json(args.output, report)
+                if args.internal:
+                    print("AVISO: solo uso local restringido; no compartir recuentos detallados.",
+                          file=sys.stderr)
+                else:
+                    print("Resumen reducido privado creado; requiere revisión de divulgación.",
+                          file=sys.stderr)
+            else:
+                print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0
     except StudyDataError as exc:
         print(f"UX-5.2: {exc}", file=sys.stderr)

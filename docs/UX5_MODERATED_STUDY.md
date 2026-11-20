@@ -40,23 +40,23 @@ Esta matriz corresponde **a las tareas de investigación moderada del piloto UX-
 Desde la raíz del repositorio:
 
 ```sh
-mkdir -p .ux5-study/sessions
+# El script crea .ux5-study/ y sessions/ de forma privada si no existen.
 
 # Crear una plantilla incompleta, sin consentimiento ni resultados,
 # preconfigurada para un perfil del estudio. Otros perfiles: president,
 # reviewer, observer. Sin --role conserva role=null.
-python3 scripts/ux5_study.py template --role author > .ux5-study/sessions/session-01.json
+python3 scripts/ux5_study.py template --role author --output .ux5-study/sessions/session-01.json
 
 # Completar el JSON únicamente después de la sesión moderada real.
 # Validar estructura y restricciones antes de aceptar el registro.
 python3 scripts/ux5_study.py validate .ux5-study/sessions/session-01.json
 
 # Obtener estado de cobertura con divulgación reducida. NO equivale a anonimización.
-python3 scripts/ux5_study.py summarize .ux5-study/sessions/*.json > .ux5-study/coverage.json
+python3 scripts/ux5_study.py summarize --output .ux5-study/coverage.json .ux5-study/sessions/*.json
 
 # Solo para revisión interna autorizada: incluye recuentos exactos y métricas
 # de cohortes pequeñas; mantenerlo local, restringido y fuera de Git.
-python3 scripts/ux5_study.py summarize --internal .ux5-study/sessions/*.json > .ux5-study/internal-aggregate.json
+python3 scripts/ux5_study.py summarize --internal --output .ux5-study/internal-aggregate.json .ux5-study/sessions/*.json
 
 # Ejecutar los contratos de privacidad y agregación.
 python3 -m unittest discover -s tests -p test_ux5_study.py
@@ -65,7 +65,9 @@ python3 -m unittest discover -s tests -p test_ux5_study.py
 sh scripts/ci.sh
 ```
 
-**No enviar** `.ux5-study/` a GitHub, plataformas de analítica ni servicios externos. La carpeta está ignorada. Controlar su acceso y eliminar los archivos individuales conforme al consentimiento, la política institucional y las obligaciones locales aplicables. Ignorar archivos en Git **no equivale** a cifrar ni garantizar retención segura; proteger además el equipo y sus copias de seguridad.
+**UX-5.5 — Archivos privados por defecto.** Los comandos con `--output` crean archivos JSON nuevos con permisos **0600** y directorios privados con **0700** (en entornos POSIX). Solo se admiten rutas bajo `.ux5-study/` o `.ux5-study/sessions/`; se rechazan enlaces simbólicos, rutas que escapan del directorio, directorios ya existentes accesibles para otros usuarios y sobrescrituras accidentales. **No crean copias de respaldo ni archivos de registros reales.** Los nombres deben ser distintos para cada sesión o resumen; si el destino existe, el comando falla sin modificarlo. Si un `.ux5-study/` anterior fue creado con `mkdir -p` y permisos 0755, **revisar sus permisos y los de cada archivo antes de continuar** y corregirlos manualmente de forma controlada, por ejemplo `chmod 700 .ux5-study .ux5-study/sessions` y `chmod 600 .ux5-study/sessions/*.json`, solo después de confirmar que se trata de los directorios y archivos correctos. `--internal` **requiere** `--output`; se ha eliminado su salida JSON detallada a la consola para evitar divulgación accidental en logs o tuberías.
+
+**No enviar** `.ux5-study/` a GitHub, plataformas de analítica ni servicios externos. La carpeta está ignorada. Controlar su acceso y eliminar los archivos individuales conforme al consentimiento, la política institucional y las obligaciones locales aplicables. Ignorar archivos en Git y establecer permisos POSIX **no equivale** a cifrar ni garantizar retención segura; proteger además el equipo y sus copias de seguridad. Evitar redirigir la salida `template` a un archivo con `>`, porque podría crearse con permisos demasiado amplios; preferir siempre `--output`.
 
 ### Esquema único de registro
 
@@ -108,7 +110,7 @@ La validación es **fail-closed**: rechaza campos desconocidos, JSON con claves 
 
 **Este estado reducido NO garantiza anonimización ni autorización para publicar.** Comparar reportes de fechas distintas, combinar fuentes externas o evaluar grupos muy pequeños puede revelar patrones de participación incluso sin cifras. Se exige una revisión humana de privacidad y autorización antes de compartirlo externamente.
 
-**Solo con `--internal`**, `summarize` emite: versión del protocolo, procedencia declarada, número total de sesiones, contadores por tarea y categoría de incidente, métricas agregadas con denominador explícito y estado de gates. Este reporte **contiene información potencialmente identificable por inferencia en cohortes pequeñas** y se mantiene en un entorno local restringido. Se excluyen fichas individuales, nombres, rol por persona, tiempos por persona, archivos, hashes y texto. El operador recibe una advertencia por `stderr` al usar `--internal`.
+**Solo con `--internal --output .ux5-study/<archivo-nuevo>.json`**, `summarize` guarda en disco: versión del protocolo, procedencia declarada, número total de sesiones, contadores por tarea y categoría de incidente, métricas agregadas con denominador explícito y estado de gates. Este reporte **contiene información potencialmente identificable por inferencia en cohortes pequeñas** y se mantiene en un entorno local restringido. Se excluyen fichas individuales, nombres, rol por persona, tiempos por persona, archivos, hashes y texto. El operador recibe una advertencia por `stderr` al usar `--internal`.
 
 | Métrica | Definición |
 | --- | --- |
@@ -131,7 +133,7 @@ Interpretar un error 503 como prueba de ausencia documental, la cuarentena como 
 
 ## Verificación del incremento
 
-- `tests/test_ux5_study.py` contiene contratos Red → Green para plantilla y asignación de tareas por perfil, coincidencia con el contrato de siete tareas UX-5.1, consentimiento, privacidad de campos, tipos, límites, errores y agregación.
+- `tests/test_ux5_study.py` contiene contratos Red → Green para plantilla y asignación de tareas por perfil, coincidencia con el contrato de siete tareas UX-5.1, consentimiento, privacidad de campos, tipos, límites, errores, agregación y creación segura de archivos privados (permisos 0600/0700, sin sobrescritura ni enlaces simbólicos).
 - `scripts/ci.sh` ejecuta estas pruebas en un paso propio, sin añadir dependencias, GitHub Actions ni conectores de datos personales.
 - `.gitignore` excluye `.ux5-study/` para reducir la posibilidad de añadir registros individuales por accidente. Esta protección por sí sola no impide un `git add -f` deliberado.
 - No cambian la aplicación React, los Workers, el inspector, D1/R2 ni los permisos de la comisión.
