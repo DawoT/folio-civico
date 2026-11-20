@@ -22,6 +22,7 @@ VERSION = "25.03.0-5+deb13u4"
 SOURCE_SHA256 = "dbf3dcafa042348499ccefba4dd586979b7080ffa7064901a7ecebfc4c9fe27c"
 PROBE_FILENAME = "splash_aa_width_constructor_probe.cc"
 PROBE_SHA256 = "ca3fb4d5e62516a99e7a87338ef11fd9d0cef3e6683c1383e6f32504635d4aea"
+SCRIPT_SHA256 = "f0fdf334902ccaa9ab2e576fb98ebca8464a423a0843ae15d372da132c5e48db"
 SCRIPT = "/prototypes/run_splash_aa_width_constructor.sh"
 DONE = "r127-real-splash-constructors-ubsan-complete"
 TIMEOUT_SECONDS = 535
@@ -49,7 +50,13 @@ def check_prototypes(directory: Path) -> None:
         raise ValueError("Oversized source-only research input")
     if hashlib.sha256(path.read_bytes()).hexdigest() != PROBE_SHA256:
         raise ValueError("Research method prototype SHA-256 mismatch")
-    script_text = script.read_text("utf-8", errors="strict")
+    # Exact runner bytes are part of the experiment's chain of custody.
+    # Checking only marker strings would admit shell mutations capable of
+    # manufacturing or altering the otherwise verified sanitizer artifacts.
+    script_bytes = script.read_bytes()
+    if hashlib.sha256(script_bytes).hexdigest() != SCRIPT_SHA256:
+        raise ValueError("Research constructor shell runner SHA-256 mismatch")
+    script_text = script_bytes.decode("utf-8", errors="strict")
     for required in (
         "dbf3dcafa042348499ccefba4dd586979b7080ffa7064901a7ecebfc4c9fe27c",
         "-fsanitize=address,undefined",
@@ -177,6 +184,7 @@ def inspect_constructor(
         "original_debian_source_version": VERSION,
         "splash_cc_sha256": SOURCE_SHA256,
         "source_method_probe_sha256": PROBE_SHA256,
+        "research_runner_script_sha256": SCRIPT_SHA256,
         "builder_image_id": builder_id,
         "actual_full_static_poppler_library_compiled_with_asan_ubsan": True,
         "ubsan_vptr_instrumentation": False,

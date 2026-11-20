@@ -223,3 +223,18 @@ causas de error, source mismatches, archivos falsos o timeouts. La
 prueba es de API C++, **no** demuestra alcanzabilidad desde PDF,
 remediación CVE, equivalencia con runtime ni autorización de publicación.
 Véase [dossier R1.27](../../../docs/SECURITY_SPLASH_AA_CONSTRUCTOR_WIDTH_2026-11-20.md).
+
+
+## R1.28 · SHA-256 del runner experimental R1.27 (NO RELEASE)
+
+Además del hash del harness C++, `poppler_splash_aa_constructor_probe.py`
+comprueba **todos los bytes** de `run_splash_aa_width_constructor.sh` contra
+el digest fijado `f0fdf334902ccaa9ab2e576fb98ebca8464a423a0843ae15d372da132c5e48db`.
+Antes, un comando añadido al shell conservando las cadenas de control podía
+superar `check_prototypes()`. Ese caso se reprodujo como prueba **Red** y
+ahora se rechaza (**Green**, 13/13); el script original no cambia.
+El reporte incluye el SHA del runner para que sea auditable.
+
+Esta atestación de integridad local no convierte el script en una firma
+externa ni prueba alcanzabilidad PDF, corrección CVE o autorización OCI.
+Véase [R1.28](../../../docs/SECURITY_SPLASH_CONSTRUCTOR_RUNNER_ATTESTATION_2026-11-20.md).
