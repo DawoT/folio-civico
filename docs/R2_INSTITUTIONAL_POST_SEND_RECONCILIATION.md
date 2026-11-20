@@ -41,7 +41,7 @@ Esta lectura **no inicia acciones**, no confirma entrega, no consulta Queue, no 
 ```sh
 pnpm exec vitest run apps/operator/src/async-redrive.test.ts
 pnpm typecheck
-FOLIO_E2E_PORT=42923 sh scripts/ci.sh
+FOLIO_E2E_PORT=42924 sh scripts/ci.sh
 ```
 
 **Condición de cierre institucional:** completar los requisitos reales de la [issue #19](https://github.com/DawoT/folio-civico/issues/19) y el gate CVE independiente; CI sintético no sustituye la aprobación de publicación.
