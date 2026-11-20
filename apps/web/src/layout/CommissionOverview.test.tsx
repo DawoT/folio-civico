@@ -1,0 +1,85 @@
+import { describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import { CommissionOverview, makeReviewSummary } from "./CommissionOverview";
+import type { DocumentRow, Scope } from "../api";
+
+const scope: Scope = { commissionId: "c_a", batchId: "b_a" };
+const documents: DocumentRow[] = [
+  { id: "doc1", filename: "Prueba.pdf", versionId: "v1", sha256: "a".repeat(64),
+    extractionStatus: "pending", pageCount: null, createdAt: "2026-11-19T00:00:00Z" },
+  { id: "doc2", filename: "Prueba2.pdf", versionId: "v2", sha256: "b".repeat(64),
+    extractionStatus: "ready", pageCount: 2, createdAt: "2026-11-19T00:00:00Z" }
+];
+
+function render(options?: Partial<Parameters<typeof CommissionOverview>[0]>) {
+  return renderToStaticMarkup(<CommissionOverview scope={scope}
+    commissionName="Comisión A" batchLabel="Obras"
+    documents={documents} documentsFailed={false}
+    review={makeReviewSummary(scope, [
+      { status: "pending", statusSource: "stored" },
+      { status: "not_located", statusSource: "validated_search" }
+    ], [
+      { status: "in_review", canReview: true },
+      { status: "in_review", canReview: false }
+    ], true)} canDraft {...options} />);
+}
+
+describe("IA-001.2 authorized commission summary", () => {
+  it("derives checklist-wide and ONLY recent-review counts from existing API responses", () => {
+    const summary = makeReviewSummary(scope, [
+      { status: "pending", statusSource: "stored" },
+      { status: "not_located", statusSource: "validated_search" },
+      { status: "located", statusSource: "stored" }
+    ], [
+      { status: "in_review", canReview: true },
+      { status: "validated", canReview: false },
+      { status: "in_review", canReview: false }
+    ], true);
+    expect(summary).toEqual({
+      scopeKey: "c_a:b_a",
+      checklistTotal: 3, checklistPending: 1, internallyValidated: 1,
+      reviewableRecent: 1, recentRecordCount: 3, hasOlderRecords: true
+    });
+  });
+
+  it("shows counts from real available data with explicit scope and partial-history disclaimer", () => {
+    const html = render();
+    expect(html).toContain("Resumen de comisión");
+    expect(html).toContain("Comisión A");
+    expect(html).toContain("Obras");
+    expect(html).toContain("Documentos del lote");
+    expect(html).toContain("Checklist pendiente");
+    expect(html).toContain("Para tu revisión");
+    expect(html).toContain("Solo en los últimos");
+    expect(html).toContain("No es un total de la comisión");
+    expect(html).toContain('href="#observaciones"');
+    expect(html).not.toContain("acta oficial verificada");
+    expect(html).not.toContain("100 %");
+  });
+
+  it("never displays zero for unknown counts, failures, or data from another scope", () => {
+    const html = render({
+      documents: null, documentsFailed: true,
+      review: makeReviewSummary({ commissionId: "c_other", batchId: "b_other" }, [], [], false)
+    });
+    expect(html).toContain("Datos no disponibles");
+    expect(html).toContain("—");
+    expect(html).not.toContain('href="#observaciones"');
+    expect(html).not.toContain('>0</dd>');
+  });
+
+  it("does not expose authoring actions to observers or infer an official finding from availability", () => {
+    const html = render({ canDraft: false, review: makeReviewSummary(scope, [], [], false) });
+    expect(html).not.toContain('href="#registrar-busqueda"');
+    expect(html).toContain('href="#checklist"');
+    expect(html).toContain("Validación interna");
+  });
+
+  it("prioritizes drafting when there is a pending item but no eligible recent review", () => {
+    const html = render({ review: makeReviewSummary(scope, [
+      { status: "pending", statusSource: "stored" }
+    ], [], false) });
+    expect(html).toContain('href="#registrar-busqueda"');
+    expect(html).not.toContain('class="overview-primary-action" href="#observaciones"');
+  });
+});

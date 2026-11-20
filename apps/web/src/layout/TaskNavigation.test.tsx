@@ -9,7 +9,7 @@ describe("IA-001 task navigation", () => {
         batchLabel="Obras · 2026" onOpenAdministration={() => {}} />
     );
     expect(html).toContain('aria-label="Áreas de trabajo"');
-    for (const target of ["#expedientes", "#checklist", "#registrar-busqueda", "#observaciones", "#informes", "#administracion"]) {
+    for (const target of ["#resumen", "#expedientes", "#checklist", "#registrar-busqueda", "#observaciones", "#informes", "#administracion"]) {
       expect(html).toContain(`href="${target}"`);
     }
     expect(html).toContain("Comisión de prueba");
