@@ -236,6 +236,11 @@ export async function findIdempotentDraft(
     SELECT reference_json AS referenceJson FROM observation_evidence
     WHERE observation_id=? ORDER BY created_at,id
   `).bind(row.id).all<{referenceJson:string}>();
+  // Reading evidence is a separate D1 await: membership or commission state
+  // may have changed after the first scoped row. Do not acknowledge a write
+  // replay unless the author still has active write authority at response time.
+  const current = await getCommissionSummary(db, subject, commissionId);
+  if (!current || current.status !== "active" || current.role === "observer") return null;
   const {payloadHash,...base}=row;
   return {
     payloadHash,
@@ -272,5 +277,9 @@ export async function getObservationForMember(
     SELECT reference_json AS referenceJson FROM observation_evidence
     WHERE observation_id=? ORDER BY created_at,id
   `).bind(row.id).all<{referenceJson:string}>();
+  // An access revocation can race with the second (evidence) D1 query.
+  // Perform the last authorization read after gathering data, with no further
+  // await between this fence and the caller's response serialization.
+  if (!await getCommissionSummary(db, subject, commissionId)) return null;
   return {...row,evidence:evidenceRows.results.map(v=>JSON.parse(v.referenceJson) as Evidence)};
 }

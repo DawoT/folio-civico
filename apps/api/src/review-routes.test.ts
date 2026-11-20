@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { makeD1 } from "../../../tests/helpers/d1";
 import { handleReviewRequest } from "./review-routes";
+import { afterEvidenceRead } from "../../../tests/helpers/d1-revocation-race";
 
 function fixture() {
   const f=makeD1();
@@ -117,6 +118,33 @@ describe("human review endpoints", () => {
       expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toMatchObject({n:1});
     } finally {f.close();}
   });
+
+  it.each(["revoked","closed","downgraded"] as const)(
+    "never replays a successful idempotent draft after commission access becomes %s during evidence read",
+    async (change) => {
+      const f=fixture();
+      const body={title:"No ubicado",description:"Búsqueda realizada",checklistItemId:"item_a",batchId:"b_a"};
+      try {
+        const original=await handleReviewRequest(post(body),{DB:f.db},"alice","c_a","drafts");
+        expect(original.status).toBe(201);
+        const before=f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get();
+        const raced=afterEvidenceRead(f.db, () => {
+          if (change==="revoked") {
+            f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='c_a' AND subject='alice'");
+          } else if (change==="closed") {
+            f.sqlite.exec("UPDATE commissions SET status='closed' WHERE id='c_a'");
+          } else {
+            f.sqlite.exec("UPDATE commission_members SET role='observer' WHERE commission_id='c_a' AND subject='alice'");
+          }
+        });
+        const replay=await handleReviewRequest(post(body),{DB:raced},"alice","c_a","drafts");
+        expect(replay.status).toBe(403);
+        expect(await replay.json()).toEqual({error:"Forbidden"});
+        expect(f.sqlite.prepare("SELECT count(*) AS n FROM observations").get()).toEqual({n:1});
+        expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual(before);
+      } finally {f.close();}
+    }
+  );
 
   it("requires a strong idempotency key for draft writes", async () => {
     const f=fixture();
