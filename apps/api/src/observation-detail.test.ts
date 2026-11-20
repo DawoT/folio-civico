@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { makeD1 } from "../../../tests/helpers/d1";
 import { persistDraftObservation, transitionObservation } from "@folio/data";
 import { handleObservationDetailRequest } from "./observation-detail";
+import { afterEvidenceRead } from "../../../tests/helpers/d1-revocation-race";
 
 function fixture() {
   const f = makeD1();
@@ -63,6 +64,33 @@ describe("authorized single-observation detail", () => {
       }
       expect((await handleObservationDetailRequest(new Request(url(record.id)),{DB:f.db},"bob","c_b",record.id)).status).toBe(404);
       expect((await handleObservationDetailRequest(new Request(url("not_found")),{DB:f.db},"reader","c_a","not_found")).status).toBe(404);
+    } finally {f.close();}
+  });
+
+  it("does not disclose the observation if membership is revoked between row and evidence reads", async () => {
+    const f=fixture();
+    try {
+      const record=await createValidated(f.db);
+      const before=f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get();
+      const raced=afterEvidenceRead(f.db, () => {
+        f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='c_a' AND subject='reader'");
+      });
+      const response=await handleObservationDetailRequest(new Request(url(record.id)),{DB:raced},"reader","c_a",record.id);
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({error:"Not found"});
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual(before);
+    } finally {f.close();}
+  });
+
+  it("keeps historical detail readable to an active member after commission closure", async () => {
+    const f=fixture();
+    try {
+      const record=await createValidated(f.db);
+      f.sqlite.exec("UPDATE commissions SET status='closed' WHERE id='c_a'");
+      const response=await handleObservationDetailRequest(new Request(url(record.id)),{DB:f.db},"reader","c_a",record.id);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({id:record.id,status:"validated"});
     } finally {f.close();}
   });
 
