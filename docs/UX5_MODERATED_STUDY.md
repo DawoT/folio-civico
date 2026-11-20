@@ -8,7 +8,7 @@
 
 En UX-5.1 se automatizaron siete tareas encadenadas usando identidades y expedientes sintéticos, más regresión visual. UX-5.2 prepara la observación de **personas autorizadas reales** sin afirmar que sus resultados ya existen. **UX-5.3 calibra esas tareas por perfil para que el reporte no mezcle responsabilidades incompatibles.** No se usa este instrumental para aprobar Cloudflare Preview, producción, el inspector, una aprobación institucional o una auditoría WCAG.
 
-El contrato y el cálculo están implementados en `scripts/ux5_study.py`. Utilizan únicamente Python 3 estándar. No envían información por red, no escriben datos de sesión automáticamente y no forman parte de la aplicación web. La salida de `summarize` es un agregado estructurado.
+El contrato y el cálculo están implementados en `scripts/ux5_study.py`. Utilizan únicamente Python 3 estándar. No envían información por red, no escriben datos de sesión automáticamente y no forman parte de la aplicación web. **Desde UX-5.4, `summarize` genera por defecto un estado de divulgación reducida, no un agregado con recuentos.** Las métricas detalladas requieren `--internal` para un uso local restringido y no se consideran publicables automáticamente.
 
 ## Protocolo moderado y consentimiento
 
@@ -51,8 +51,12 @@ python3 scripts/ux5_study.py template --role author > .ux5-study/sessions/sessio
 # Validar estructura y restricciones antes de aceptar el registro.
 python3 scripts/ux5_study.py validate .ux5-study/sessions/session-01.json
 
-# Agregar todas las sesiones registradas, sin incluir archivos de resumen.
-python3 scripts/ux5_study.py summarize .ux5-study/sessions/*.json > .ux5-study/aggregate.json
+# Obtener estado de cobertura con divulgación reducida. NO equivale a anonimización.
+python3 scripts/ux5_study.py summarize .ux5-study/sessions/*.json > .ux5-study/coverage.json
+
+# Solo para revisión interna autorizada: incluye recuentos exactos y métricas
+# de cohortes pequeñas; mantenerlo local, restringido y fuera de Git.
+python3 scripts/ux5_study.py summarize --internal .ux5-study/sessions/*.json > .ux5-study/internal-aggregate.json
 
 # Ejecutar los contratos de privacidad y agregación.
 python3 -m unittest discover -s tests -p test_ux5_study.py
@@ -100,7 +104,11 @@ La validación es **fail-closed**: rechaza campos desconocidos, JSON con claves 
 
 ## Agregación y criterios de interpretación
 
-`summarize` solamente emite: versión de esquema, procedencia declarada, número total de sesiones, contadores por tarea y por categoría de incidente, métricas agregadas con denominador explícito y estado de gates. Se **excluyen** las fichas individuales, nombres, rol por persona, tiempos por persona, archivos, hashes y texto.
+**Por defecto**, `summarize` emite únicamente `schema_version`, `study_status`, `task_coverage`, `authorization`, `manual_accessibility` y `disclosure`. Si hay menos de cinco sesiones totales, `task_coverage="not_released"`; con al menos cinco sesiones muestra exclusivamente `minimum_met` o `below_minimum` por tarea, **sin recuentos ni éxitos/fallos concretos**. `authorization="not_granted"`, `manual_accessibility="not_verified"` y `disclosure="requires_human_review"` se conservan siempre.
+
+**Este estado reducido NO garantiza anonimización ni autorización para publicar.** Comparar reportes de fechas distintas, combinar fuentes externas o evaluar grupos muy pequeños puede revelar patrones de participación incluso sin cifras. Se exige una revisión humana de privacidad y autorización antes de compartirlo externamente.
+
+**Solo con `--internal`**, `summarize` emite: versión del protocolo, procedencia declarada, número total de sesiones, contadores por tarea y categoría de incidente, métricas agregadas con denominador explícito y estado de gates. Este reporte **contiene información potencialmente identificable por inferencia en cohortes pequeñas** y se mantiene en un entorno local restringido. Se excluyen fichas individuales, nombres, rol por persona, tiempos por persona, archivos, hashes y texto. El operador recibe una advertencia por `stderr` al usar `--internal`.
 
 | Métrica | Definición |
 | --- | --- |
@@ -113,9 +121,9 @@ La validación es **fail-closed**: rechaza campos desconocidos, JSON con claves 
 | Mediana de duración | Segundos entre intentos, **solo con al menos 5 intentos** |
 | Incidentes críticos | Cantidad por categoría predefinida |
 
-Con menos de cinco intentos por tarea, `unassisted_rate` y `median_seconds` son **`null`**, nunca cero ni porcentajes inventados. **El mínimo es por tarea y no por número total de participantes**: cinco personas de perfiles distintos no bastan para estimar la tasa de una tarea realizada solo por un revisor. Los recuentos internos incluso con muestras menores de cinco pueden revelar información sobre individuos de grupos pequeños: **no publicar ni compartir el resumen sin una revisión de divulgación específica**. El reporte con cero sesiones tiene `human_usability: "not_conducted"`. Si existe al menos una sesión estructuralmente aceptada, se marca `"moderator_entered_observations"` (declaración de procedencia, **no certificación**).
+En el **reporte interno**, con menos de cinco intentos por tarea, `unassisted_rate` y `median_seconds` son **`null`**, nunca cero ni porcentajes inventados. **El mínimo es por tarea y no por número total de participantes**: cinco personas de perfiles distintos no bastan para estimar la tasa de una tarea realizada solo por un revisor. Los recuentos internos incluso con muestras menores de cinco pueden revelar información sobre individuos de grupos pequeños: **no publicar ni compartir el resumen sin una revisión de divulgación específica**. El reporte con cero sesiones tiene `human_usability: "not_conducted"`. Si existe al menos una sesión estructuralmente aceptada, se marca `"moderator_entered_observations"` (declaración de procedencia, **no certificación**).
 
-**Siempre** se mantiene `manual_assistive_technology: "not_verified"`, `institutional_authorization: "not_granted"` y `release_gate: "requires_independent_approval"`. Las pruebas NVDA/VoiceOver, zoom nativo y alto contraste Windows deberán registrarse y aprobarse mediante un procedimiento manual separado.
+**En el detalle interno** se mantienen `manual_assistive_technology: "not_verified"`, `institutional_authorization: "not_granted"` y `release_gate: "requires_independent_approval"`; la versión reducida conserva las señales equivalentes `manual_accessibility: "not_verified"` y `authorization: "not_granted"`. Las pruebas NVDA/VoiceOver, zoom nativo y alto contraste Windows deberán registrarse y aprobarse mediante un procedimiento manual separado.
 
 ### Condiciones de bloqueo
 

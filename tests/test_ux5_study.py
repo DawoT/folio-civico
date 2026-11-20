@@ -297,6 +297,84 @@ class UX5ModeratedStudyTests(unittest.TestCase):
         self.assertEqual(report["manual_assistive_technology"], "not_verified")
         self.assertEqual(report["tasks"][0]["unassisted_rate"], 1.0)
 
+    def test_public_summary_on_empty_study_has_no_participant_level_metadata(self):
+        public = study.public_summary(study.summarize_sessions([]))
+        self.assertEqual(public["study_status"], "not_conducted")
+        self.assertEqual(public["authorization"], "not_granted")
+        self.assertEqual(public["manual_accessibility"], "not_verified")
+        self.assertEqual(public["task_coverage"], "not_released")
+        self.assertEqual(public["disclosure"], "requires_human_review")
+        self.assertNotIn("session_count", json.dumps(public))
+        self.assertNotIn("critical_incidents", json.dumps(public))
+        self.assertNotIn("unassisted_rate", json.dumps(public))
+
+    def test_public_summary_suppresses_all_task_information_below_five_sessions(self):
+        sample = observed_session("observer")
+        observed_task(sample, "observer_read_only", outcome="failed",
+                      incident_codes=["internal_validation_as_official"])
+        report = study.public_summary(study.summarize_sessions([sample]))
+        self.assertEqual(report["study_status"], "limited_observations")
+        self.assertEqual(report["task_coverage"], "not_released")
+        for secret in ("observer_read_only", "internal_validation_as_official",
+                       "failed", "median_seconds", "role", "session_count",
+                       "navigation_errors", "interpretation_errors"):
+            self.assertNotIn(secret, json.dumps(report))
+
+    def test_public_summary_only_exposes_coarse_task_coverage_with_five_sessions(self):
+        sessions = []
+        for role in ("president", "author", "reviewer", "observer", "author"):
+            sample = observed_session(role)
+            for task_id in study.ROLE_TASKS[role]:
+                observed_task(sample, task_id)
+            sessions.append(sample)
+        internal = study.summarize_sessions(sessions)
+        public = study.public_summary(internal)
+        self.assertEqual(public["study_status"], "coverage_review_available")
+        coverage = {task["id"]:task["coverage"] for task in public["task_coverage"]}
+        self.assertEqual(coverage["scope_opened"], "minimum_met")
+        self.assertEqual(coverage["independent_decision"], "below_minimum")
+        self.assertEqual(coverage["pdf_quarantined"], "below_minimum")
+        self.assertEqual(len(coverage), len(study.TASK_IDS))
+        self.assertEqual(public["authorization"], "not_granted")
+        self.assertNotIn("session_count", json.dumps(public))
+        self.assertNotIn("completed_unassisted", json.dumps(public))
+        self.assertNotIn("critical_incidents", json.dumps(public))
+        self.assertNotIn('"attempted"', json.dumps(public))
+
+    def test_cli_summary_is_reduced_disclosure_by_default_and_detailed_only_opt_in(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "session.json"
+            sample = observed_session("author")
+            observed_task(sample, "scope_opened")
+            path.write_text(json.dumps(sample), encoding="utf-8")
+            public = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "summarize", str(path)],
+                cwd=ROOT, capture_output=True, text=True
+            )
+            self.assertEqual(public.returncode, 0, public.stderr)
+            clean = json.loads(public.stdout)
+            self.assertEqual(clean["task_coverage"], "not_released")
+            self.assertNotIn("session_count", clean)
+            self.assertNotIn("unassisted_rate", public.stdout)
+            detailed = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "summarize", "--internal", str(path)],
+                cwd=ROOT, capture_output=True, text=True
+            )
+            self.assertEqual(detailed.returncode, 0, detailed.stderr)
+            self.assertEqual(json.loads(detailed.stdout)["session_count"], 1)
+            self.assertIn("solo uso local", detailed.stderr.lower())
+            self.assertNotIn("author", detailed.stderr)
+
+    def test_public_summary_fails_closed_on_malformed_internal_report(self):
+        internal = study.summarize_sessions([])
+        internal["release_gate"] = "approved"
+        with self.assertRaises(study.StudyDataError):
+            study.public_summary(internal)
+        internal = study.summarize_sessions([])
+        internal["tasks"][0]["id"] = "fabricated"
+        with self.assertRaises(study.StudyDataError):
+            study.public_summary(internal)
+
     def test_cli_rejects_duplicate_json_keys_and_duplicate_input_paths(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "session.json"
@@ -316,14 +394,14 @@ class UX5ModeratedStudyTests(unittest.TestCase):
             )
             self.assertNotEqual(duplicate.returncode, 0)
 
-    def test_cli_outputs_sanitized_aggregate_without_session_contents(self):
+    def test_internal_cli_outputs_detailed_aggregate_without_session_contents(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "session.json"
             sample = observed_session()
             observed_task(sample, "scope_opened")
             path.write_text(json.dumps(sample), encoding="utf-8")
             result = subprocess.run(
-                [sys.executable, str(MODULE_PATH), "summarize", str(path)],
+                [sys.executable, str(MODULE_PATH), "summarize", "--internal", str(path)],
                 cwd=ROOT, capture_output=True, text=True
             )
             self.assertEqual(result.returncode, 0, result.stderr)
