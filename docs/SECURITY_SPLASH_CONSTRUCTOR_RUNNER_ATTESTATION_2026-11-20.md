@@ -54,6 +54,21 @@ Se añadió una prueba que hace una copia aislada de los dos archivos R1.27, val
   nativos permanecen sin cobertura CVE suficiente. Las cifras anteriores
   de 19 UNKNOWN no corresponden al resultado de esta ejecución.
 
+## Verificación de integración tras reparar los fixtures
+
+Tras integrar en la rama de investigación los PR #48 (relojes
+sintéticos R2/D1) y #49 (aislamiento E2E local), se repitió el
+contrato completo **`FOLIO_E2E_PORT=43271 sh scripts/ci.sh`**:
+**`exit 0`**. La ejecución comprendió **223/223 Python del inspector**,
+33 pruebas UX5, Vitest, TypeScript, builds de cinco paquetes, Workers
+`--dry-run`, Chromium E2E, demo local y migraciones D1 **solo locales
+hasta `0030`**. Es una nueva ejecución satisfactoria y no borra
+la constancia histórica del fallo inicial (4/479 Vitest).
+
+La reconstrucción instrumentada de R1.27 fue reconfirmada por separado:
+**8/8 procesos C++ reales, `exit 0` del ejecutor**, sin pretensión de
+alcanzabilidad PDF ni equivalencia con la imagen operativa.
+
 ## Limitaciones y gobierno
 
 - El hash protege los bytes observados por `check_prototypes()`. **No** es una firma de un proveedor ni elimina por sí solo posibles carreras si un tercero con acceso al host modifica los archivos entre comprobación y montaje; el control de acceso al worktree y los montajes Docker siguen siendo necesarios.
