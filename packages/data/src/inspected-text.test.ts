@@ -101,6 +101,66 @@ describe("signed, fail-closed document text admission",()=>{
       await expect(publishInspectedText(f.db,f.bucket,different,await sign(different),testSigningKey)).rejects.toThrow();
     }finally{f.close();}
   });
+  it("does not forge a second admission audit when another consumer wins after preflight",async()=>{
+    const f=await fixture();
+    try{
+      const signature=await sign(f.manifest);
+      let competingResult:Awaited<ReturnType<typeof publishInspectedText>>|undefined;
+      const racedDb={
+        prepare:f.db.prepare.bind(f.db),
+        batch:async(statements:Parameters<D1Database["batch"]>[0])=>{
+          competingResult=await publishInspectedText(
+            f.db,f.bucket,f.manifest,signature,testSigningKey
+          );
+          return f.db.batch(statements);
+        }
+      } as D1Database;
+      const result=await publishInspectedText(
+        racedDb,f.bucket,f.manifest,signature,testSigningKey
+      );
+      expect(competingResult?.repeated).toBe(false);
+      expect(result.repeated).toBe(true);
+      expect(f.sqlite.prepare(
+        "SELECT count(*) AS n FROM audit_events WHERE action='document.inspected_text_admitted'"
+      ).get()).toMatchObject({n:1});
+      expect(f.sqlite.prepare(
+        "SELECT count(*) AS n FROM document_processing_reports"
+      ).get()).toMatchObject({n:1});
+      expect(f.sqlite.prepare(
+        "SELECT count(*) AS n FROM document_pages"
+      ).get()).toMatchObject({n:2});
+    }finally{f.close();}
+  });
+
+  it("never writes a ghost admission audit for a competing different clean manifest",async()=>{
+    const f=await fixture();
+    try{
+      const originalSignature=await sign(f.manifest);
+      const altered={
+        ...f.manifest,scannerReportId:"other_report_12345",
+        pages:[{page:1,text:"Different inspected text"}]
+      };
+      const alteredSignature=await sign(altered);
+      const racedDb={
+        prepare:f.db.prepare.bind(f.db),
+        batch:async(statements:Parameters<D1Database["batch"]>[0])=>{
+          await publishInspectedText(f.db,f.bucket,f.manifest,
+            originalSignature,testSigningKey);
+          return f.db.batch(statements);
+        }
+      } as D1Database;
+      await expect(publishInspectedText(racedDb,f.bucket,altered,
+        alteredSignature,testSigningKey))
+        .rejects.toThrow(/different inspection/);
+      expect(f.sqlite.prepare(
+        "SELECT count(*) AS n FROM audit_events WHERE action='document.inspected_text_admitted'"
+      ).get()).toMatchObject({n:1});
+      expect(f.sqlite.prepare(
+        "SELECT count(*) AS n FROM document_processing_reports"
+      ).get()).toMatchObject({n:1});
+    }finally{f.close();}
+  });
+
   it("rejects forged signatures, unsafe verdicts, inconsistent hashes and altered source bytes",async()=>{
     const f=await fixture();
     try {

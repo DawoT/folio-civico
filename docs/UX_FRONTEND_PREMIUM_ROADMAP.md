@@ -1,9 +1,8 @@
 # Folio Cívico — Roadmap UX / Frontend Premium
 
-**Estado:** propuesta ejecutable, aún no implementada.  
-**Corte de arquitectura:** 2026-11-19 (America/Lima).  
-**Responsable técnico previsto:** un ejecutor integral de producto/UX/frontend.  
-**Rama de documentación:** `docs/ux-frontend-premium-roadmap`.  
+**Estado a 2026-11-20:** incrementos técnicos UX-0 a UX-5.5 integrados en `main`; **UX-5 todavía no cumple la salida humana ni la auditoría manual**.
+
+**Corte de arquitectura original:** 2026-11-19 (America/Lima). **Ejecución:** incrementos pequeños y comprobables sobre React/TypeScript, con CI local obligatorio. **Origen del plan:** `docs/ux-frontend-premium-roadmap`; seguimiento actualizado en la sección 12.
 **No autoriza:** despliegues, cambio de marca irreversible, gastos, uso de datos reales ni desbloqueo del inspector.
 
 ## 1. Resultado de producto
@@ -21,7 +20,9 @@ Transformar una mesa documental React funcional en una herramienta institucional
 7. **Simplicidad arquitectónica y entregas pequeñas.** React + Vite + TypeScript + CSS variables como primera opción; componentes propios mínimos; no incorporar un framework UI, router, motor de estado o CSS-in-JS sin necesidad demostrable.
 8. **Proteger lo que funciona.** Conservar los endpoints, contratos, idempotencia, el flujo de dos personas, la verificación de exportación y las restricciones de cuarentena.
 
-## 2. Línea base verificada y límites
+## 2. Línea base histórica verificada y límites
+
+Esta tabla es la **fotografía previa** al programa UX (19 de noviembre), no un inventario del código actual. Los cambios posteriores están trazados en la sección 12 y en [UX-0](UX_BASELINE_2026-11-19.md).
 
 | Área | Existe hoy | Brecha principal |
 | --- | --- | --- |
@@ -47,7 +48,7 @@ Transformar una mesa documental React funcional en una herramienta institucional
 - **Movimiento:** transiciones breves y funcionales, respetando `prefers-reduced-motion`; ningún efecto que ralentice la revisión o oculte la confirmación.
 - **Contenido:** español claro para personal administrativo, verbos de acción concretos y microcopy que distinga «revisado por una persona», «en cuarentena», «sin resultados en este alcance» y «validación interna».
 
-### Tokens propuestos (no implementados)
+### Familias de tokens de la propuesta original (implementación posterior en `apps/web/src/ui/tokens.css`)
 
 ```text
 --fc-color-text-primary / secondary / muted
@@ -136,9 +137,9 @@ Ningún token semántico se considera aprobado hasta comprobar contraste sobre s
 
 ### UX-5 — Calidad, investigación y preparación de piloto (1–2 semanas)
 
-**Entregables:** regresión visual determinista en desktop/móvil, auditoría humana WCAG 2.2, prueba de teclado y al menos un lector de pantalla compatible; 5–8 evaluaciones moderadas con perfiles representativos (sintéticas o participantes autorizados, sin datos reales), medición de tareas y mejoras priorizadas.
+**Entregables:** regresión visual determinista en desktop/móvil, revisión manual WCAG 2.2, prueba de teclado y al menos un lector de pantalla compatible; 5–8 sesiones moderadas con **participantes humanos autorizados** en entorno y expedientes sintéticos (sin datos institucionales reales), medición de tareas y mejoras priorizadas. Las pruebas automáticas no se cuentan como personas participantes.
 
-**Aceptación:** 0 infracciones axe conocidas en pantallas/estados cubiertos; flujos críticos completables sin ratón; sin overflow a 320 px; 100 % de verificaciones de permisos y cuarentena conservadas; métricas de tareas y problemas de usabilidad documentados; `pnpm test`, `pnpm test:browser`, `pnpm test:demo` (al integrar PR#7), `pnpm typecheck`, `pnpm build` y `sh scripts/ci.sh` verdes.
+**Aceptación:** 0 infracciones axe conocidas en pantallas/estados cubiertos; flujos críticos completables sin ratón; sin overflow a 320 px; 100 % de verificaciones de permisos y cuarentena conservadas; métricas de tareas y problemas de usabilidad documentados; `pnpm test`, `pnpm test:browser`, `pnpm test:demo`, `pnpm typecheck`, `pnpm build` y `sh scripts/ci.sh` verdes.
 
 **Condición de salida:** el resultado de UX-5 habilita presentar una experiencia local de alto nivel, pero **no** autoriza recursos remotos, documentos reales ni lanzamiento institucional sin los gates R1/R3.
 
@@ -234,7 +235,7 @@ Pruebas prioritarias:
 - UI/contratos: cero accesos al PDF original en cuarentena.
 - Navegador: desktop, Pixel móvil, 320 px + teclado; más matriz manual WebKit/Firefox al madurar.
 
-**Dependencia:** PR #7 entrega `pnpm demo:local`/`test:demo`, y estaba abierto con CI aprobada. UX-0 y UX-1 no dependen de fusionarlo; UX-2/3 deberían añadir este E2E cuando esté integrado, sin copiar lógica entre ramas.
+**Dependencia resuelta:** el [PR #7](https://github.com/DawoT/folio-civico/pull/7) integró `pnpm demo:local` y `pnpm test:demo` en `main` el 20 de noviembre de 2026. `scripts/ci.sh` incorpora su E2E Chromium contra `handleApiRequest` local, JWT firmados, SQLite y R2 simulado. Este ensayo **no** acredita Access/MFA ni Cloudflare Preview reales, scanner/OCR ni una sesión con participantes.
 
 ## 10. Decisiones excluidas deliberadamente
 
@@ -245,7 +246,7 @@ Pruebas prioritarias:
 - No mostrar PDF original en cuarentena, aunque un visor visual mejore la impresión de demo.
 - No condicionar el rediseño a OCR, Containers ni Preview, ni usar la demo para eludir controles de despliegue.
 
-## 11. Primer incremento autorizado de bajo riesgo
+## 11. Primer incremento autorizado de bajo riesgo (secuencia histórica)
 
 **UX-0 / DS-001**, en PR independiente, estrictamente frontend/documentación y sin cambios del API:
 1. Capturar baseline desktop/móvil, documentar 4 journeys y registrar tres fricciones prioritarias.
@@ -258,4 +259,35 @@ Pruebas prioritarias:
 
 ---
 
-**Estado del documento:** roadmap propuesto. Ninguna fase UX se declara implementada por el mero hecho de escribir este documento. La ejecución requerirá PRs separados con evidencia de pruebas.
+## 12. Estado de ejecución verificado (20 de noviembre de 2026)
+
+Este apartado prevalece sobre las referencias históricas a tickets «propuestos», al PR #7 «abierto» y a brechas previas que ya se implementaron. **Integrado en código** no significa **validado con usuarios** ni **aprobado para despliegue**.
+
+| Fase | Evidencia de implementación en `main` | Estado y deuda de aceptación |
+| --- | --- | --- |
+| **UX-0 / DS-001** | [Baseline](UX_BASELINE_2026-11-19.md), tokens semánticos y contratos; [PR #11](https://github.com/DawoT/folio-civico/pull/11) | Implementado; sin métricas temporales de personas ni presupuesto cuantificado de rendimiento. |
+| **UX-1 / DS-002** | Primitivas tipadas, campos, estados y migración gradual; [PR #12](https://github.com/DawoT/folio-civico/pull/12), [PR #14](https://github.com/DawoT/folio-civico/pull/14) | Implementado y automatizado; accesibilidad manual pendiente. |
+| **UX-2 / IA-001** | Navegación por tareas y resumen de comisión; [PR #15](https://github.com/DawoT/folio-civico/pull/15), [PR #18](https://github.com/DawoT/folio-civico/pull/18) | Implementado con límites: «para tu revisión» solo examina la primera página de 25 observaciones, no una cola global. |
+| **UX-3 / FLOW-001–003** | Bandeja contextual, evidencia, filtros y exportación con SHA-256; PR [#21](https://github.com/DawoT/folio-civico/pull/21), [#22](https://github.com/DawoT/folio-civico/pull/22), [#23](https://github.com/DawoT/folio-civico/pull/23), [#25](https://github.com/DawoT/folio-civico/pull/25); demo [#7](https://github.com/DawoT/folio-civico/pull/7) | Implementado; recorrido con API real **local** verificado, sin equivalencia a E2E Cloudflare/Access remoto. |
+| **UX-4 / FINISH-001** | Jerarquía, formularios, reflujo, contraste emulado y estados documentales; PR [#26](https://github.com/DawoT/folio-civico/pull/26), [#27](https://github.com/DawoT/folio-civico/pull/27), [#30](https://github.com/DawoT/folio-civico/pull/30), [#31](https://github.com/DawoT/folio-civico/pull/31) | Implementado y cubierto por pruebas; quedan NVDA, VoiceOver, zoom real y contraste nativo. |
+| **UX-5.1–5.5 / QA-001** | [Aceptación sintética](UX5_PILOT_ACCEPTANCE.md), [protocolo moderado](UX5_MODERATED_STUDY.md), privacidad de agregados y escritura privada; PR [#33](https://github.com/DawoT/folio-civico/pull/33), [#34](https://github.com/DawoT/folio-civico/pull/34), [#36](https://github.com/DawoT/folio-civico/pull/36), [#39](https://github.com/DawoT/folio-civico/pull/39), [#42](https://github.com/DawoT/folio-civico/pull/42) | **Instrumentación aprobada; fase sin cierre humano.** No hay sesiones moderadas acreditadas, resultados humanos, ni auditoría manual de accesibilidad. |
+
+### Demo E2E local incorporada
+
+El [PR #7](https://github.com/DawoT/folio-civico/pull/7) quedó fusionado en `main@03a87d9` después de actualizar su rama contra `origin/main@e0fc8b1`. La misma rama completó `sh scripts/ci.sh` con **exit 0**: 476 pruebas Vitest, 210 de inspector Python (motores simulados), 33 del protocolo UX-5, 8 contratos de CI, 5 workerd, 129 Chromium con API sintética y **1 E2E Chromium de la demo con API real local**; TypeScript, compilaciones dry-run y migraciones D1 locales correctos. El reporte terminó con `CI PASSED`. No se utilizó GitHub Actions como criterio de integración.
+
+La demo verifica JWT firmados localmente, reglas del API, dos identidades distintas, cuarentena, decisión humana y exportación íntegra. D1 usa SQLite de prueba y R2 es un doble en memoria. **No** verifica identidad institucional, Access/MFA remoto, scanner, OCR, Containers ni documentos reales.
+
+### Gates pendientes antes de declarar «UX Premium validada»
+
+1. **UX-5.6 — investigación humana:** reclutar participantes autorizados, obtener consentimiento, usar solo datos sintéticos, observar los cuatro perfiles conforme a [UX5_MODERATED_STUDY.md](UX5_MODERATED_STUDY.md), registrar incidentes privados y corregir defectos reproducibles. Hasta entonces, éxito, satisfacción y tiempos humanos figuran como **no medidos**; no simular sesiones.
+2. **Accesibilidad manual:** ejecutar [UX4_ADVANCED_ACCESSIBILITY.md](UX4_ADVANCED_ACCESSIBILITY.md) con NVDA/Firefox, VoiceOver/Safari, zoom nativo 200–400 %, espaciado y alto contraste real, documentando entorno, resultado e issues. Axe/Chromium y `forced-colors` emulado no cierran este gate.
+3. **Métricas por tarea y rol:** 5–8 participantes repartidos entre perfiles permiten principalmente encontrar problemas cualitativos; el instrumento exige **al menos cinco intentos de cada tarea** para exponer tasas y medianas internas. Sin ese denominador no publicar porcentajes ni agregados inferibles. Las categorías críticas de confusión de estados bloquean el cierre.
+4. **Rendimiento y navegación:** establecer baseline reproducible de JS/Lighthouse con entorno declarado y presupuesto, y evaluar si una cola de revisiones completa necesita un agregado del backend. Nunca sustituir una cifra desconocida por cero.
+5. **Seguridad e institución:** cerrar por separado gates del inspector, retención, políticas de privacidad, Access/MFA, autorización y E2E remoto antes de cualquier Preview o producción. La fusión UX no levanta esos bloqueos.
+
+**Próximo punto de reanudación:** UX-5.6, sin construir nuevas métricas sintéticas ni presentar el piloto como aprobado. La coordinación y ejecución de sesiones humanas y lectores de pantalla requiere participantes/equipos autorizados; las correcciones derivadas deben pasar TDD y el CI local antes de integrarse.
+
+---
+
+**Estado del documento:** plan original conservado para trazabilidad, con seguimiento técnico actualizado. La aceptación UX Premium institucional permanece **pendiente**.

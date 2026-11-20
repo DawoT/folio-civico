@@ -25,7 +25,7 @@ TDD Red inicial: **6 pruebas fallaban** antes de la corrección y demostraron es
 - No hay transacción global entre el registro del cierre, R2, Queue, inspector y D1. Si el original ya llegó al inspector **antes** de un cierre tardío, esta corrección no retira los bytes; si un informe se admitió antes de cerrar, no lo deshace. La consulta reduce la ventana de envío y los triggers bloquean admisiones posteriores en D1.
 - La señal local `closed` procede de la tabla `commissions`, no del IdP ni del proveedor institucional. La segregación de permisos administrativos D1 sigue pendiente.
 - Cualquier consulta D1 fallida antes de inspeccionar **no** concede acceso. No se trata de un protocolo de revocación remoto ni de autorización de infraestructura.
-- El flujo normal sin cierre conserva el resultado de inspección `needs_review` y su auditoría en un único batch; las pruebas existentes deben mantenerse verdes.
+- El flujo normal sin cierre conserva el resultado de inspección `needs_review` y su auditoría en un único batch; las pruebas existentes deben mantenerse verdes. [P10](R2_ATOMIC_INSPECTION_AUDIT.md) añade la condición de `changes()=1` en el `INSERT` de auditoría para impedir eventos duplicados si otra transacción confirma antes del batch, aunque la comisión siga activa.
 
 ## Comprobación
 
