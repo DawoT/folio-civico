@@ -126,7 +126,10 @@ describe("R2.5 · one-shot manual redrive, no active API/Cloudflare bindings",()
       const first=await executeOneShotManualRedrive(f.env,f.input(reviewId));
       expect(first).toMatchObject({state:"sent",replayed:false});
       expect(first.id).toMatch(/^[0-9a-f-]{36}$/);
-      expect(f.sent).toEqual([{kind:"folio.process.pdf",versionId:"version_a",sourceSha256:SHA}]);
+      expect(f.sent).toEqual([{
+        kind:"folio.process.pdf",versionId:"version_a",sourceSha256:SHA,
+        manualRedriveId:first.id
+      }]);
       const repeated=await executeOneShotManualRedrive(f.env,f.input(reviewId));
       expect(repeated).toEqual({...first,replayed:true});
       expect(f.queue.send).toHaveBeenCalledOnce();
