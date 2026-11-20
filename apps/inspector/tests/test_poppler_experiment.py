@@ -1,9 +1,11 @@
 """Guardrails for a separately tagged, non-deployable Poppler experiment."""
 from pathlib import Path
 import subprocess
+import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / "apps" / "inspector"))
 
 
 class ExperimentalPopplerPolicyTests(unittest.TestCase):
@@ -20,7 +22,8 @@ class ExperimentalPopplerPolicyTests(unittest.TestCase):
             "-DENABLE_NSS3=OFF",
             "-DENABLE_UTILS=ON",
             "COPY --from=poppler_builder",
-            "FROM folio-civico-inspector:ocr-integrated",
+            "ARG POPPLER_BASE_IMAGE=scratch",
+            "FROM ${POPPLER_BASE_IMAGE}",
             "poppler-utils libpoppler147",
             "libgssapi-krb5-2",
             "ldconfig",
@@ -32,6 +35,7 @@ class ExperimentalPopplerPolicyTests(unittest.TestCase):
         self.assertNotIn("sid",source)
         self.assertNotIn("unstable",source)
         self.assertNotIn("FROM folio-civico-inspector:validation",source)
+        self.assertNotIn("FROM folio-civico-inspector:ocr-integrated",source)
         self.assertIn('linked="$(ldd "/opt/folio-poppler/bin/$binary")"',source)
         self.assertNotIn('! ldd "',source)
         self.assertIn('libgpgme|libnss3',source)
@@ -105,6 +109,11 @@ class ExperimentalPopplerPolicyTests(unittest.TestCase):
         self.assertNotIn("docker push",script)
         self.assertNotIn("wrangler deploy",script)
         self.assertIn('linked="$(ldd "$resolved")"',script)
+        self.assertIn('--build-arg "POPPLER_BASE_IMAGE=$BASE_PIN"',script)
+        self.assertIn('BASE_PIN="folio-civico-inspector@$BEFORE"',script)
+        self.assertIn('EXPERIMENT_ID="$(docker image inspect',script)
+        self.assertEqual(script.count("docker run --rm --pull never"), 2)
+        self.assertIn("experiment_image_changed",script)
         self.assertIn('if dpkg-query -W "$package"',script)
         self.assertNotIn('! ldd "',script)
         self.assertNotIn('! dpkg-query -W',script)
