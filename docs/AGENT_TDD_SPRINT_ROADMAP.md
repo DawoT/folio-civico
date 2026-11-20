@@ -1,6 +1,6 @@
 # Folio Cívico — Roadmap integral TDD para ejecución por agentes de IA
 
-**Fecha y huso:** 2026-11-20, America/Lima. **Snapshot de planificación:** `origin/main@e2026647fb69acca211466ffa149f048d81115ee`. **Tipo:** plan de entrega y aceptación; NO autorización de Preview, procesamiento de datos reales, gastos ni despliegue. **Identidad de producto:** «Evidencia para una transferencia ordenada». No es el sistema ni el acta oficial de la Contraloría.
+**Fecha y huso:** 2026-11-20, America/Lima. **Snapshot inicial de auditoría:** `origin/main@e2026647fb69acca211466ffa149f048d81115ee`. **Reconciliación al integrar:** rama sincronizada con `origin/main@2ba6baeb3c1b176f9bafa5d3bec60a065b720fc9`; mantener el SHA de cada validación por separado. **Tipo:** plan de entrega y aceptación; NO autorización de Preview, procesamiento de datos reales, gastos ni despliegue. **Identidad de producto:** «Evidencia para una transferencia ordenada». No es el sistema ni el acta oficial de la Contraloría.
 
 ## 0. Regla de uso y realidad comprobada
 
@@ -10,7 +10,7 @@ Este documento complementa (no reemplaza ni reescribe sin revisión) `docs/EXECU
 - React, API protegida, D1/SQLite, R2 simulado, gestión de comisiones/miembros, checklist, PDF en cuarentena, observaciones, validación humana por un revisor distinto, exportación interna JSON y MCP de lectura. La cadena documental incluye outbox, Processor, Gateway y Container/inspector como código; bindings remotos intencionadamente inactivos.
 - `pnpm test`: **515/515** Vitest en 82 archivos (snapshot de este plan). `pnpm test:demo`: **1/1** Chromium con UI real, API de aplicación real, JWKS/JWT RS256 de pruebas y SQLite/R2 simulados. La prueba de navegador con API ficticia también existe; NO se debe confundir ninguna con E2E de Access/D1/R2/Queue/Container remotos.
 - En revisiones anteriores auditadas: `pnpm typecheck`, `pnpm build` (Workers dry-run), 119 pruebas de Python y 5 workerd aprobados; GitHub Actions sobre `main` con CI verde en al menos la ejecución #44767516827. Estos números son instantáneas, no un certificado permanente.
-- `main` **no cuenta con protección de rama en GitHub** al corte (API respondió HTTP 404 para branch protection). El PR **#65** instrumenta PERF-004 (en curso) y el PR **#67** corrige la aceptación en React de un JSON de exportación con hash recalculado pero estructura inválida (en curso). No duplicar ni sobreescribir sus cambios.
+- `main` **no cuenta con protección de rama en GitHub** al corte (API respondió HTTP 404 para branch protection). El PR **#65** (PERF-004) y el PR **#67** (validación estructural de exportación rehasheada en React) ya se encuentran **fusionados en `main`** al reconciliar esta planificación. No duplicar ni sobreescribir sus cambios.
 - Ausentes en Wrangler activo: Access real (vars vacías), UUID D1 real, Queue+cron, Container binding; el conector Preview no está configurado. Workers Folio Cívico consultados no existen en la cuenta inspeccionada. `/health` es liveness, no readiness.
 - Scanner ClamAV/qpdf/Poppler/Tesseract **sí implementado** y ensayado localmente; imagen final **NO aprobada** por gate de CVE/procedencia. OCR solo se invoca si `pdftotext` devuelve texto vacío en la página; hay riesgo de perder partes de páginas mixtas. El visor actual muestra texto inspeccionado, NO PDF saneado. No se encontró integración productiva LLM/RAG. Exportación JSON SHA-256 no demuestra autenticidad institucional y no hay DOCX oficial.
 
@@ -39,7 +39,7 @@ Este documento complementa (no reemplaza ni reescribe sin revisión) `docs/EXECU
 
 **Plantilla obligatoria por ticket:** `ID`, `Outcome`, `Evidence@SHA`, `Dependencies`, `Owner/context`, `Touched paths`, `RED command and expected failure`, `GREEN minimum`, `Acceptance/negative cases`, `Proof links`, `Rollback`, `External approval`, `Status`. Campos desconocidos: `not_verified`, no suposiciones.
 
-**Concurrencia:** máximo un escritor por superficie de dominio/SQL/migración. Toda PR se revalida tras actualizar con el último `main`. No cherry-pick de experimentos CVE al runtime sin análisis independiente. Los PR #65 y #67 tienen prioridad de reconciliación.
+**Concurrencia:** máximo un escritor por superficie de dominio/SQL/migración. Toda PR se revalida tras actualizar con el último `main`. No cherry-pick de experimentos CVE al runtime sin análisis independiente. Los PR #65 y #67 ya fueron integrados; preservar sus tests y verificar que siguen verdes en el último `main`.
 
 ## 3. Gates de calidad que bloquean progresión
 
@@ -62,7 +62,7 @@ Las dependencias son gates, no fechas. Si falta aprobación externa o el runtime
 | Sprint | Objetivo demostrable | Dependencias | Resultado/gate |
 | --- | --- | --- | --- |
 | S00 | Congelar baseline, normalizar PR y protección `main` | Ninguna | G0 y G1 en SHA base |
-| S01 | Cerrar contratos y defectos de integridad en producto actual | S00, PR #67 | Regresiones de autorización/export/idempotencia |
+| S01 | Cerrar contratos y defectos de integridad en producto actual | S00, contrato export ya integrado | Regresiones de autorización/export/idempotencia |
 | S02 | Threat model, seguridad app/supply chain y gates CI | S00 | Inventario ASVS, seguridad automatizada sin falsos passes |
 | S03 | Inspector: CVE/procedencia, motores y firmas, parte A | S02 | G2 **pendiente hasta aprobar** |
 | S04 | Preview aislado para piloto **manual y sintético** | S01, S02, autorización externa | Release A, G3 parcial |
@@ -80,7 +80,7 @@ Las dependencias son gates, no fechas. Si falta aprobación externa o el runtime
 
 - **S00-01:** fijar SHA, inventario de módulos/rutas, matriz implementado/probado-local/probado-remoto y ADR vigentes; detectar docs obsoletas sin borrar su historial. Prueba RED: contraejemplos de estado declarado «deployed» cuando Wrangler/Cloudflare no muestran recursos; GREEN: informe de estado referenciado a SHA.
 - **S00-02:** configurar branch protection/ruleset para `main`: status check real, PR obligatorio, aprobación sin self-bypass, protección de force push y configuración de mínimo privilegio. Requiere autorización de administrador del repositorio; prueba con PR deliberadamente rojo que **no puede** fusionarse.
-- **S00-03:** verificar y reconciliar PR #67 (export client structural gate) y #65 (PERF-004). No volver a implementar su alcance. RED: export rehasheado inválido no debe descargar ni afirmar integridad; GREEN: tests de PR + CI tras sincronización.
+- **S00-03:** verificar que PR #67 (export client structural gate) y #65 (PERF-004) permanecen integrados y probados tras sincronizar `main`. No volver a implementar su alcance. RED: export rehasheado inválido no debe descargar ni afirmar integridad; GREEN: tests de contrato y CI tras sincronización.
 - **Salida:** base reproducible, rama protegida, backlog sin duplicidades ni discrepancias de estado.
 
 ### S01 — Confiabilidad del núcleo institucional (P0/P1)
@@ -197,7 +197,7 @@ Registrar por sprint y SHA: CI local verde, tipo de E2E (mock/local-real/Preview
 
 - **TICKET S00-01 (docs/CI):** inventario a HEAD, cierre de divergencias de estado y mapa de pruebas, sin tocar runtime; adjuntar SHA + outputs. Primer entregable del roadmap.
 - **TICKET S00-02 (GitHub/admin, requiere titular):** proteger `main`; verificar con PR rojo no fusionable; no forzar políticas desde conectores sin autorización.
-- **TICKET S00-03 (integración):** seguir #65 y #67, evitar duplicación, comprobar CI y resolver conflictos con `main`.
+- **TICKET S00-03 (integración):** verificar la integración ya realizada de #65 y #67, evitar duplicación y comprobar CI tras cambios nuevos.
 - **TICKET S01-01 (API):** TDD sobre respuesta idempotente después de `ready`; conservar identidad/hash y contrato de estado.
 - **TICKET S02-01 (seguridad):** threat model sobre código y matriz ASVS 5.0 con pruebas negativas, sin forzar activación del inspector.
 - **TICKET S03-01 (imagen):** reconciliar SBOM/CVE real de imagen candidata, procedencia, modelos OCR y gate, con estado `blocked` mientras no se apruebe.
