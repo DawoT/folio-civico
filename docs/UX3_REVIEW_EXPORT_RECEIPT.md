@@ -17,7 +17,7 @@ Se incorpora `ReviewExportPanel` en la región `#informes`, con estados discrimi
 | `verified` | Presenta el SHA-256, cantidad de decisiones internas incluidas, nombre del archivo solicitado y copia de huella. |
 | `error` | Anuncia error, omite recibo/digest anterior y ofrece «Reintentar exportación» sin desbloquear contenido fallido. |
 
-El servidor y la función `loadVerifiedReviewReport` existente siguen validando identidad de comisión, integridad SHA-256 del payload, esquema, `completeness.truncated === false`, conteo y estados de las observaciones. **El frontend crea el Blob solamente después de esa validación**. No se incorporan endpoints ni bibliotecas nuevas.
+El servidor y `loadVerifiedReviewReport` validan la identidad de la comisión, integridad SHA-256 del payload, esquema, completitud, registros únicos, separación de autores y revisores, campos de justificación y evidencia tipada vinculada a la comisión. El validador estructural puro se comparte con el CLI offline; evita que un informe con huella recalculada pero estructura inválida se descargue como válido. **El frontend crea el Blob solamente después de esa validación**. No se incorporan endpoints ni bibliotecas nuevas.
 
 ### Precisión documental
 

@@ -1,3 +1,5 @@
+import { isValidReviewExportPayload } from "../../../packages/domain/src/review-export-structure.mjs";
+
 export interface Scope {
   commissionId: string;
   batchId: string;
@@ -501,21 +503,12 @@ export async function loadVerifiedReviewReport(
   } catch {
     throw new ApiError(502, "El contenido de la exportación no es válido.");
   }
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new ApiError(502, "El contenido de la exportación no es válido.");
-  }
-  const data = payload as Record<string, unknown>;
-  const commission = data.commission as { id?: unknown } | undefined;
-  const completeness = data.completeness as { included?: unknown; truncated?: unknown } | undefined;
-  const observations = data.observations;
-  if (data.schemaVersion !== 1 || data.kind !== "internal_human_review"
-    || commission?.id !== commissionId || !Array.isArray(observations)
-    || completeness?.truncated !== false || completeness.included !== observations.length
-    || !observations.every(item => item && typeof item === "object"
-      && ["validated","dismissed"].includes(item.status))) {
+  // Keep the offline CLI and the browser on one structural contract: a
+  // rehashed, malformed dossier must never be presented as a verified download.
+  if (!isValidReviewExportPayload(payload) || payload.commission.id !== commissionId) {
     throw new ApiError(502, "La exportación está incompleta o corresponde a otra comisión.");
   }
-  return { file: JSON.stringify(report), sha256: digest, count: observations.length };
+  return { file: JSON.stringify(report), sha256: digest, count: payload.observations.length };
 }
 
 export interface ObservationTransitionInput {
