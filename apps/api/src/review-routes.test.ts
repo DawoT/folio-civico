@@ -95,6 +95,68 @@ describe("human review endpoints", () => {
     } finally {f.close();}
   });
 
+  it.each(["revoked","closed","observer"] as const)(
+    "does not acknowledge a committed draft when access becomes %s during D1.batch",
+    async(change)=>{
+      const f=fixture();
+      const input={title:"Búsqueda documentada",description:"Se revisó el lote sin localizar la documentación",
+        checklistItemId:"item_a",batchId:"b_a"};
+      try{
+        let committed=false;
+        const raced={
+          prepare:f.db.prepare.bind(f.db),
+          async batch(statements:D1PreparedStatement[]){
+            const results=await f.db.batch(statements);
+            committed=true;
+            if(change==="revoked"){
+              f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='c_a' AND subject='alice'");
+            }else if(change==="closed"){
+              f.sqlite.exec("UPDATE commissions SET status='closed' WHERE id='c_a'");
+            }else{
+              f.sqlite.exec("UPDATE commission_members SET role='observer' WHERE commission_id='c_a' AND subject='alice'");
+            }
+            return results;
+          }
+        } as D1Database;
+        const result=await handleReviewRequest(post(input),{DB:raced},"alice","c_a","drafts");
+        expect(committed).toBe(true);
+        expect(result.status).toBe(403);
+        expect(await result.json()).toEqual({error:"Forbidden"});
+        expect(result.headers.get("Cache-Control")).toBe("no-store");
+        for(const table of ["observations","observation_evidence","audit_events"]){
+          expect(f.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toEqual({n:1});
+        }
+      }finally{f.close();}
+    }
+  );
+
+  it("does not announce a committed draft after the final D1 authorization query fails",async()=>{
+    const f=fixture();
+    try{
+      let committed=false;
+      const raced={
+        prepare(sql:string){
+          if(committed && sql.includes("SELECT c.id, c.name, c.status, m.role")){
+            throw new Error("PRIVATE_D1_AFTER_DRAFT_COMMIT");
+          }
+          return f.db.prepare(sql);
+        },
+        async batch(statements:D1PreparedStatement[]){
+          const results=await f.db.batch(statements);
+          committed=true;
+          return results;
+        }
+      } as D1Database;
+      const result=await handleReviewRequest(post({title:"No ubicado",description:"Búsqueda documentada",
+        checklistItemId:"item_a",batchId:"b_a"}),{DB:raced},"alice","c_a","drafts");
+      expect(committed).toBe(true);
+      expect(result.status).toBe(503);
+      expect(await result.json()).toEqual({error:"Request could not be completed"});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM observations").get()).toEqual({n:1});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:1});
+    }finally{f.close();}
+  });
+
   it("creates an unvalidated search-scope draft with server-issued reviewer and timestamp", async () => {
     const f=fixture();
     try {

@@ -111,7 +111,6 @@ export async function handleDocumentRequest(
         commissionId, batchId, subject, documentId, versionId,
         sha256: pdf.sha256, r2Key, filename: pdf.filename, idempotencyKey: pdf.idempotencyKey
       });
-      return documentResult(documentId, versionId, pdf.sha256, "pending", false);
     } catch {
       // Resolve a concurrent retry before declaring failure; only the second object is deleted.
       let concurrent: Awaited<ReturnType<typeof getExistingUpload>> = null;
@@ -137,6 +136,11 @@ export async function handleDocumentRequest(
       }
       return json({ error: "Unable to register document" }, 503);
     }
+    // D1 has committed the document, version, audit and outbox. Never run
+    // the failed-insert R2 cleanup if this final permission query fails:
+    // deleting the object here would corrupt an already-durable upload.
+    const denied = await finalAccessFence(env, subject, commissionId, batchId, "draft");
+    return denied ?? documentResult(documentId, versionId, pdf.sha256, "pending", false);
   } catch (error) {
     if (error instanceof PdfValidationError) return json({ error: error.message }, error.status);
     if (error instanceof Error && error.message === "Forbidden") {
