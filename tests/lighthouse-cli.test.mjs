@@ -47,6 +47,17 @@ describe("PERF-003 Lighthouse CLI report integrity and safe process diagnostics"
     }
   });
 
+  it("replaces arbitrary ERR_ codes with a generic non-identifying marker",async()=>{
+    let message="";
+    try{
+      await fixture(
+        "console.error('ERR_PRIVATE_SESSION_TOKEN');process.exit(0);"
+      );
+    }catch(error){ message=error.message; }
+    expect(message).toContain("node-error");
+    expect(message).not.toMatch(/PRIVATE_SESSION_TOKEN|ERR_PRIVATE/);
+  });
+
   it("fails on an empty or corrupt JSON report even if the child exits 0",async()=>{
     await expect(fixture(
       "require('node:fs').writeFileSync(process.argv[1],'');process.exit(0)"

@@ -2,7 +2,6 @@
  * PERF-003: pinned Lighthouse mobile profile over the built frontend, locally.
  * No remote service, no institutional data, no synthetic user-performance claim.
  */
-import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -11,8 +10,9 @@ import { setTimeout as delay } from "node:timers/promises";
 import { chromium } from "@playwright/test";
 import { enforceFrontendBudget } from "./check-frontend-budget.mjs";
 import { runLighthouseCli, localLighthouseInvocation } from "./lighthouse-cli.mjs";
+import { startLighthousePreview } from "./lighthouse-preview.mjs";
 import {
-  summarizeLighthouseRuns, validateLighthousePort, extractOwnVitePreviewUrl
+  summarizeLighthouseRuns, validateLighthousePort
 } from "./lighthouse-lab-metrics.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -32,42 +32,16 @@ const profile = Object.freeze({
 });
 
 function startPreview() {
-  return new Promise((resolveReady, rejectReady) => {
-    // Launch the installed Vite binary directly to own the exact process.
-    // --strictPort and a verified own startup marker prevent stale-server reuse.
-    const viteBin = join(web, "node_modules/vite/bin/vite.js");
-    const child = spawn(process.execPath, [
-      viteBin, "preview", "--host", "127.0.0.1", "--port", String(requestedPort), "--strictPort"
-    ], { cwd: web, stdio: ["ignore", "pipe", "pipe"] });
-    let output = "";
-    let settled = false;
-    const timer = setTimeout(() => finish(new Error("Vite preview startup timed out")), 25_000);
-    function finish(error, ownedUrl) {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (error) {
-        child.kill("SIGTERM");
-        rejectReady(error);
-      } else resolveReady({ child, url: ownedUrl });
-    }
-    function observe(data) {
-      output = (output + data.toString()).slice(-8000);
-      const ownedUrl = extractOwnVitePreviewUrl(output);
-      if (!ownedUrl) return;
-      if (requestedPort !== 0 &&
-          ownedUrl !== `http://127.0.0.1:${requestedPort}/`) {
-        finish(new Error("Vite preview returned an unexpected loopback port"));
-        return;
-      }
-      finish(null, ownedUrl);
-    }
-    child.stdout.on("data", observe);
-    child.stderr.on("data", observe);
-    child.once("error", error => finish(error));
-    child.once("exit", code => {
-      if (!settled) finish(new Error("Vite preview stopped before ready (" + code + "): " + output.slice(-1300)));
-    });
+  // Preserve the OS-assigned port / explicit strict port behavior of PERF-003.
+  // Only the spawned process' own Vite Local: marker may select the URL.
+  const viteBin = join(web, "node_modules/vite/bin/vite.js");
+  return startLighthousePreview({
+    command:process.execPath,
+    args:[viteBin, "preview", "--host", "127.0.0.1",
+      "--port", String(requestedPort), "--strictPort"],
+    cwd:web,
+    expectedUrl:requestedPort===0?undefined:`http://127.0.0.1:${requestedPort}/`,
+    timeoutMs:25_000
   });
 }
 
