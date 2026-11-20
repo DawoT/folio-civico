@@ -106,6 +106,8 @@ async function recordUnsafeInspection(db:D1Database,versionId:string,commissionI
             AND c.id=? AND c.status='active'
         )
     `).bind(versionId,commissionId),
+    // Audit only the preceding UPDATE's actual transition within D1.batch.
+    // A concurrent winning 422 must not generate two rejection events.
     db.prepare(`
       INSERT INTO audit_events(id,commission_id,actor_subject,action,resource_type,resource_id,metadata_json)
       SELECT ?,d.commission_id,'inspector:isolated','document.inspection_rejected','document_version',v.id,
@@ -114,7 +116,7 @@ async function recordUnsafeInspection(db:D1Database,versionId:string,commissionI
       JOIN documents d ON d.id=v.document_id
       JOIN commissions c ON c.id=d.commission_id
       WHERE v.id=? AND v.extraction_status='needs_review'
-        AND c.id=? AND c.status='active'
+        AND c.id=? AND c.status='active' AND changes()=1
     `).bind(crypto.randomUUID(),versionId,commissionId)
   ]);
   if(result.some(item=>!item.success || item.meta.changes!==1)){

@@ -195,12 +195,15 @@ export async function publishInspectedText(
         AND EXISTS (SELECT 1 FROM document_processing_reports r
                     WHERE r.document_version_id=document_versions.id AND r.manifest_sha256=?)
     `).bind(input.pages.length,input.documentVersionId,manifestSha256),
+    // D1.batch runs statements in order on the same SQLite connection.
+    // changes() binds the audit to the immediately preceding ready UPDATE:
+    // a losing concurrent consumer must not forge a second admission event.
     db.prepare(`
       INSERT INTO audit_events(id,commission_id,actor_subject,action,resource_type,resource_id,metadata_json)
       SELECT ?,d.commission_id,?,'document.inspected_text_admitted','document_version',v.id,
         json_object('scanner',?,'reportId',?,'pages',?)
       FROM document_versions v JOIN documents d ON d.id=v.document_id
-      WHERE v.id=? AND v.extraction_status='ready'
+      WHERE v.id=? AND v.extraction_status='ready' AND changes()=1
     `).bind(crypto.randomUUID(),"inspector:"+input.scanner,
       input.scanner,input.scannerReportId,input.pages.length,input.documentVersionId)
   ];
