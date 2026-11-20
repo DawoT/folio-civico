@@ -81,3 +81,30 @@ Ambos flujos son offline: no PDFs institucionales, OCI, nube,
 migraciones remotas ni cambios en imágenes `validation`. La
 investigación no altera el gate de seguridad. Véase el
 [dossier R1.16](../../../docs/SECURITY_POPPLER_ADVERSARIAL_DIFFERENTIAL_2026-11-19.md).
+
+
+## R1.17 · Método Splash real y PDFs JBIG2/TrueType (SOLO INVESTIGACIÓN)
+
+`splash_clip_method_probe.cc` compila y ejecuta el método auténtico
+`SplashClip::clipToPath` a partir de los archivos fuente Debian originales
+y con los cinco prototipos R1.13. El método reproduce UBSan en
+`yMinAA` solamente en el original, mientras que **`yMaxAA` continúa
+desbordándose en ambas versiones**. Esta ejecución C++ directa **NO** pasa
+por un PDF ni certifica `CVE-2026-102621`.
+
+`run_reachability_differential.sh` reutiliza las dos compilaciones
+independientes, SHA-pinned, instrumentadas y aisladas de R1.16. Compila
+`pdftops` para procesar una fuente TrueType sintética de dos glifos
+(`folio_r117_synthetic_ttf.b64`, SHA-256 validado por el orquestador).
+`run_reachability_cases.sh` comprueba 3 rechazos de páginas JBIG2
+de dimensiones inválidas, 2 conversiones Type42 y 6 condiciones del
+método Splash. Todos los resultados se verifican *fuera* del contenedor
+por `../poppler_reachability_probe.py`; reportes falsificados o incompletos
+provocan `exit 3`.
+
+El valor del método es caracterizar mejor las rutas y sus precondiciones,
+**no atribuir correcciones CVE**. La ruta JBIG2 de puntero nulo sigue sin
+reproducirse, así como el overflow de glyph/loca TrueType. La exención
+`vptr` R1.15 tampoco afecta a estas compilaciones. Véase
+[el dossier R1.17](../../../docs/SECURITY_POPPLER_METHOD_REACHABILITY_2026-11-19.md).
+Sin imagen operativa, OCI, despliegue, VEX ni PDF institucional.
