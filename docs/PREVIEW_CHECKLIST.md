@@ -59,7 +59,9 @@ pnpm exec wrangler d1 migrations apply folio-civico-preview --local --config app
 
 Todo debe terminar con código 0. El `build` actual usa `wrangler deploy --dry-run`; no publica Workers.
 
-Tras verificar una cuenta, Access y los recursos remotos exclusivos, realizar una prueba con **solo datos sintéticos**, incluido: JWT válido y expirado, membresías revocadas, lectura cross-tenant (404), PDF en cuarentena inaccesible, no duplicación de POST, revisión por dos personas y auditoría. Comparar versiones de esquemas aplicadas con las migraciones versionadas y verificar rollback/backup.
+Tras verificar una cuenta, Access y los recursos remotos exclusivos, realizar una prueba con **solo datos sintéticos**, incluido: JWT válido y expirado, membresías revocadas, lectura cross-tenant (404), PDF en cuarentena inaccesible, no duplicación de POST, revisión por dos personas y auditoría.
+
+**Comprobación de disponibilidad con alcance limitado (S01-03):** `GET /health` es únicamente *liveness* pública del Worker: responde `ok` aunque D1, R2 o el inspector no estén listos. `GET /api/readiness/core` requiere un JWT Access firmado cuyo `sub` coincida con `COMMISSION_BOOTSTRAP_OPERATOR_SUBJECT` expresamente configurado; comprueba consulta D1 y presencia de cinco tablas nucleares y responde `{"status":"ready","scope":"api-core"}` con 200, o 401/403/503 sin exponer SQL ni secretos. **Nunca** interpretar esa respuesta como autorización de R2, Queue, Container, OCR, MFA, OAuth, recepción de datos reales ni readiness integral del producto. El endpoint no es un monitor público ni sustituye el E2E remoto o el gate de imagen. Comparar versiones de esquemas aplicadas con las migraciones versionadas y verificar rollback/backup.
 
 No usar una migración remota desde CI hasta disponer de controles explícitos de aprobación, copia de seguridad y verificación.
 
