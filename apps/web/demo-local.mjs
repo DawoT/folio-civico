@@ -10,9 +10,10 @@ import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer as createViteServer } from "vite";
+import { resolveDemoPort } from "./demo-port.mjs";
 
 const HOST = "127.0.0.1";
-const PORT = 4176;
+const PORT = resolveDemoPort(process.env.FOLIO_DEMO_PORT);
 const ORIGIN = `http://${HOST}:${PORT}`;
 const ISSUER = "https://folio-demo-local.cloudflareaccess.com";
 const AUDIENCE = "folio-civico-synthetic-demo";

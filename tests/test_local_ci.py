@@ -79,6 +79,15 @@ class LocalCiContractTests(unittest.TestCase):
         self.assertNotIn("CI PASSED", result.stdout)
         self.assertFalse(any("d1 migrations" in call for call in self.calls()))
 
+    def test_demo_uses_fresh_server_and_configurable_loopback_port(self):
+        """An existing demo process must never satisfy the local CI gate."""
+        config = (ROOT / "playwright.demo.config.ts").read_text(encoding="utf-8")
+        server = (ROOT / "apps/web/demo-local.mjs").read_text(encoding="utf-8")
+        self.assertIn("reuseExistingServer: false", config)
+        self.assertIn("resolveDemoPort(process.env.FOLIO_DEMO_PORT)", config)
+        self.assertIn("resolveDemoPort(process.env.FOLIO_DEMO_PORT)", server)
+        self.assertNotIn("reuseExistingServer: !process.env.CI", config)
+
     def test_demo_failure_blocks_database_steps_and_success(self):
         self.env["CI_FAIL_STEP"] = "test:demo"
         result = self.run_ci()

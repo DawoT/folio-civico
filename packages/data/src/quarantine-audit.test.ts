@@ -3,9 +3,11 @@ import { makeD1 } from "../../../tests/helpers/d1";
 import { persistDocumentUpload } from "./documents";
 import { auditQuarantine, type QuarantineAuditOptions } from "./quarantine-audit";
 
-const old = new Date("2026-11-15T09:00:00.000Z");
-const recent = new Date("2026-11-22T11:00:00.000Z");
-const NOW = new Date("2026-11-22T12:00:00.000Z");
+// SQLite creates rows at the host clock; keep the synthetic audit clock far
+// enough ahead that its 48h cutoff never excludes rows just inserted by D1.
+const NOW = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+const old = new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000);
+const recent = new Date(NOW.getTime() - 60 * 60 * 1000);
 const DOC_KEY = "quarantine/11111111-1111-4111-8111-111111111111.pdf";
 const ORPHAN_KEY = "quarantine/22222222-2222-4222-8222-222222222222.pdf";
 const PENDING_KEY = "quarantine/33333333-3333-4333-8333-333333333333.pdf";

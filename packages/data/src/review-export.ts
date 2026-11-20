@@ -63,6 +63,15 @@ export async function collectFinalizedReviews(
     ORDER BY p.reviewed_at ASC, o.id ASC, e.created_at ASC, e.id ASC
   `).bind(commissionId, limit + 1, commissionId, subject).all<ExportRow>();
 
+  // The member may be revoked while D1 fetches the export rows. Checking
+  // membership inside that query alone is insufficient: an empty result
+  // would still expose the commission metadata fetched above, and a
+  // completed query could return sensitive rows after revocation.
+  // Recheck immediately before assembling the response, with no further
+  // asynchronous work between the authorization decision and return.
+  const currentCommission = await getCommissionSummary(db, subject, commissionId);
+  if (!currentCommission) return null;
+
   const grouped = new Map<string, ExportedReview>();
   for (const row of result.results) {
     let record = grouped.get(row.id);
@@ -89,7 +98,7 @@ export async function collectFinalizedReviews(
   }
 
   return {
-    commission: { id: commission.id, name: commission.name, status: commission.status },
+    commission: { id: currentCommission.id, name: currentCommission.name, status: currentCommission.status },
     records: Array.from(grouped.values())
   };
 }
