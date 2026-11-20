@@ -83,8 +83,11 @@ La prueba unitaria específica incluye **nueve casos** que cubren resultados bue
   primera base; tras integrar los cambios UX5 recientes de `origin/main`,
   se repitió con **`FOLIO_E2E_PORT=43019`**, también **exit 0**:
   **190/190 tests Python del inspector, 129/129 Chromium**, 13 pruebas
-  de captura de estudio UX5, Vitest/workerd, typecheck, cinco builds
-  Workers `--dry-run` y migraciones D1 **solo locales** hasta `0029`.
+  de captura de estudio UX5, Vitest/workerd, typecheck y builds Workers
+  `--dry-run`. Tras fusionar otro cambio de `origin/main` (fencing de
+  comisiones), **`FOLIO_E2E_PORT=43039 sh scripts/ci.sh` volvió a
+  aprobar con exit 0**, incluidas las migraciones D1 **solo locales** hasta
+  `0030_processing_commission_closure_guard.sql` en API, MCP y processor.
   No se autoriza acceso a D1 remoto.
 - Auditoría experimental independiente:
   `bash apps/inspector/audit_image.sh --experiment --advisories`
