@@ -201,3 +201,25 @@ crashes y timeouts.
 **No se prueba alcanzabilidad desde PDF ni desde un renderer con límites
 válidos**, ni se aplica ningún parche a una imagen operativa o se cierra CVE.
 Véase [dossier R1.26](../../../docs/SECURITY_SPLASH_CLIPAALINE_REAL_BITMAP_BOUNDS_2026-11-20.md).
+
+
+## R1.27 · Splash constructors, ancho AA y bitmap Mono1 asignado (NO RELEASE)
+
+`splash_aa_width_constructor_probe.cc` prueba **ambos constructores C++ reales**
+de `Splash` y un bitmap `splashModeMono1` **realmente asignado**,
+de una sola fila: 536870919 píxeles de ancho / 67108865 bytes (~64 MiB).
+El caso ancho sin antialias construye correctamente, pero con
+`vectorAntialias=true` reproduce UBSan `536870919 * 4` en
+`Splash.cc:1454` y `Splash.cc:1476`. Los dos controles de tamaño
+normal pasan. **8/8 ejecuciones reales** con la biblioteca completa
+Poppler Debian reconstruida offline en CMake/Ninja (123 pasos) y
+ASan/UBSan. La prueba inicial con RGB8 fue rechazada porque la reserva
+falló antes de llegar a `Splash`.
+
+`../poppler_splash_aa_constructor_probe.py` valida huellas de fuente
+original y harness, compila `libpoppler.a` en tmpfs y exige los ocho
+resultados instrumentados. El verificador falla cerrado ante otras
+causas de error, source mismatches, archivos falsos o timeouts. La
+prueba es de API C++, **no** demuestra alcanzabilidad desde PDF,
+remediación CVE, equivalencia con runtime ni autorización de publicación.
+Véase [dossier R1.27](../../../docs/SECURITY_SPLASH_AA_CONSTRUCTOR_WIDTH_2026-11-20.md).
