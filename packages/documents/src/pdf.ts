@@ -1,5 +1,7 @@
 /** MVP intake cap: intentionally conservative until scanning and streaming OCR are ready. */
 export const MAX_PDF_BYTES = 8 * 1024 * 1024;
+/** Match the inspector gateway minimum; smaller PDF-like headers cannot be parsed. */
+export const MIN_PDF_BYTES = 12;
 
 export class PdfValidationError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -85,6 +87,11 @@ export async function readPdfUpload(request: Request): Promise<ValidatedPdf> {
   for (const chunk of chunks) {
     bytes.set(chunk, offset);
     offset += chunk.length;
+  }
+  // Do not register work the private inspection gateway cannot process.
+  // Keep the smallest admitted original aligned with that gateway contract.
+  if (total < MIN_PDF_BYTES) {
+    throw new PdfValidationError(422, "Truncated PDF header");
   }
   // Signature validation alone does not make a PDF safe; it remains quarantined.
   const header = new TextDecoder("ascii").decode(bytes.subarray(0, 8));

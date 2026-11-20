@@ -45,6 +45,23 @@ describe("authenticated PDF intake route", () => {
     } finally {f.close();}
   });
 
+  it("does not store or register a valid-looking but too-short PDF header",async()=>{
+    const f=fixture();
+    try{
+      const short=new TextEncoder().encode("%PDF-1.7");
+      const response=await handleDocumentRequest(
+        post("short_pdf_001",short),f.env,"alice","c_a","b_a"
+      );
+      expect(response.status).toBe(422);
+      expect(f.put).not.toHaveBeenCalled();
+      expect(f.objects.size).toBe(0);
+      expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM documents").get())
+        .toMatchObject({n:0});
+      expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM document_processing_outbox").get())
+        .toMatchObject({n:0});
+    }finally{f.close();}
+  });
+
   it("returns the original document on a retried idempotency key", async () => {
     const f=fixture();
     try {

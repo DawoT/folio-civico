@@ -136,6 +136,38 @@ describe("internal Cloudflare Container inspector gateway",()=>{
     expect(forward).not.toHaveBeenCalled();
   });
 
+  it("provides a signed terminal 422 for a previously quarantined short PDF",async()=>{
+    const forward=vi.fn(async()=>Response.json({unexpected:true}));
+    const short=new TextEncoder().encode("%PDF-1.7");
+    const result=await handleInspectorGatewayRequest(
+      await request({},short),env,forward
+    );
+    expect(result.status).toBe(422);
+    expect(result.headers.get("Content-Type")).toContain("application/json");
+    const signed=await result.json() as {verdict:UnsafeInspectionVerdict;signature:string};
+    expect(signed.verdict).toEqual({
+      kind:"folio.inspection.unsafe.v1",
+      documentVersionId:"version_01",
+      sourceSha256:await sha(short),
+      requestNonce
+    });
+    const key=await crypto.subtle.importKey("raw",new TextEncoder().encode(signingKey),
+      {name:"HMAC",hash:"SHA-256"},false,["verify"]);
+    const signature=new Uint8Array(signed.signature.match(/../g)!.map(x=>parseInt(x,16)));
+    expect(await crypto.subtle.verify(
+      "HMAC",key,signature,
+      new Uint8Array(serializeUnsafeInspectionVerdict(signed.verdict)).buffer
+    )).toBe(true);
+    expect(forward).not.toHaveBeenCalled();
+
+    const tampered=await handleInspectorGatewayRequest(
+      await request({"X-Folio-Source-Sha256":"f".repeat(64)},short),env,forward
+    );
+    expect(tampered.status).toBe(400);
+    expect(await tampered.text()).toBe("");
+    expect(forward).not.toHaveBeenCalled();
+  });
+
   it("caps payloads before forwarding and caps inspection responses after forwarding",async()=>{
     const forward=vi.fn(async()=>new Response("X".repeat(2*1024*1024+1),{
       status:200,headers:{"Content-Type":"application/json"}
