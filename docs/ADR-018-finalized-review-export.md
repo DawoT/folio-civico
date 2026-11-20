@@ -19,7 +19,7 @@ Permitir que un miembro activo de una comisión conserve **un expediente JSON de
 
 **SHA-256 solo verifica integridad de bytes respecto de una huella conservada independientemente. No autentica al emisor ni sustituye firma digital, sello de tiempo, acta de Contraloría o prueba de que el documento subyacente existió.** Si alguien cambia el fichero y su SHA-256, un digest por sí solo no impide ese reemplazo. El piloto necesitará una cadena de custodia institucional y firmas aprobadas antes de usos formales.
 
-Se protegen los datos a través de la misma identidad, membresía y aislamiento multicomisión de la API actual. Las respuestas no se cachean y no contienen claves de idempotencia, URLs R2, tokens, archivos PDF ni fuentes oficiales no habilitadas. No se crean eventos de auditoría falsos durante lecturas.
+Se protegen los datos a través de la misma identidad, membresía y aislamiento multicomisión de la API actual. [F3: revalidación tras consulta](F3_EXPORT_REVOCATION_FENCE.md) impide que una revocación intercalada durante la lectura de registros todavía produzca un archivo con metadatos de comisión o revisiones. Las respuestas no se cachean y no contienen claves de idempotencia, URLs R2, tokens, archivos PDF ni fuentes oficiales no habilitadas. No se crean eventos de auditoría falsos durante lecturas.
 
 ## Calidad verificada
 

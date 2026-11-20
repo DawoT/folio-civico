@@ -380,7 +380,12 @@ describe("R2 · actual signed API intake → durable outbox → synthetic Queue 
       expect((await dispatchProcessingOutbox(f.db,f.queue,new Date("2026-11-20T12:00:00.000Z"))).selected).toBe(0);
       expect(f.sqlite.prepare("SELECT state,attempts FROM document_processing_outbox").get())
         .toMatchObject({state:"sent",attempts:10});
-      const report=await auditProcessingBacklog(f.db,{now:new Date("2026-11-20T12:00:00.000Z")});
+      // D1 uses CURRENT_TIMESTAMP for the new outbox row. A fixed audit
+      // clock eventually predates that row and misclassifies it as corrupt.
+      const createdRow=f.sqlite.prepare("SELECT created_at FROM document_processing_outbox").get() as {created_at:string};
+      const createdAt=Date.parse(createdRow.created_at.replace(" ","T")+"Z");
+      const auditAt=new Date(Math.max(Date.parse("2026-11-20T12:00:00.000Z"),createdAt+60_000));
+      const report=await auditProcessingBacklog(f.db,{now:auditAt});
       expect(report).toMatchObject({exhausted:1,needsAttention:true,completed:0});
       expect(f.sqlite.prepare("SELECT count(*) AS n FROM document_processing_reports").get())
         .toMatchObject({n:0});

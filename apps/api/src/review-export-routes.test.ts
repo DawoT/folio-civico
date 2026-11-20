@@ -85,6 +85,43 @@ describe("finalized observations export API",()=>{
     }
   });
 
+  it("returns 404 without exporting committee metadata when membership is revoked mid-query",async()=>{
+    const f=fixture();
+    try{
+      await finalized(f.db);
+      let revoked=false;
+      const db={
+        prepare:(sql:string)=>{
+          const statement=f.db.prepare(sql);
+          if(!sql.includes("WITH picked AS"))return statement;
+          return {
+            bind:(...values:Parameters<typeof statement.bind>)=>{
+              const bound=statement.bind(...values);
+              return {
+                all:async()=>{
+                  const rows=await bound.all();
+                  f.sqlite.prepare(
+                    "UPDATE commission_members SET active=0 WHERE commission_id='commission_a' AND subject='reader'"
+                  ).run();
+                  revoked=true;
+                  return rows;
+                }
+              };
+            }
+          };
+        }
+      } as unknown as D1Database;
+      const response=await handleReviewExportRequest(new Request(base),{DB:db},"reader","commission_a");
+      expect(revoked).toBe(true);
+      expect(response.status).toBe(404);
+      expect(response.headers.get("Content-Disposition")).toBeNull();
+      const body=await response.text();
+      expect(body).not.toContain("Comisión A");
+      expect(body).not.toContain("Expediente no ubicado");
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+    }finally{f.close();}
+  });
+
   it("denies cross-commission, revoked identities, mutation methods and filters",async()=>{
     const f=fixture();
     try {

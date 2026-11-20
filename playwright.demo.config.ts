@@ -1,4 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
+import { resolveDemoPort } from "./apps/web/demo-port.mjs";
+
+const demoPort = resolveDemoPort(process.env.FOLIO_DEMO_PORT);
+const demoOrigin = `http://127.0.0.1:${demoPort}`;
 
 /**
  * Actual API handler, RS256 Access-style JWTs, local D1 SQLite and in-memory
@@ -14,14 +18,14 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     ...devices["Desktop Chrome"],
-    baseURL: "http://127.0.0.1:4176",
+    baseURL: demoOrigin,
     trace: "retain-on-failure",
     screenshot: "only-on-failure"
   },
   webServer: {
     command: "pnpm demo:local",
-    url: "http://127.0.0.1:4176/__demo",
-    reuseExistingServer: !process.env.CI,
+    url: `${demoOrigin}/__demo`,
+    reuseExistingServer: false,
     timeout: 45_000
   }
 });
