@@ -41,6 +41,9 @@ pnpm typecheck
 step 'React build and Cloudflare Workers dry-runs'
 pnpm build
 
+step 'Frontend JS/CSS gzip transfer budget (built artifacts)'
+pnpm check:frontend-budget
+
 step 'Cloudflare workerd integration tests (local D1/R2)'
 pnpm test:workers
 
