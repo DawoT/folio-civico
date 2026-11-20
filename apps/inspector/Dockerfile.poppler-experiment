@@ -1,4 +1,6 @@
-# NON-DEPLOYABLE research image; base candidate and validation tags are immutable inputs.
+# NON-DEPLOYABLE research image; script must supply a named immutable digest.
+# Omitted build arg falls back to scratch and cannot pass the runtime RUN gates.
+ARG POPPLER_BASE_IMAGE=scratch
 # Experiment with Debian-patched Poppler 25.03.0, disabling network/PDF signature
 # backend features unused by the isolated local-PDF parser.
 FROM debian:trixie-slim AS poppler_builder
@@ -57,7 +59,7 @@ RUN cmake -S /src/poppler-25.03.0 -B /tmp/poppler-build -G Ninja \
 
 # Intentionally inherit the local candidate rather than modifying its Dockerfile
 # or replacing the existing candidate/validation image tags.
-FROM folio-civico-inspector:ocr-integrated
+FROM ${POPPLER_BASE_IMAGE}
 USER root
 COPY --from=poppler_builder /opt/folio-poppler /opt/folio-poppler
 # The Debian binaries depend on libcurl -> Kerberos. Remove ONLY the known
