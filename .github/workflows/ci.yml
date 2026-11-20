@@ -32,12 +32,16 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Run local CI contract
         run: sh scripts/ci.sh
+      # Upload only synthetic task-navigation evidence, never the full
+      # test-results tree (which may contain local-demo JWTs or API payloads).
       - name: Preserve synthetic Playwright failure evidence
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: folio-synthetic-playwright-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          name: folio-synthetic-task-navigation-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            test-results/
+            test-results/task-navigation-*/task-anchor-diagnostics.json
+            test-results/task-navigation-*/trace.zip
+            test-results/task-navigation-*/test-failed-*.png
           if-no-files-found: ignore
           retention-days: 3
