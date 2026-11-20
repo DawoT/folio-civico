@@ -55,3 +55,29 @@ a la fuente Debian original, más los controles R1.14 de raster y texto.
 `test_poppler_rtti_sanitizer.py` añade seis pruebas fail-closed.
 Véase [R1.15](../../../docs/SECURITY_POPPLER_RTTI_SANITIZER_2026-11-19.md).
 **No habilita CVE, imagen, OCR remoto, Preview ni producción.**
+
+
+## R1.16 · Comparación adversaria de fuente, NO de runtime
+
+Los nuevos artefactos `run_adversarial_differential.sh`,
+`run_adversarial_cases.sh` y
+`differential_arithmetic_boundaries.cc` son **exclusivamente de
+investigación**. El orquestador `../poppler_adversarial_differential.py`
+verifica los mismos SHA-256 de Debian y aplica los cinco parches solo a
+una segunda copia de fuente temporal. Compila **dos bibliotecas Poppler
+separadas** con ASan/UBSan (Debian original y prototipos), ejecuta PDFs
+sintéticos con límites de tamaño/tiempo y reporta el comportamiento
+observado sin cerrar CVE.
+
+El orquestador `../poppler_arithmetic_boundary_probe.py` verifica
+huellas fuente Debian exactas y compila un harness UBSan de operaciones
+equivalentes, **no de rutas reales del parser**. Contrasta cuatro
+operaciones aritméticas original/guardia y detecta riesgos todavía
+presentes en `SplashClip::yMaxAA` y la alineación de `FoFiTrueType`.
+No equiparar estos resultados con un PoC explotable ni afirmaciones
+de que el binario operativo esté corregido.
+
+Ambos flujos son offline: no PDFs institucionales, OCI, nube,
+migraciones remotas ni cambios en imágenes `validation`. La
+investigación no altera el gate de seguridad. Véase el
+[dossier R1.16](../../../docs/SECURITY_POPPLER_ADVERSARIAL_DIFFERENTIAL_2026-11-19.md).
