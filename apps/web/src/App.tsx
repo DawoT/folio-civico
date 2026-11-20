@@ -9,7 +9,7 @@ import { InlineAlert } from "./ui/InlineAlert";
 import { StatusBadge } from "./ui/StatusBadge";
 import { SelectField } from "./ui/Fields";
 import { Card } from "./ui/Card";
-import { EmptyState, LoadingState } from "./ui/FeedbackStates";
+import { DocumentListState } from "./ui/DocumentListState";
 import { TaskNavigation } from "./layout/TaskNavigation";
 import { CommissionOverview, summaryScopeKey, type ReviewSummary } from "./layout/CommissionOverview";
 
@@ -133,7 +133,18 @@ export function App() {
     return () => { alive = false; };
   }, [scope, refresh]);
 
-  const selected = documents.find((document) => document.id === selectedId) ?? null;
+  // Never retain the previous lot's evidence when a scope is changing, loading,
+  // or unavailable. The loaded scope key is the UI's freshness guard.
+  const documentsReady = scope !== null && !loading && !documentsFailed
+    && loadedDocumentScopeKey === summaryScopeKey(scope);
+  const selected = documentsReady
+    ? documents.find((document) => document.id === selectedId) ?? null
+    : null;
+  const documentListPhase = !scope ? "unselected"
+    : loading || (loadedDocumentScopeKey !== summaryScopeKey(scope) && !documentsFailed)
+      ? "loading"
+      : documentsFailed ? "failed"
+        : documentsReady && documents.length === 0 ? "empty" : null;
   const selectedCommission = commissions.find((item) => item.id === commissionId);
   // The opened scope may differ from an unsubmitted dropdown selection.
   const activeCommission = scope
@@ -333,7 +344,10 @@ export function App() {
                 <p className="eyebrow">01 · DOCUMENTACIÓN</p>
                 <h2 id="documents-title">Documentos del lote</h2>
               </div>
-              <span className="count">{documents.length}</span>
+              <span className="count" aria-label={
+                !documentsReady ? "Cantidad de documentos no disponible"
+                : `${documents.length} documentos en el lote`
+              }>{documentsReady ? documents.length : "—"}</span>
             </div>
 
             <form className="upload-form" onSubmit={upload}>
@@ -348,10 +362,10 @@ export function App() {
             </form>
 
             <div className="document-list" aria-live="polite">
-              {!scope && <EmptyState>Indica una comisión y un lote para consultar los documentos autorizados.</EmptyState>}
-              {scope && loading && <LoadingState>Consultando documentos…</LoadingState>}
-              {scope && !loading && documents.length === 0 && <EmptyState>No hay documentos disponibles para este lote.</EmptyState>}
-              {!loading && documents.map((document) => (
+              {documentListPhase && <DocumentListState phase={documentListPhase}
+                canUpload={Boolean(scope && canUpload)}
+                onRetry={()=>setRefresh(value=>value+1)}/>}
+              {documentsReady && documents.map((document) => (
                 <button className={document.id === selectedId ? "document-item selected" : "document-item"}
                   key={document.id} type="button" onClick={() => setSelectedId(document.id)}
                   aria-pressed={document.id === selectedId}>
@@ -399,8 +413,18 @@ export function App() {
             ) : (
               <div className="empty-evidence">
                 <div className="placeholder-art" aria-hidden="true"><span/><span/><span/></div>
-                <h3>Evidencia, no suposiciones</h3>
-                <p>Selecciona un documento para ver su versión, huella de integridad y estado de procesamiento.</p>
+                <h3>{!scope ? "Primero abre un lote"
+                  : loading || (!documentsFailed && !documentsReady) ? "Consultando evidencia"
+                    : documentsFailed ? "Evidencia no disponible" : "Evidencia, no suposiciones"}</h3>
+                <p>{!scope
+                  ? "Selecciona una comisión y un lote para comenzar la consulta autorizada."
+                  : loading || (!documentsFailed && !documentsReady)
+                    ? "La información del lote todavía se está consultando."
+                    : documentsFailed
+                      ? "No fue posible consultar los documentos. Reintenta desde el listado; no se ha verificado ninguna ausencia."
+                      : documents.length === 0
+                        ? "Todavía no hay documentos registrados para mostrar su versión, huella y estado."
+                        : "Selecciona un documento para ver su versión, huella de integridad y estado de procesamiento."}</p>
               </div>
             )}
           </Card>
