@@ -4,7 +4,27 @@
  * output (which could contain URLs, tokens, or environment secrets).
  */
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+
+/**
+ * Execute the locked workspace Lighthouse binary with Node directly.
+ * Avoid an extra pnpm process whose exit/pipes are not the Lighthouse child.
+ * The calling runner still validates every JSON report, timeout and origin.
+ */
+export function localLighthouseInvocation(root, flags) {
+  if (typeof root !== "string" || !root
+      || !Array.isArray(flags) || !flags.every(flag => typeof flag === "string")) {
+    throw new Error("Invalid local Lighthouse invocation");
+  }
+  const cli=join(root,"node_modules","lighthouse","cli","index.js");
+  try {
+    if (!statSync(cli).isFile()) throw new Error("Missing pinned CLI file");
+  } catch {
+    throw new Error("Pinned Lighthouse CLI unavailable");
+  }
+  return {command:process.execPath,args:[cli,...flags]};
+}
 
 const MAX_OUTPUT_BYTES = 7000;
 const ERROR_CODES = /\b(?:ENOENT|EACCES|EPERM|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|EPIPE|ERR_[A-Z0-9_]{2,36})\b/g;
