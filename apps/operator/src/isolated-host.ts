@@ -17,7 +17,7 @@ import {
   ManualRedriveConflictError,ManualRedriveInputError
 } from "../../../packages/data/src/manual-redrive";
 import type {ProcessingQueueMessage} from "../../../packages/data/src/processing-outbox";
-import {findInstitutionalEvidence,type InstitutionalEvidenceReceipt} from "../../../packages/data/src/institutional-approval-journal";
+import {findInstitutionalEvidence,isInstitutionalApprovalInvalidated,type InstitutionalEvidenceReceipt} from "../../../packages/data/src/institutional-approval-journal";
 import {
   checkCurrentInstitutionalEvidence,
   InstitutionalEvidenceDenied,InstitutionalEvidenceUnavailable,
@@ -80,6 +80,11 @@ async function requireInstitutionalGate(
   config:IsolatedOperatorConfig,query:InstitutionalEvidenceQuery,
   required:boolean,alreadyApproved=false
 ):Promise<InstitutionalEvidenceReceipt|undefined>{
+  // Fail closed on a durable invalidation BEFORE any external read or
+  // replay. This is independent of current host/reader configuration.
+  if(await isInstitutionalApprovalInvalidated(
+    config.db!,query.purpose,query.requestId
+  ))throw new InstitutionalEvidenceDenied("Institutional approval withdrawn");
   // D1 remembers the opt-in independently of current host configuration.
   // A replay or execution cannot drop its read by removing the config field.
   const existing=await findInstitutionalEvidence(

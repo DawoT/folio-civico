@@ -39,6 +39,62 @@ function revokeOperator(db:ReturnType<typeof makeD1>,subject:string):void {
 }
 
 describe("R2.10: independent, asynchronous incident revocation approval",()=>{
+  it("rolls back a signed revocation when invalidation races between the independent read and its D1 batch",async()=>{
+    const d=makeD1();
+    try{
+      const f=await revocationFixture();
+      const config=cfg(f,d.db);
+      config.institutionalGate={reader:{readCurrentEvidence:async(query:Record<string,unknown>)=>{
+        const t=Math.floor(Date.now()/1000);
+        return {...query,revision:6,status:"open",decision:"approved",
+          reviewerSubject:query.approverSubject,checkedAt:t,
+          reviewedAt:t-4,mfaVerifiedAt:t-7,validUntil:t+60};
+      }}};
+      const proposal=await handleIsolatedOperatorRequest(call(
+        "revocation-proposals",f.scope,actorJwt(f)
+      ),config);
+      const id=(await proposal.json() as {id:string}).id;
+      let injected=false;
+      const raced={
+        prepare:d.db.prepare.bind(d.db),
+        batch:async(statements:Parameters<D1Database["batch"]>[0])=>{
+          if(!injected){
+            injected=true;
+            d.sqlite.prepare(`
+              INSERT INTO processing_institutional_approval_invalidations(
+                purpose,request_id,case_revision,reason,evidence_sha256
+              ) VALUES('revocation',?,6,'case_closed',?)
+            `).run(id,"d".repeat(64));
+          }
+          return d.db.batch(statements);
+        }
+      } as unknown as D1Database;
+      const result=await handleIsolatedOperatorRequest(call(
+        "revocation-approvals",{requestId:id},approverJwt(f),f.evidence.approvalJwt
+      ),{...config,db:raced});
+      expect(injected).toBe(true);
+      expect(result.status).toBe(409);
+      for(const table of [
+        "processing_institutional_approval_evidence",
+        "processing_redrive_revocation_actions",
+        "processing_redrive_revocations"
+      ]){
+        expect(d.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get())
+          .toMatchObject({n:0});
+      }
+      expect(d.sqlite.prepare(
+        "SELECT count(*) AS n FROM processing_institutional_approval_invalidations"
+      ).get()).toMatchObject({n:1});
+      expect(d.sqlite.prepare(
+        "SELECT status FROM processing_async_revocation_requests WHERE id=?"
+      ).get(id)).toMatchObject({status:"pending"});
+      expect((await handleIsolatedOperatorRequest(call(
+        "revocation-approvals",{requestId:id},approverJwt(f),f.evidence.approvalJwt
+      ),config)).status).toBe(403);
+    }finally{d.close();}
+  });
+
+
   it("persists a gated institutional version atomically and cannot downgrade or replay against a newer version",async()=>{
     const d=makeD1();
     try{
