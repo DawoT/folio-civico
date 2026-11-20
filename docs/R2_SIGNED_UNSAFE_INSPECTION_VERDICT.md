@@ -9,7 +9,7 @@ El resultado limpio viaja con un manifiesto HMAC firmado por el gateway, pero el
 ## Contrato
 
 1. El consumidor genera, justo antes del POST, un **nonce CSPRNG de 128 bits** (hexadecimal de 32 caracteres) y lo envía únicamente en `X-Folio-Inspection-Nonce`. No llega al parser/Container.
-2. El gateway autentica el token de servicio, verifica método, origen, tamaño, versión y SHA-256 del original y valida sintácticamente el nonce. La discrepancia de SHA-256 del transporte genera **400**, nunca un rechazo del PDF. Un original con cabecera PDF inválida pero hash válido, o un `422` del parser aislado, produce un único veredicto firmable.
+2. El gateway autentica el token de servicio, verifica método, origen, tamaño, versión y SHA-256 del original y valida sintácticamente el nonce. La discrepancia de SHA-256 del transporte genera **400**, nunca un rechazo del PDF. Un original con cabecera PDF inválida **o longitud inferior a 12 bytes**, pero hash válido, o un `422` del parser aislado, produce un único veredicto firmable. El ingreso ahora rechaza nuevas cargas truncadas ([P9](R2_SHORT_PDF_PREFLIGHT.md)); la firma del gateway permite cerrar sin reintentos interminables las ya almacenadas en fixtures históricos.
 3. El gateway **no transmite claves HMAC al parser**. Firma con HMAC-SHA256 la serialización canónica JSON UTF-8, campos en el orden exacto:
 
 ```json
