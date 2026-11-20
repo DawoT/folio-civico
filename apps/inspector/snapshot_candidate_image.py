@@ -184,6 +184,7 @@ def capture_snapshot(dest: Path) -> dict:
     native = _run([
         "docker", "run", "--rm", "--pull", "never",
         "--network", "none", "--read-only", "--cap-drop", "ALL",
+        "--user", "65534:65534",
         "--security-opt", "no-new-privileges", "--pids-limit", "64",
         "--memory", "4g", "--memory-swap", "4g",
         "--entrypoint", "python3", original_id,
@@ -230,6 +231,7 @@ def capture_snapshot(dest: Path) -> dict:
             name: _sha256(dest / name) for name in FILES[:-1]
         },
         "candidate_selected_by_mutable_tag_only_for_read": True,
+        "native_inventory_execution_uid_gid": "65534:65534",
         "image_tag_stable_across_scan": True,
         "image_push_or_deployment_executed": False,
         "vex": "not_issued",
@@ -265,7 +267,8 @@ def verify_snapshot(folder: Path) -> dict:
             or report.get("security_gate") != "blocked"
             or report.get("vex") != "not_issued"
             or report.get("image_push_or_deployment_executed") is not False
-            or report.get("image_tag_stable_across_scan") is not True):
+            or report.get("image_tag_stable_across_scan") is not True
+            or report.get("native_inventory_execution_uid_gid") != "65534:65534"):
         raise ValueError("Research snapshot release state or image ID changed")
     hashes = report.get("evidence_sha256")
     if (not isinstance(hashes, dict)

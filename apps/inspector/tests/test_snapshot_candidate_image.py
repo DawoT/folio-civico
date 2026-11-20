@@ -116,6 +116,7 @@ class SnapshotTests(unittest.TestCase):
         runner = next(c for c in self.calls if c[:2] == ["docker", "run"])
         joined = " ".join(runner)
         for needed in ("--network none", "--read-only", "--cap-drop ALL",
+                       "--user 65534:65534",
                        "--security-opt no-new-privileges", self.image_id,
                        "-I -c"):
             self.assertIn(needed, joined)

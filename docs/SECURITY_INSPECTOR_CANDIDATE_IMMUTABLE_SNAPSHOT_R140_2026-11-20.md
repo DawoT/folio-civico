@@ -1,6 +1,6 @@
 # R1.40 — Auditoría reproducible de imagen local del inspector (NO RELEASE)
 
-**Fecha UTC de captura:** 2026-11-20 22:49:41. **Proyecto:** Folio Cívico, S03-01 / gate G2. **Objeto:** imagen **local existente** `folio-civico-inspector:ocr-integrated`; no se ha construido, instalado, publicado ni desplegado ningún contenedor en esta investigación.
+**Fecha UTC de captura:** 2026-11-20 22:54:59. **Proyecto:** Folio Cívico, S03-01 / gate G2. **Objeto:** imagen **local existente** `folio-civico-inspector:ocr-integrated`; no se ha construido, instalado, publicado ni desplegado ningún contenedor en esta investigación.
 
 ## Identidad y alcance preciso
 
@@ -13,7 +13,7 @@
 | Trivy | **v0.76.2**, DB esquema **v2** |
 | Base de vulnerabilidades Trivy (UpdatedAt) | **2026-11-20 18:59:53 UTC**; descargada 2026-11-20 22:41:41 UTC; siguiente actualización indicada 2026-11-21 18:59:53 UTC |
 | Modo de auditoría | `candidate` sin modificación, usando la etiqueta solo para leer y comprobando el ID inmutable después de cada fase |
-| Registros originales | carpeta privada del laboratorio `/tmp/folio-r140-candidate-20261120a` (0700; todos los archivos 0600; **no incorporados al Git**) |
+| Registros originales | carpeta privada del laboratorio `/tmp/folio-r140-candidate-20261120b` (0700; todos los archivos 0600; **no incorporados al Git**) |
 
 **Atención:** el ID `sha256:b5…` es el **ID local Docker**, no un digest OCI de manifiesto publicado en registro. No se ha creado ni verificado un digest de registry; sería incorrecto utilizar esta evidencia como autorización de despliegue por digest.
 
@@ -22,7 +22,7 @@
 Se ejecutaron dos comprobaciones reales e independientes:
 
 1. `bash apps/inspector/audit_image.sh --candidate --advisories` → **exit 2** esperado. El script existente ejecuta Trivy, CycloneDX, inventario nativo no privilegiado y el gate `audit_image.py`.
-2. `python3 apps/inspector/snapshot_candidate_image.py --output-dir /tmp/folio-r140-candidate-20261120a` → **exit 2** esperado; conservó los cuatro reportes originales y el manifiesto final fijando SHA-256. El análisis de cada reporte se realizó con las funciones ya existentes `evaluate_image_audit()` y `targeted_advisories()`, sin supresión de findings. Una verificación offline posterior releyó y rehasheó todos los reportes y comparó el resultado re-evaluado: **exit 2**, `independently_verified_research_release_blocked`.
+2. `python3 apps/inspector/snapshot_candidate_image.py --output-dir /tmp/folio-r140-candidate-20261120b` → **exit 2** esperado; conservó los cuatro reportes originales y el manifiesto final fijando SHA-256. El análisis de cada reporte se realizó con las funciones ya existentes `evaluate_image_audit()` y `targeted_advisories()`, sin supresión de findings. Una verificación offline posterior releyó y rehasheó todos los reportes y comparó el resultado re-evaluado: **exit 2**, `independently_verified_research_release_blocked`.
 
 | Métrica real en la imagen indicada | Conteo |
 | --- | ---: |
@@ -45,21 +45,21 @@ La distribución es a nivel de paquete binario y no de CVE único: Trivy emite l
 
 ## Evidencia privada y hashes verificables
 
-La captura usa etiqueta sólo como selector de lectura; verifica el mismo ID Docker inicial tras cada Trivy scan, tras la inspección nativa, tras el gate y al finalizar. El inventario nativo se ejecuta **por ID inmutable**, en contenedor `--network none --read-only --cap-drop ALL --security-opt no-new-privileges`, sin volúmenes del host y con límites de memoria/procesos. Trivy usa la base actual disponible sin `--ignore-unfixed`, `--skip-db-update` ni supresiones.
+La captura usa etiqueta sólo como selector de lectura; verifica el mismo ID Docker inicial tras cada Trivy scan, tras la inspección nativa, tras el gate y al finalizar. El inventario nativo se ejecuta **por ID inmutable**, en contenedor **UID/GID 65534:65534**, `--network none --read-only --cap-drop ALL --security-opt no-new-privileges`, sin volúmenes del host y con límites de memoria/procesos. Trivy usa la base actual disponible sin `--ignore-unfixed`, `--skip-db-update` ni supresiones.
 
-| Archivo de evidencia bajo `/tmp/folio-r140-candidate-20261120a/` | SHA-256 |
+| Archivo de evidencia bajo `/tmp/folio-r140-candidate-20261120b/` | SHA-256 |
 | --- | --- |
-| `trivy-vulnerabilities.json` | `4071a7affc923e7605e2e488cd902ebaa8aa8f2424b26e894c8489e15bed12b0` |
-| `trivy-cyclonedx.json` | `f0e1837d7246e696cae1d53e4e015e544e18adbfec58f527f6346baa41541836` |
+| `trivy-vulnerabilities.json` | `9aa4156a00b110f210b967f315b4482a29f7db23abf66a6e84b34c6532d704ff` |
+| `trivy-cyclonedx.json` | `897cfa4fefa3954770c467f9f556f8b364432108d7cf99c0b321835bf4ae0f76` |
 | `native-source-inventory.json` | `52cc43773dfc59e818f76520b390729293ff23bde53b4281093adca8483ea36f` |
 | `advisories.json` | `6227da6c8833f1288ab8f433d57665458c16b69b60d38e26809b435dcd9f52e3` |
-| `SNAPSHOT_RESEARCH_ONLY.json` | `4f4e42a6a8ea15aec6aff3599f208259cee1f41d0c46b32ec9f5f8ab975f27a2` |
+| `SNAPSHOT_RESEARCH_ONLY.json` | `9e79df93c1560a796f09bf72aa89dc8e915707c5320d82b780d08f77c1fa11f1` |
 
 Verificación independiente, sin Docker ni red:
 
 ```bash
 python3 apps/inspector/snapshot_candidate_image.py \
-  --output-dir /tmp/folio-r140-candidate-20261120a --verify-only
+  --output-dir /tmp/folio-r140-candidate-20261120b --verify-only
 # Exit 2: bloqueado; 143 findings bloqueantes;
 # 5 hashes comprobados y gate/advisory recalculado con resultados idénticos
 ```
