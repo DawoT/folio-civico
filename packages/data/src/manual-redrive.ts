@@ -256,7 +256,8 @@ export async function executeOneShotManualRedrive(
   try {
     await env.QUEUE.send({
       kind:"folio.process.pdf",versionId:row.versionId,
-      sourceSha256:row.sourceSha256
+      sourceSha256:row.sourceSha256,
+      manualRedriveId:id
     });
   } catch {
     // A network rejection might mean "accepted, reply lost". Retrying

@@ -1,4 +1,4 @@
-import {publishInspectedText,type InspectedTextManifest,type ProcessingQueueMessage} from "@folio/data";
+import {publishInspectedText,isProcessingRedriveAuthorized,type InspectedTextManifest,type ProcessingQueueMessage} from "@folio/data";
 
 export interface ProcessorEnv {
   DB:D1Database;
@@ -23,13 +23,17 @@ const textEncoder=new TextEncoder();
 export function parseProcessingMessage(raw:unknown):ProcessingQueueMessage|null {
   if(!raw || typeof raw!=="object" || Array.isArray(raw))return null;
   const obj=raw as Record<string,unknown>;
-  if(Object.keys(obj).length!==3
+  const hasManual=Object.hasOwn(obj,"manualRedriveId");
+  if(Object.keys(obj).length!==(hasManual?4:3)
+    || (hasManual && (typeof obj.manualRedriveId!=="string"
+      || !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(obj.manualRedriveId)))
     || obj.kind!=="folio.process.pdf"
     || typeof obj.versionId!=="string"
     || !/^[A-Za-z0-9_-]{1,64}$/.test(obj.versionId)
     || typeof obj.sourceSha256!=="string"
     || !/^[a-f0-9]{64}$/.test(obj.sourceSha256)) return null;
-  return {kind:"folio.process.pdf",versionId:obj.versionId,sourceSha256:obj.sourceSha256};
+  return {kind:"folio.process.pdf",versionId:obj.versionId,sourceSha256:obj.sourceSha256,
+    ...(hasManual?{manualRedriveId:obj.manualRedriveId as string}:{})};
 }
 async function digest(original:Uint8Array):Promise<string> {
   const hash=await crypto.subtle.digest("SHA-256",new Uint8Array(original).buffer);
@@ -95,6 +99,11 @@ export async function processProcessingMessage(
 ):Promise<ProcessingResult>{
   const message=parseProcessingMessage(raw);
   if(!message)throw new Error("Invalid queue message");
+  // A manual one-shot must be bound to its immutable D1 reservation. The
+  // check is also needed for ordinary messages to prevent stripping the tag.
+  if(!await isProcessingRedriveAuthorized(
+    env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
+  ))return "stale";
   const version=await env.DB.prepare(`
     SELECT v.sha256,v.r2_object_key AS r2Key,v.extraction_status AS status,
       d.commission_id AS commissionId,c.status AS commissionStatus
@@ -118,6 +127,11 @@ export async function processProcessingMessage(
     || await digest(originalBytes)!==message.sourceSha256) {
     throw new Error("Original PDF failed integrity");
   }
+  // Avoid handing the original to the scanner if the authorization was
+  // invalidated during the potentially slow private R2 read and digest.
+  if(!await isProcessingRedriveAuthorized(
+    env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
+  ))return "stale";
   // Service binding only: an operator-deployed and isolated inspection service.
   // No arbitrary URL from messages, credentials, hostnames or D1 records.
   const response=await env.INSPECTOR.fetch(new Request("https://inspector.internal/inspect",{
@@ -131,7 +145,17 @@ export async function processProcessingMessage(
     body:originalBytes as BodyInit
   }));
   if(response.status===422){
-    await recordUnsafeInspection(env.DB,message.versionId,version.commissionId);
+    if(!await isProcessingRedriveAuthorized(
+      env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
+    ))return "stale";
+    try {
+      await recordUnsafeInspection(env.DB,message.versionId,version.commissionId);
+    }catch(error){
+      if(!await isProcessingRedriveAuthorized(
+        env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
+      ))return "stale";
+      throw error;
+    }
     return "needs_review";
   }
   if(!response.ok)throw new Error("Inspector unavailable or failed");
@@ -139,10 +163,22 @@ export async function processProcessingMessage(
   if(manifest.documentVersionId!==message.versionId || manifest.sourceSha256!==message.sourceSha256){
     throw new Error("Inspector report refers to another original");
   }
-  const result=await publishInspectedText(
-    env.DB,env.DOCUMENTS,manifest,signature,env.INSPECTOR_HMAC_KEY
-  );
-  return result.repeated?"already_done":"completed";
+  // The external inspection may be slow: revalidate immediately before
+  // publishing. D1 triggers still defend the subsequent check/write race.
+  if(!await isProcessingRedriveAuthorized(
+    env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
+  ))return "stale";
+  try {
+    const result=await publishInspectedText(
+      env.DB,env.DOCUMENTS,manifest,signature,env.INSPECTOR_HMAC_KEY
+    );
+    return result.repeated?"already_done":"completed";
+  }catch(error){
+    if(!await isProcessingRedriveAuthorized(
+      env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
+    ))return "stale";
+    throw error;
+  }
 }
 
 export async function processBatch(

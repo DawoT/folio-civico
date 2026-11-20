@@ -513,6 +513,12 @@ describe("R2.11 · independent asynchronous redrive authority",()=>{
         JOIN processing_async_redrive_requests p ON p.id=r.async_request_id
       `).get();
       expect(row).toMatchObject({state:"sent",requestId:p.id,proposalStatus:"approved",approver:"redrive_approver_independent_001"});
+      const manual=f.sqlite.prepare("SELECT id FROM processing_manual_redrives").get() as {id:string};
+      expect(f.send).toHaveBeenCalledWith({
+        kind:"folio.process.pdf",versionId:"version_a",sourceSha256:SHA,
+        manualRedriveId:manual.id
+      });
+      expect(JSON.stringify(f.send.mock.calls)).not.toContain(jwt);
       const persisted=JSON.stringify(f.sqlite.prepare("SELECT * FROM processing_async_redrive_requests").all());
       expect(persisted).not.toContain(jwt);
       expect(persisted).not.toContain(f.signed.evidence.accessRequest.headers.get("Cf-Access-Jwt-Assertion")!);
