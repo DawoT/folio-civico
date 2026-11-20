@@ -1,0 +1,116 @@
+# UX-5.2 — Registro local de pruebas moderadas y métricas verificables
+
+**Folio Cívico · Fecha de preparación: 19 de noviembre de 2026.**
+
+**Estado del proyecto:** instrumental de investigación preparado; **0 sesiones humanas ejecutadas por este incremento**. No confundir disponibilidad del protocolo con validación del piloto.
+
+## Objetivo y límites
+
+En UX-5.1 se automatizaron siete tareas encadenadas usando identidades y expedientes sintéticos, más regresión visual. UX-5.2 prepara la observación de **personas autorizadas reales** sin afirmar que sus resultados ya existen. No se usa este instrumental para aprobar Cloudflare Preview, producción, el inspector, una aprobación institucional o una auditoría WCAG.
+
+El contrato y el cálculo están implementados en `scripts/ux5_study.py`. Utilizan únicamente Python 3 estándar. No envían información por red, no escriben datos de sesión automáticamente y no forman parte de la aplicación web. La salida de `summarize` es un agregado estructurado.
+
+## Protocolo moderado y consentimiento
+
+Una persona responsable debe confirmar, antes de usar el instrumento, que:
+
+1. Existe consentimiento informado explícito y adecuado al contexto, indicando la finalidad, la forma de uso y la conservación de datos.
+2. La prueba se realiza exclusivamente en una **instancia local con comisiones, identidades y expedientes sintéticos**. Nunca se piden credenciales, correos personales o PDFs de la municipalidad.
+3. Se usa un único archivo por sesión, guardado fuera del control de versiones, bajo `.ux5-study/sessions/` (ignorado por Git). No incluir nombres, identificadores, correos, archivos reales, URL personales, voz, video, capturas ni notas libres.
+4. Los datos numéricos son observaciones **humanas realmente registradas**, no cronometrajes de Playwright. El campo `moderated_observation: true` es una declaración del operador, no una verificación técnica independiente.
+5. Los defectos que requieren descripción se registran en un canal restringido y autorizado, con referencias a issues desprovistas de información personal; **no se incorporan al JSON de resumen**.
+
+**Perfiles disponibles:** `president`, `author`, `reviewer`, `observer`. Idealmente reclutar 5–8 participantes autorizados distribuidos entre los roles; el tamaño no da precisión estadística representativa del universo municipal.
+
+## Uso local
+
+Desde la raíz del repositorio:
+
+```sh
+mkdir -p .ux5-study/sessions
+
+# Crear una plantilla incompleta, con consentimiento en false y sin rol.
+python3 scripts/ux5_study.py template > .ux5-study/sessions/session-01.json
+
+# Completar el JSON únicamente después de la sesión moderada real.
+# Validar estructura y restricciones antes de aceptar el registro.
+python3 scripts/ux5_study.py validate .ux5-study/sessions/session-01.json
+
+# Agregar todas las sesiones registradas, sin incluir archivos de resumen.
+python3 scripts/ux5_study.py summarize .ux5-study/sessions/*.json > .ux5-study/aggregate.json
+
+# Ejecutar los contratos de privacidad y agregación.
+python3 -m unittest discover -s tests -p test_ux5_study.py
+
+# Gate completo de integración (sin GitHub Actions).
+sh scripts/ci.sh
+```
+
+**No enviar** `.ux5-study/` a GitHub, plataformas de analítica ni servicios externos. La carpeta está ignorada. Controlar su acceso y eliminar los archivos individuales conforme al consentimiento, la política institucional y las obligaciones locales aplicables. Ignorar archivos en Git **no equivale** a cifrar ni garantizar retención segura; proteger además el equipo y sus copias de seguridad.
+
+### Esquema único de registro
+
+Todos los campos son obligatorios; **ningún campo adicional es aceptado**. El formulario comienza inválido hasta que se confirme consentimiento, observación moderada y uno de los roles autorizados. La sesión solo es registrable si al menos una tarea realmente se intentó.
+
+```json
+{
+  "schema_version": 1,
+  "study_version": "ux5.2-v1",
+  "role": "author",
+  "consent_obtained": true,
+  "moderated_observation": true,
+  "synthetic_environment": true,
+  "tasks": [
+    {
+      "id": "scope_opened",
+      "outcome": "completed_unassisted",
+      "duration_seconds": 85,
+      "navigation_errors": 0,
+      "interpretation": "correct",
+      "incident_codes": []
+    }
+  ]
+}
+```
+
+El ejemplo muestra **solo un registro de tarea** por brevedad. Un archivo válido exige las **siete tareas** en el orden del contrato UX-5.1; las no realizadas usan `outcome: "not_attempted"`, `duration_seconds: null`, `navigation_errors: null`, `interpretation: "not_evaluated"` y `incident_codes: []`. El ejemplo no representa una sesión realizada.
+
+Los IDs de tarea corresponden, en orden, a: `scope_opened`, `pdf_quarantined`, `draft_registered`, `submitted_for_review`, `independent_decision`, `observer_read_only` y `sha256_export_verified`.
+
+**Resultados:** `completed_unassisted`, `completed_assisted`, `failed`, `not_attempted`. Las tareas intentadas requieren una duración en segundos enteros (1–7200) y un número entero de errores de navegación (0–100). `interpretation` puede ser `correct`, `incorrect` o `not_evaluated` cuando la comprensión no fue evaluada explícitamente.
+
+**Categorías fijas de incidentes:** `unavailable_as_absent`, `quarantine_as_reviewed`, `internal_validation_as_official`, `sha256_as_signature`, `keyboard_blocker`, `other_blocker`. No se aceptan anotaciones arbitrarias, identidades ni rutas a grabaciones.
+
+La validación es **fail-closed**: rechaza campos desconocidos, JSON con claves duplicadas, valores no tipados o fuera de rango, tareas repetidas, consentimientos pendientes, entornos no sintéticos y archivos mayores de 64 KiB. Un archivo puede ser estructuralmente válido aunque la declaración del operador sea falsa: el código **no puede certificar presencia humana ni consentimiento genuino**.
+
+## Agregación y criterios de interpretación
+
+`summarize` solamente emite: versión de esquema, procedencia declarada, número total de sesiones, contadores por tarea y por categoría de incidente, métricas agregadas con denominador explícito y estado de gates. Se **excluyen** las fichas individuales, nombres, rol por persona, tiempos por persona, archivos, hashes y texto.
+
+| Métrica | Definición |
+| --- | --- |
+| Intentos por tarea | Sesiones con `outcome` distinto de `not_attempted` |
+| Finalización autónoma | Recuento de `completed_unassisted` |
+| Finalización con ayuda | Recuento de `completed_assisted` |
+| Fallos y errores de navegación | Contadores observados, nunca inferidos |
+| Comprensión incorrecta | Solo las tareas donde se evaluó la interpretación |
+| Tasa de finalización autónoma | Completadas sin ayuda / intentos de esa tarea, **solo con al menos 5 intentos** |
+| Mediana de duración | Segundos entre intentos, **solo con al menos 5 intentos** |
+| Incidentes críticos | Cantidad por categoría predefinida |
+
+Con menos de cinco intentos por tarea, `unassisted_rate` y `median_seconds` son **`null`**, nunca cero ni porcentajes inventados. El reporte con cero sesiones tiene `human_usability: "not_conducted"`. Si existe al menos una sesión estructuralmente aceptada, se marca `"moderator_entered_observations"` (declaración de procedencia, **no certificación**).
+
+**Siempre** se mantiene `manual_assistive_technology: "not_verified"`, `institutional_authorization: "not_granted"` y `release_gate: "requires_independent_approval"`. Las pruebas NVDA/VoiceOver, zoom nativo y alto contraste Windows deberán registrarse y aprobarse mediante un procedimiento manual separado.
+
+### Condiciones de bloqueo
+
+Interpretar un error 503 como prueba de ausencia documental, la cuarentena como inspección, la validación interna como aprobación oficial, o SHA-256 como firma son hallazgos **críticos**. Registrar la categoría, abrir un defecto con acceso restringido y corregir su causa antes de declarar un piloto humano preparado. Las pruebas automatizadas siguen siendo necesarias pero insuficientes.
+
+## Verificación del incremento
+
+- `tests/test_ux5_study.py` contiene contratos Red → Green para plantilla, coincidencia con el contrato de siete tareas UX-5.1, consentimiento, privacidad de campos, tipos, límites, errores y agregación.
+- `scripts/ci.sh` ejecuta estas pruebas en un paso propio, sin añadir dependencias, GitHub Actions ni conectores de datos personales.
+- `.gitignore` excluye `.ux5-study/` para reducir la posibilidad de añadir registros individuales por accidente. Esta protección por sí sola no impide un `git add -f` deliberado.
+- No cambian la aplicación React, los Workers, el inspector, D1/R2 ni los permisos de la comisión.
+
+**Pendiente (UX-5.2 real):** reclutar participantes, obtener consentimiento, ejecutar las tareas moderadas en una demo sintética autorizada, completar archivos locales, revisar incidentes y documentar decisiones de corrección. Hasta entonces, **la investigación humana no se ha ejecutado**.
