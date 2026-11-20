@@ -60,4 +60,8 @@ Los **cuatro controles adversarios reales** devolvieron **exit 3**: descriptor D
 
 `bash apps/inspector/scan_util_linux_cve_scope.sh`  — **exit 2: release bloqueado**
 
+**CI integral sobre la rama fusionada con `main=d275a99` (incluye las pruebas OCR #74 y el cambio API):** `FOLIO_E2E_PORT=43334 sh scripts/ci.sh` finalizó **exit 0**, con **525/525 Vitest TypeScript**, **338/338 Python inspector**, **5/5 tests Workers locales**, **132/132 Chromium/Playwright**, **2/2 pruebas de rendimiento/flujo sintético**, **1/1 demo E2E local**, **1/1 demo con API firmada y SQLite local**, **16/16 checks de contrato de CI** y **33/33 pruebas complementarias**. Pasaron también `tsc --noEmit`, builds Web/API/MCP/Processor/Gateway, cuatro Workers dry-runs, Lighthouse móvil simulado y migraciones D1 **solo locales**. No se ejecutaron GitHub Actions ni se desplegó nada.
+
+**Gate independiente:** `bash apps/inspector/scan_util_linux_cve_scope.sh` → **exit 2 / release bloqueado**, 0 CRITICAL, **59 HIGH**, **15 UNKNOWN** y **36/36 avisos HIGH** de los cuatro CVE util-linux mantenidos. La evidencia de autenticidad/fuente completa también devuelve exit 2. **No hay parche binario Trixie, firma del nuevo .dsc, VEX, OCI, deploy ni autorización de release.**
+
 **La aprobación de CI, la autenticación de la fuente y la construcción de un paquete fuente local son tres evidencias distintas; ninguna autoriza un release.**
