@@ -39,6 +39,46 @@ function revokeOperator(db:ReturnType<typeof makeD1>,subject:string):void {
 }
 
 describe("R2.10: independent, asynchronous incident revocation approval",()=>{
+  it("can require fresh independent institutional evidence before approval and on replay",async()=>{
+    const d=makeD1();
+    try{
+      const f=await revocationFixture();
+      const config=cfg(f,d.db);
+      const id=(await (await handleIsolatedOperatorRequest(call(
+        "revocation-proposals",f.scope,actorJwt(f)),config
+      )).json() as {id:string}).id;
+      config.institutionalGate={};
+      expect((await handleIsolatedOperatorRequest(call(
+        "revocation-approvals",{requestId:id},approverJwt(f),f.evidence.approvalJwt
+      ),config)).status).toBe(503);
+      expect(d.sqlite.prepare("SELECT COUNT(*) AS n FROM processing_redrive_revocations").get())
+        .toMatchObject({n:0});
+      let status="open";
+      const source=vi.fn(async(query:Record<string,unknown>)=>{
+        const t=Math.floor(Date.now()/1000);
+        return {...query,status,revision:5,decision:"approved",
+          reviewerSubject:query.approverSubject,
+          checkedAt:t,reviewedAt:t-5,mfaVerifiedAt:t-15,validUntil:t+60};
+      });
+      config.institutionalGate={reader:{readCurrentEvidence:source}};
+      expect((await handleIsolatedOperatorRequest(call(
+        "revocation-approvals",{requestId:id},approverJwt(f),f.evidence.approvalJwt
+      ),config)).status).toBe(200);
+      expect(source).toHaveBeenCalledWith(expect.objectContaining({
+        purpose:"revocation",caseRef:f.scope.incidentRef,requestId:id,
+        actorSubject:f.actor,approverSubject:f.approver,
+        approvalDigest:expect.stringMatching(/^[a-f0-9]{64}$/),
+        scopeDigest:expect.stringMatching(/^[a-f0-9]{64}$/)
+      }));
+      status="closed";
+      expect((await handleIsolatedOperatorRequest(call(
+        "revocation-approvals",{requestId:id},approverJwt(f),f.evidence.approvalJwt
+      ),config)).status).toBe(403);
+      expect(d.sqlite.prepare("SELECT COUNT(*) AS n FROM processing_redrive_revocations").get())
+        .toMatchObject({n:1});
+    }finally{d.close();}
+  });
+
   it("stores an authenticated actor request without the approver JWT; a separate later request finalizes without actor JWT",async()=>{
     const fdb=makeD1();
     try{
