@@ -9,6 +9,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from png_fixtures import rgb_png
+
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("folio_inspector_ocr_geometry", ROOT / "inspector.py")
 assert SPEC and SPEC.loader
@@ -222,7 +224,7 @@ class PipelineTests(unittest.TestCase):
         if op == "pdftotext":
             return "" if no_text else "Texto documental nativo"
         if op == "pdftoppm":
-            (cwd / "ocr-page.png").write_bytes(b"synthetic raster")
+            (cwd / "ocr-page.png").write_bytes(rgb_png(500, 500))
         if op == "tesseract":
             return "OCR válido y limpio"
         return ""
