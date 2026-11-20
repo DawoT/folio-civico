@@ -74,7 +74,25 @@ FOLIO_E2E_PORT=43179 sh scripts/ci.sh
 bash apps/inspector/audit_image.sh --experiment --advisories
 ```
 
-Se verificaron **8/8 casos C++ reales**, **12/12 tests unitarios nuevos** y **222/222 pruebas Python del inspector**. La sintaxis Bash también pasó. El CI local integral y la auditoría de seguridad se reportan separadamente; la primera no autoriza releases ni sobrescribe el segundo gate.
+**Ejecuciones verificadas:**
+- Biblioteca Poppler original completa, **123 pasos de CMake/Ninja**;
+  runner C++ real **exit 0, 8/8**, incluidos ambos overloads y el
+  bitmap Mono1 físicamente asignado.
+- **12/12 unitarias R1.27**, **222/222 Python del inspector** y
+  validación sintáctica de C++ y Bash: **exit 0**.
+- **CI integral local `FOLIO_E2E_PORT=43179 sh scripts/ci.sh`:
+  exit 0**: 222 Python, 33 pruebas UX5, Vitest/workerd, TypeScript,
+  builds de cinco paquetes, builds Workers `--dry-run`, Chromium E2E
+  y migraciones D1 **solo locales hasta `0030`**.
+- **Smoke existente `bash apps/inspector/verify_raster_guard.sh`:
+  exit 0, 8/8**. Las etiquetas locales `validation`,
+  `ocr-integrated` y `poppler-experiment` conservaron exactamente
+  sus IDs previos; las imágenes existentes **no** incluyen esta prueba.
+- **Auditoría experimental Trivy `exit 2`, BLOQUEADA**:
+  0 CRITICAL, 70 HIGH y 19 UNKNOWN; dos componentes nativos sin
+  cobertura CVE suficiente. No se aplicó waiver, VEX ni aprobación.
+
+La aprobación del CI no autoriza releases ni prevalece sobre Trivy.
 
 ## Evaluación y siguientes pasos
 
