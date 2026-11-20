@@ -22,7 +22,7 @@ Las pruebas de contrato usan un puerto falso únicamente para reproducir cambios
 ## Limitaciones y condiciones de activación
 
 1. **Fuente institucional no designada:** implantar un lector de solo lectura, autenticado y auditado, con identidad y MFA de un IdP real y versiones comprobables. La salida de un mock o un JWS no es evidencia válida.
-2. **TOCTOU entre sistemas:** una consulta externa previa a D1 o Queue **no** es transaccional con su cambio posterior. El refresco antes de ejecutar reduce la ventana, pero no demuestra linealizabilidad con el expediente externo. Se requiere decidir cómo conservar revisión/huella institucional sellada en D1, revocar aprobaciones cuando cambie el caso, restringir writers y conciliar resultados antes de Preview.
+2. **TOCTOU entre sistemas:** una consulta externa previa a D1 o Queue **no** es transaccional con su cambio posterior. El refresco antes de ejecutar reduce la ventana, pero no demuestra linealizabilidad con el expediente externo. [R2.12b/P2](R2_INSTITUTIONAL_EVIDENCE_JOURNAL.md) ya conserva localmente una revisión/huella inmutable en D1 y bloquea el cambio de versión al ejecutar; **siguen pendientes** la invalidación institucional proactiva, permisos de writers y conciliación antes de Preview.
 3. **Autorización en tiempo real:** la revocación D1 R2.12a sigue vigente, pero **no reemplaza** la revalidación de roles y membresía del IdP. Requiere integración independiente y un procedimiento de retirada inmediata.
 4. **Control operacional:** mínimos privilegios de administración D1, custodia JWS, trazabilidad, retención, protección de secretos, revisión humana y checklist Preview con autorización explícita. El gate CVE del inspector sigue bloqueante.
 
