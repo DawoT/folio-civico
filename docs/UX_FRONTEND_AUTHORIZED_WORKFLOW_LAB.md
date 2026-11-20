@@ -53,7 +53,7 @@ PERF-004 se ejecuta **dentro del comando `test:performance` que ya forma parte d
 ## No acreditado
 
 - **Lighthouse del flujo autorizado:** PERF-003 sigue auditando el shell público no autenticado; este ensayo usa Playwright, **no Lighthouse**. Una auditoría Lighthouse con fixture de backend seguro y estado autorizado es trabajo diferente.
-- **Backend real:** la API es una doble sintética en el navegador. La demo local con JWT firmado y SQLite se verifica por separado; no se ha medido su latencia.
+- **Backend real:** PERF-004 usa una doble sintética en el navegador. [PERF-005](UX_FRONTEND_SIGNED_API_LAB.md) añade por separado un recorrido de consulta de lote con handler real, JWT RS256 y SQLite local; **no** mide Access, D1 ni R2 desplegados.
 - **Interacción real:** no hay INP, RUM, percentiles de usuarios ni tiempos de personal institucional. No hay consentimiento ni sesiones humanas en este experimento.
 - **Accesibilidad y seguridad:** siguen pendientes pruebas manuales NVDA/VoiceOver/zoom, autorización institucional, gates propios del inspector y validaciones de Cloudflare remotas.
 
