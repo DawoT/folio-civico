@@ -31,4 +31,6 @@ pnpm typecheck
 FOLIO_E2E_PORT=42940 sh scripts/ci.sh
 ```
 
-GitHub Actions no constituye el gate. Los bloqueos de [Preview](PREVIEW_CHECKLIST.md), el gate CVE del inspector y la [issue institucional #19](https://github.com/DawoT/folio-civico/issues/19) permanecen vigentes.
+**Verificación:** `FOLIO_E2E_PORT=42944 sh scripts/ci.sh`, **exit 0**, sobre `origin/main` `1a27026` con los fixtures de fecha corregidos por PR #48 y el gate local de demo aislado por PR #49. **496 Vitest + 210 Python inspector + 9 contratos CI + 33 UX5 + 5 workerd + 129 Chromium + 1 E2E de demo con API/JWT local = 883/883**; typecheck, builds/dry-runs y 30 migraciones D1 exclusivamente locales. Antes se detectaron dos fallos de fixtures basados en `CURRENT_TIMESTAMP` ajenos a F3, corregidos concurrentemente y preservados sin duplicar. El log Chromium contiene errores transitorios de proxy local, pero todas las pruebas terminaron en verde.
+
+GitHub Actions no está disponible y **no constituye el gate**. Los bloqueos de [Preview](PREVIEW_CHECKLIST.md), el gate CVE del inspector y la [issue institucional #19](https://github.com/DawoT/folio-civico/issues/19) permanecen vigentes.
