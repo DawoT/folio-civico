@@ -40,6 +40,106 @@ function post(id:string, action:string, note?:string, opts:{key?:string;origin?:
 }
 
 describe("human decision API",()=>{
+  it("returns 403 after a committed validation if the reviewer is demoted before HTTP acknowledgment",async()=>{
+    const f=fixture();
+    try{
+      const obs=await draft(f.db);
+      expect((await handleTransitionRequest(post(obs.id,"submit"),{DB:f.db},"alice","c_a",obs.id)).status).toBe(200);
+      let committed=false;
+      const raced={
+        prepare(sql:string) {
+          const statement=f.db.prepare(sql);
+          if(!sql.includes("UPDATE observations")) return statement;
+          return {
+            bind(...params:unknown[]) {
+              const bound=statement.bind(...params);
+              return {
+                async run() {
+                  const result=await bound.run();
+                  committed=true;
+                  f.sqlite.exec("UPDATE commission_members SET role='advisor' WHERE commission_id='c_a' AND subject='eva'");
+                  return result;
+                }
+              };
+            }
+          } as unknown as D1PreparedStatement;
+        }
+      } as D1Database;
+      const result=await handleTransitionRequest(
+        post(obs.id,"validate","Validación independiente basada en el expediente.",{key:"validate_after_demotion_123"}),
+        {DB:raced},"eva","c_a",obs.id
+      );
+      expect(committed).toBe(true);
+      expect(result.status).toBe(403);
+      expect(await result.json()).toEqual({error:"Forbidden"});
+      expect(result.headers.get("Cache-Control")).toBe("no-store");
+      expect(f.sqlite.prepare("SELECT status,reviewed_by FROM observations WHERE id=?").get(obs.id))
+        .toMatchObject({status:"validated",reviewed_by:"eva"});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:3});
+    }finally{f.close();}
+  });
+
+  it("returns 403 for a replay if author is revoked after its last scoped observation read",async()=>{
+    const f=fixture();
+    try{
+      const obs=await draft(f.db);
+      const input=post(obs.id,"submit");
+      expect((await handleTransitionRequest(input,{DB:f.db},"alice","c_a",obs.id)).status).toBe(200);
+      let checks=0;
+      const raced={
+        prepare(sql:string) {
+          const statement=f.db.prepare(sql);
+          if(!sql.includes("SELECT c.id, c.name, c.status, m.role")) return statement;
+          return {
+            bind(...params:unknown[]) {
+              const bound=statement.bind(...params);
+              return {
+                async first<T>() {
+                  const result=await bound.first<T>();
+                  if(++checks===3){
+                    f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='c_a' AND subject='alice'");
+                  }
+                  return result;
+                }
+              };
+            }
+          } as unknown as D1PreparedStatement;
+        }
+      } as D1Database;
+      const replay=await handleTransitionRequest(post(obs.id,"submit"),{DB:raced},"alice","c_a",obs.id);
+      expect(checks).toBeGreaterThanOrEqual(3);
+      expect(replay.status).toBe(403);
+      expect(await replay.json()).toEqual({error:"Forbidden"});
+      expect(replay.headers.get("Cache-Control")).toBe("no-store");
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:2});
+    }finally{f.close();}
+  });
+
+
+  it("fails closed if the last D1 authority read fails after a durable submit",async()=>{
+    const f=fixture();
+    try{
+      const obs=await draft(f.db);
+      let authorityReads=0;
+      const failing={
+        prepare(sql:string){
+          if(sql.includes("SELECT c.id, c.name, c.status, m.role") && ++authorityReads===5){
+            throw new Error("PRIVATE_D1_AUTHORITY_FAILURE");
+          }
+          return f.db.prepare(sql);
+        }
+      } as D1Database;
+      const result=await handleTransitionRequest(post(obs.id,"submit"),{DB:failing},"alice","c_a",obs.id);
+      expect(authorityReads).toBe(5);
+      expect(result.status).toBe(503);
+      expect(await result.json()).toEqual({error:"Request could not be completed"});
+      expect(result.headers.get("Cache-Control")).toBe("no-store");
+      expect(f.sqlite.prepare("SELECT status FROM observations WHERE id=?").get(obs.id))
+        .toMatchObject({status:"in_review"});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:2});
+    }finally{f.close();}
+  });
+
   it("submits, then validates by a distinct president; replay is not a second audit",async()=>{
     const f=fixture();
     try {

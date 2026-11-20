@@ -13,6 +13,23 @@ export interface TransitionInput {
 
 export class ReviewConflictError extends Error {}
 
+/** Recheck the *action-specific* role, not just active commission membership.
+ * This fence runs after every D1 data await and immediately before a success.
+ */
+async function assertCurrentTransitionAuthority(
+  db:D1Database, input:TransitionInput
+):Promise<void> {
+  const membership=await getCommissionSummary(db,input.subject,input.commissionId);
+  if(!membership || membership.status!=="active") {
+    throw new ReviewAccessError("Commission not accessible or closed");
+  }
+  if(input.action==="submit") {
+    if(membership.role==="observer") throw new ReviewAccessError("Observer cannot submit reviews");
+  } else if(membership.role!=="member" && membership.role!=="president") {
+    throw new ReviewAccessError("Only a commission member or president can decide");
+  }
+}
+
 export async function transitionObservation(
   db: D1Database, input: TransitionInput
 ): Promise<{ observation: SavedObservation & ReviewMetadata; replayed: boolean }> {
@@ -24,15 +41,7 @@ export async function transitionObservation(
   if (!submitted && (!note || note.length < 15 || note.length > 1000)) {
     throw new ReviewConflictError("A substantive reviewer rationale is required");
   }
-  const membership = await getCommissionSummary(db, input.subject, input.commissionId);
-  if (!membership || membership.status !== "active") throw new ReviewAccessError("Commission not accessible or closed");
-
-  if (submitted && membership.role === "observer") {
-    throw new ReviewAccessError("Observer cannot submit reviews");
-  }
-  if (!submitted && membership.role !== "member" && membership.role !== "president") {
-    throw new ReviewAccessError("Only a commission member or president can decide");
-  }
+  await assertCurrentTransitionAuthority(db,input);
 
   const initial=await getObservationForMember(db,input.subject,input.commissionId,input.observationId);
   if (!initial) throw new ReviewAccessError("Observation not found");
@@ -55,7 +64,11 @@ export async function transitionObservation(
     );
   }
 
-  if (isReplay(initial)) return { observation: initial, replayed: true };
+  if (isReplay(initial)) {
+    // The joined observation row may become unauthorized after its last read.
+    await assertCurrentTransitionAuthority(db,input);
+    return {observation:initial,replayed:true};
+  }
   if (initial.status !== expected) throw new ReviewConflictError("Observation state has changed");
 
   const statement = submitted
@@ -79,11 +92,18 @@ export async function transitionObservation(
     if (result.meta.changes !== 1) throw new ReviewConflictError("Observation changed during review");
   } catch (error) {
     const latest=await getObservationForMember(db,input.subject,input.commissionId,input.observationId);
-    if (latest && isReplay(latest)) return {observation:latest,replayed:true};
+    if (latest && isReplay(latest)) {
+      // A competing writer can succeed while this actor loses review rights.
+      await assertCurrentTransitionAuthority(db,input);
+      return {observation:latest,replayed:true};
+    }
     if (error instanceof ReviewConflictError) throw error;
     throw new ReviewConflictError("Transition rejected by evidence or authorization constraints");
   }
   const current=await getObservationForMember(db,input.subject,input.commissionId,input.observationId);
   if (!current) throw new ReviewAccessError("Observation no longer visible");
+  // D1 UPDATE and the follow-up observation read are separate awaits:
+  // do not acknowledge a durable transition to a revoked/demoted actor.
+  await assertCurrentTransitionAuthority(db,input);
   return {observation:current,replayed:false};
 }

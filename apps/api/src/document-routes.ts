@@ -112,28 +112,48 @@ export async function handleDocumentRequest(
         sha256: pdf.sha256, r2Key, filename: pdf.filename, idempotencyKey: pdf.idempotencyKey
       });
     } catch {
-      // Resolve a concurrent retry before declaring failure; only the second object is deleted.
-      let concurrent: Awaited<ReturnType<typeof getExistingUpload>> = null;
+      // A rejected D1.batch is ambiguous: the transaction may have committed
+      // while its acknowledgement was lost. Never delete the just-uploaded R2
+      // object unless an independently committed *other* document proves this
+      // request lost the unique idempotency-key race.
+      let committed: Awaited<ReturnType<typeof getExistingUpload>> = null;
       try {
-        concurrent = await getExistingUpload(env.DB, subject, commissionId, pdf.idempotencyKey);
+        committed = await getExistingUpload(env.DB, subject, commissionId, pdf.idempotencyKey);
       } catch {
-        // Database unavailable; object cleanup below is still attempted.
+        // Recovery is unavailable. Retain quarantine: deletion could orphan a
+        // durable document/version. The existing audit can flag unused objects.
       }
 
-      try {
-        await env.DOCUMENTS.delete(r2Key);
-      } catch {
-        // Quarantine objects may require a retention/lifecycle sweeper after an R2 outage.
+      if (committed?.documentId === documentId) {
+        // The generated document ID is ours. If version identity is
+        // inconsistent, fail closed without ever deleting its object.
+        if (committed.versionId !== versionId) {
+          return json({ error: "Unable to register document" }, 503);
+        }
+        // Our D1 write succeeded. Revalidate authorization after recovery and
+        // report the original creation without an extra audit event or R2 put.
+        const denied = await finalAccessFence(env, subject, commissionId, batchId, "draft");
+        return denied ?? documentResult(documentId, versionId, committed.sha256,
+          committed.processingStatus, false);
       }
-      if (concurrent) {
+      if (committed) {
+        // A different committed document owns the unique key: only our newly
+        // uploaded object can be discarded. The winner's R2 key is untouched.
+        try {
+          await env.DOCUMENTS.delete(r2Key);
+        } catch {
+          // The quarantine audit can identify the losing orphan for retention.
+        }
         const denied = await finalAccessFence(env, subject, commissionId, batchId, "draft");
         if (denied) return denied;
-        if (concurrent.sha256 === pdf.sha256 && concurrent.batchId === batchId) {
-          return documentResult(concurrent.documentId, concurrent.versionId, concurrent.sha256,
-            concurrent.processingStatus, true);
+        if (committed.sha256 === pdf.sha256 && committed.batchId === batchId) {
+          return documentResult(committed.documentId, committed.versionId, committed.sha256,
+            committed.processingStatus, true);
         }
         return json({ error: "Idempotency key already belongs to another upload" }, 409);
       }
+      // Null may also mean membership was revoked, not that D1 rolled back.
+      // When commit outcome cannot be established, preserve data over cleanup.
       return json({ error: "Unable to register document" }, 503);
     }
     // D1 has committed the document, version, audit and outbox. Never run

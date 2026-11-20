@@ -104,6 +104,22 @@ class DeploymentActivationGates(unittest.TestCase):
             dockerfile.index("freshclam --config-file")
         )
 
+    def test_candidate_smoke_pins_image_id_and_detects_tag_retargeting(self):
+        runner = (ROOT / "apps/inspector/validate_real_engines.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("IMAGE_ID=\"$(docker image inspect", runner)
+        self.assertIn("sha256:[a-f0-9]{64}", runner)
+        self.assertIn("--entrypoint /bin/sh \"$IMAGE_ID\"", runner)
+        self.assertIn('  "$IMAGE_ID" \\\n  /srv/folio-inspector/smoke_real_engines.py', runner)
+        self.assertIn('  "$IMAGE_ID" \\\n  /srv/folio-inspector/smoke_http_real.py', runner)
+        self.assertIn('  "$IMAGE_ID" -c "$(cat apps/inspector/smoke_signature_freshness.py)"',
+                      runner)
+        self.assertEqual(runner.count("docker run --rm --pull never"), 4)
+        self.assertIn("image_changed_during_smoke", runner)
+        self.assertIn('AFTER_ID="$(docker image inspect', runner)
+        self.assertNotIn('--entrypoint /bin/sh "$IMAGE"', runner)
+
     def test_runtime_contains_trusted_fontconfig_used_by_sandboxed_parsers(self):
         dockerfile=(ROOT/"apps/inspector/Dockerfile").read_text(encoding="utf-8")
         for check in ("test -r /etc/fonts/fonts.conf",
