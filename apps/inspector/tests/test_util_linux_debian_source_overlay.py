@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[3]
 sys.path.insert(0,str(ROOT/"apps/inspector"))
@@ -23,6 +24,7 @@ from util_linux_debian_source_overlay import (
     RETAINED_DEBIAN_PATCHES, CVE_FOLLOWUP_NAME, EXPERIMENT_VERSION,
     _debian_signed_manifest, _expected_overlay_series, _local_changelog,
     _check_duplicate_upstream_patches, _assert_roundtrip_tree,
+    verify_debian_source_overlay,
 )
 from util_linux_source_candidate import PATCHED_NSENTER_SHA256
 
@@ -171,6 +173,12 @@ class DebianSourceOverlayTDD(unittest.TestCase):
             cwd=ROOT,capture_output=True,text=True,timeout=8,
         )
         self.assertEqual(p.returncode,3)
+
+    def test_source_only_validation_never_runs_as_root(self):
+        with tempfile.TemporaryDirectory() as d:
+            with patch("util_linux_debian_source_overlay.os.geteuid",return_value=0):
+                with self.assertRaises(ValueError):
+                    verify_debian_source_overlay(Path(d))
 
     def test_missing_signed_artifacts_are_fail_closed_and_never_release(self):
         with tempfile.TemporaryDirectory() as d:

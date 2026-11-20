@@ -230,6 +230,8 @@ def _validate_debian_signature(root:Path,work:Path) -> dict:
 
 
 def verify_debian_source_overlay(artifacts:Path)->dict:
+    if os.geteuid()==0:
+        raise ValueError("Unprivileged source-only verification required")
     artifacts=artifacts.resolve(strict=True)
     if not artifacts.is_dir() or artifacts.is_symlink():
         raise ValueError("Signed source artifacts directory missing")
