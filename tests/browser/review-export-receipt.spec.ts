@@ -86,6 +86,31 @@ test("a tampered export never downloads and a retry clears the error before veri
 });
 
 
+test("a correctly rehashed but structurally invalid report never downloads", async ({ page }) => {
+  const api = new SyntheticPilotApi();
+  api.addHistory(1);
+  api.rehashedInvalidReview = true;
+  await api.attach(page, "viewer");
+  await openPilot(page);
+  const panel = page.getByRole("region", { name: "Informe de revisión interna" });
+  const downloads: string[] = [];
+  page.on("download", download => downloads.push(download.suggestedFilename()));
+
+  await panel.getByRole("button", { name: "Exportar revisión interna (JSON)" }).click();
+  await expect(panel.getByRole("alert")).toContainText(
+    "La exportación está incompleta o corresponde a otra comisión"
+  );
+  expect(downloads).toHaveLength(0);
+  await expect(panel.getByRole("button", { name: "Copiar SHA-256" })).toHaveCount(0);
+
+  api.rehashedInvalidReview = false;
+  const downloadEvent = page.waitForEvent("download");
+  await panel.getByRole("button", { name: "Reintentar exportación" }).click();
+  await downloadEvent;
+  await expect(panel.getByText("1 decisión interna")).toBeVisible();
+  expect(downloads).toHaveLength(1);
+});
+
 test("zero-decision reports remain exportable and copy failure leaves a selectable verified digest", async ({ page }) => {
   const api = new SyntheticPilotApi();
   await page.addInitScript(() => {

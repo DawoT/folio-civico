@@ -51,6 +51,7 @@ export class SyntheticPilotApi {
   readonly calls: { actor:string; method:string; path:string; idempotencyKey:string|null }[]=[];
   readonly commissions: Commission[]=[];
   corruptExport = false;
+  rehashedInvalidReview = false;
   private sequence=0;
 
   constructor() {
@@ -247,7 +248,9 @@ export class SyntheticPilotApi {
       }
       if(action==="export" && method==="GET"){
         const records=this.observations.filter(o=>o.commissionId===cid &&
-          (o.status==="validated" || o.status==="dismissed"));
+          (o.status==="validated" || o.status==="dismissed")).map(record=>
+            this.rehashedInvalidReview ? {...record,reviewedBy:record.authorSubject} : record
+          );
         const commission=this.commissions.find(item=>item.id===cid);
         const payload=JSON.stringify({
           schemaVersion:1,kind:"internal_human_review",
