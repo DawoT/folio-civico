@@ -1,0 +1,95 @@
+/**
+ * Executes one Lighthouse CLI process and accepts an actual JSON artifact
+ * only after the child has closed successfully. Errors never print raw child
+ * output (which could contain URLs, tokens, or environment secrets).
+ */
+import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+
+const MAX_OUTPUT_BYTES = 7000;
+const ERROR_CODES = /\b(?:ENOENT|EACCES|EPERM|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|EPIPE|ERR_[A-Z0-9_]{2,36})\b/g;
+
+/** A safe diagnostic summary: only allowlisted error codes and failure classes. */
+function diagnosticMarkers(output) {
+  const raw=typeof output==="string"?output:"";
+  const markers=[...new Set(raw.match(ERROR_CODES)??[])].slice(0,5);
+  if (/chrom(?:e|ium)|devtools/i.test(raw)) markers.push("chromium");
+  if (/sandbox/i.test(raw)) markers.push("sandbox");
+  if (/timeout|timed out/i.test(raw)) markers.push("timeout");
+  if (/network|fetch|http request/i.test(raw)) markers.push("network");
+  return [...new Set(markers)].join(",") || "none";
+}
+
+function safeErrorCode(error) {
+  const code=error?.code;
+  return typeof code==="string" && /^[A-Z][A-Z0-9_]{1,35}$/.test(code)
+    ? code : "UNKNOWN";
+}
+
+function readReport(path, diagnostics) {
+  let contents;
+  try {
+    contents=readFileSync(path,"utf8");
+  }catch(error){
+    const reason=error?.code==="ENOENT" ? "missing JSON report" : "unreadable JSON report";
+    throw new Error("Lighthouse CLI exit 0: " + reason + " (" + diagnostics + ")");
+  }
+  if(contents.trim().length===0){
+    throw new Error("Lighthouse CLI exit 0: empty JSON report (" + diagnostics + ")");
+  }
+  try {
+    return JSON.parse(contents);
+  }catch{
+    throw new Error("Lighthouse CLI exit 0: invalid JSON report (" + diagnostics + ")");
+  }
+}
+
+/**
+ * @param {{command:string,args:string[],cwd:string,env:NodeJS.ProcessEnv,outputPath:string,timeoutMs?:number}} config
+ * @returns {Promise<unknown>}
+ */
+export async function runLighthouseCli({
+  command,args,cwd,env,outputPath,timeoutMs=90_000
+}) {
+  return new Promise((resolve,reject)=>{
+    let stdout="";
+    let stderr="";
+    let timedOut=false;
+    let settled=false;
+    const child=spawn(command,args,{cwd,env,stdio:["ignore","pipe","pipe"]});
+    const diagnostic=()=> "stdout="+diagnosticMarkers(stdout)+
+      "; stderr="+diagnosticMarkers(stderr);
+    const finish=(error,report)=>{
+      if(settled)return;
+      settled=true;
+      clearTimeout(timer);
+      if(error)reject(error);
+      else resolve(report);
+    };
+    const timer=setTimeout(()=>{
+      timedOut=true;
+      child.kill("SIGKILL");
+    },timeoutMs);
+    child.stdout.on("data",chunk=>{
+      stdout=(stdout+chunk.toString()).slice(-MAX_OUTPUT_BYTES);
+    });
+    child.stderr.on("data",chunk=>{
+      stderr=(stderr+chunk.toString()).slice(-MAX_OUTPUT_BYTES);
+    });
+    child.once("error",error=>{
+      finish(new Error("Lighthouse process spawn error ("+safeErrorCode(error)+"): "+diagnostic()));
+    });
+    child.once("close",(code,signal)=>{
+      if(timedOut){
+        finish(new Error("Lighthouse CLI timed out after "+timeoutMs+"ms ("+diagnostic()+")"));
+      }else if(signal){
+        finish(new Error("Lighthouse CLI signal "+signal+" ("+diagnostic()+")"));
+      }else if(code!==0){
+        finish(new Error("Lighthouse CLI exit "+code+" ("+diagnostic()+")"));
+      }else{
+        try { finish(null,readReport(outputPath,diagnostic())); }
+        catch(error){ finish(error); }
+      }
+    });
+  });
+}
