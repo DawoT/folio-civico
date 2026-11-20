@@ -22,7 +22,65 @@ function post(body: unknown, headers: Record<string,string>={}) {
     body:JSON.stringify(body)});
 }
 
+function afterReviewList(
+  db:D1Database, marker:string, revoke:()=>void
+):D1Database {
+  let fired=false;
+  return {
+    prepare(sql:string){
+      const prepared=db.prepare(sql);
+      if(!sql.includes(marker)) return prepared;
+      return {
+        bind(...params:unknown[]) {
+          const statement=prepared.bind(...params);
+          return {
+            async all<T>() {
+              const result=await statement.all<T>();
+              if(!fired){fired=true;revoke();}
+              return result;
+            }
+          };
+        }
+      } as unknown as D1PreparedStatement;
+    }
+  } as D1Database;
+}
+
 describe("human review endpoints", () => {
+  it.each([
+    ["checklist","FROM checklist_items i","checklist"],
+    ["observations","FROM (SELECT id FROM observations","observations"],
+    ["history","WITH chosen AS (","observations/history"]
+  ] as const)(
+    "fails closed when membership is revoked after the %s query returns",
+    async(action,marker,route) => {
+      const f=fixture();
+      try {
+        const before=f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get();
+        const raced=afterReviewList(f.db,marker,()=>{
+          f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='c_a' AND subject='alice'");
+        });
+        const response=await handleReviewRequest(new Request(base+"/"+route),{DB:raced},"alice","c_a",action);
+        expect(response.status).toBe(404);
+        expect(await response.json()).toEqual({error:"Not found"});
+        expect(response.headers.get("Cache-Control")).toBe("no-store");
+        expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual(before);
+      }finally{f.close();}
+    }
+  );
+
+  it("retains checklist and history read access for members of closed commissions",async()=>{
+    const f=fixture();
+    try{
+      f.sqlite.exec("UPDATE commissions SET status='closed' WHERE id='c_a'");
+      for(const [action,route] of [["checklist","checklist"],["observations","observations"],["history","observations/history"]] as const){
+        const response=await handleReviewRequest(new Request(base+"/"+route),{DB:f.db},"alice","c_a",action);
+        expect(response.status).toBe(200);
+      }
+    }finally{f.close();}
+  });
+
+
   it("lists checklist and observation drafts without unauthorised tenant leakage", async () => {
     const f=fixture();
     try {

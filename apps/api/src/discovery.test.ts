@@ -47,6 +47,38 @@ describe("API authenticated discovery", () => {
     } finally {f.close();}
   });
 
+  it("does not reveal batches if membership is revoked after their D1 query",async()=>{
+    mockAuth.mockResolvedValue("alice");
+    const f=fixture();
+    try{
+      let triggered=false;
+      const raced={
+        prepare(sql:string){
+          const statement=f.db.prepare(sql);
+          if(!sql.includes("SELECT b.id, b.label")) return statement;
+          return {
+            bind(...params:unknown[]){
+              const bound=statement.bind(...params);
+              return {
+                async all<T>(){
+                  const result=await bound.all<T>();
+                  triggered=true;
+                  f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='c_a' AND subject='alice'");
+                  return result;
+                }
+              };
+            }
+          } as unknown as D1PreparedStatement;
+        }
+      } as D1Database;
+      const res=await handleApiRequest(new Request("https://folio.test/api/commissions/c_a/batches"),{DB:raced});
+      expect(triggered).toBe(true);
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({error:"Not found"});
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+    }finally{f.close();}
+  });
+
   it("denies bootstrap to ordinary signed members and rejects malformed discovery routes", async () => {
     mockAuth.mockResolvedValue("alice");
     const f=fixture();

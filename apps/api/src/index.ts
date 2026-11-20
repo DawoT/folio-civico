@@ -101,7 +101,13 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
       if (discovery) return json(await listAccessibleCommissions(env.DB, subject), 200);
       const summary = await getCommissionSummary(env.DB, subject, batches![1]!);
       if (!summary) return json({ error: "Not found" }, 404);
-      return json(await listCommissionBatches(env.DB, subject, batches![1]!), 200);
+      const records=await listCommissionBatches(env.DB,subject,batches![1]!);
+      // A commission member can be revoked after listCommissionBatches
+      // resolves; do not expose a stale batch list after losing access.
+      if(!await getCommissionSummary(env.DB,subject,batches![1]!)) {
+        return json({error:"Not found"},404);
+      }
+      return json(records,200);
     } catch { return json({ error: "Request could not be completed" }, 503); }
   }
   if (documents) {

@@ -106,8 +106,17 @@ export async function handleReviewRequest(
   try {
     const membership = await getCommissionSummary(env.DB, subject, commissionId);
     if (!membership) return json({error:"Not found"},404);
-    if (action === "checklist") return json(await listChecklist(env.DB, subject, commissionId),200);
-    if (action === "observations") return json(await listObservationDrafts(env.DB, subject, commissionId),200);
+    if (action === "checklist" || action === "observations") {
+      const records = action === "checklist"
+        ? await listChecklist(env.DB,subject,commissionId)
+        : await listObservationDrafts(env.DB,subject,commissionId);
+      // A member can be revoked after the joined list query returns.
+      // Verify access after the final data await before disclosing the rows.
+      if (!await getCommissionSummary(env.DB,subject,commissionId)) {
+        return json({error:"Not found"},404);
+      }
+      return json(records,200);
+    }
     if (action === "history") {
       const params=new URL(request.url).searchParams;
       if ([...params.keys()].some(key=>key!=="cursor" && key!=="limit")
@@ -125,6 +134,10 @@ export async function handleReviewRequest(
       const page=await listObservationPage(env.DB,subject,commissionId,{
         limit:rawLimit===null?25:Number(rawLimit),cursor:rawCursor
       });
+      // Keyset results can also become unauthorized after their D1 read.
+      if (!await getCommissionSummary(env.DB,subject,commissionId)) {
+        return json({error:"Not found"},404);
+      }
       return json(page,200);
     }
     if (membership.status !== "active") return json({error:"Commission is closed"},409);
