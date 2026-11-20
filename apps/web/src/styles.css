@@ -407,11 +407,74 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
 .review-card h3 { margin: 0 0 17px; font-size: 18px; letter-spacing: -.03em; }
 .review-card > p:not(.review-note) { font-size: 14px; color: #536773; line-height: 1.7; }
 .review-note { font-size: 12px; color: #536773; line-height: 1.6; }
+/* UX-3.3 — Contextual checklist filters with clear, server-grounded status. */
+.checklist-filters {
+  display: grid;
+  gap: var(--fc-space-3);
+  padding: var(--fc-space-3);
+  margin: var(--fc-space-3) 0 var(--fc-space-4);
+  border: 1px solid var(--fc-color-border-default);
+  border-radius: var(--fc-radius-control);
+  background: var(--fc-color-surface-subtle);
+}
+.checklist-filter-area {
+  display: grid;
+  gap: var(--fc-space-2);
+  color: var(--fc-color-text-primary);
+  font-size: var(--fc-type-label);
+  font-weight: 650;
+}
+.checklist-filter-area select {
+  min-height: 44px;
+  max-width: 100%;
+  width: 100%;
+  border-radius: var(--fc-radius-control);
+  border: 1px solid var(--fc-color-border-strong);
+  padding: 10px 12px;
+  background: var(--fc-color-surface-base);
+  color: var(--fc-color-text-primary);
+}
+.checklist-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fc-space-2);
+}
+.checklist-filter-button {
+  flex: 1 1 120px;
+  min-height: 44px;
+  min-width: 0;
+  padding: 9px 12px;
+  border-radius: var(--fc-radius-control);
+  border: 1px solid var(--fc-color-border-strong);
+  background: var(--fc-color-surface-base);
+  color: var(--fc-color-text-primary);
+  font: inherit;
+  font-size: var(--fc-type-label);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.checklist-filter-button[aria-pressed="true"] {
+  background: var(--fc-color-brand-primary);
+  border-color: var(--fc-color-brand-primary);
+  color: var(--fc-color-brand-on-primary);
+}
+.checklist-filter-button:focus-visible,
+.checklist-filter-area select:focus-visible {
+  outline: 3px solid var(--fc-color-focus);
+  outline-offset: 3px;
+}
+.checklist-filter-note {
+  margin: 0;
+  color: var(--fc-color-text-secondary);
+  font-size: var(--fc-type-caption);
+  line-height: 1.6;
+}
+
 .checklist-items,.observation-items { list-style: none; padding: 0; margin: 0; }
 .checklist-items li { display: grid; gap: 7px; padding: 13px 0; border-bottom: 1px solid #ebf0ed; }
 .checklist-items strong { font-size: 14px; overflow-wrap: anywhere; }
 .checklist-area { font-size: 11px; color: #075c57; font-weight: 750; text-transform: uppercase; }
-.checklist-status { display: inline-flex; width: fit-content; background: #eef3f1; padding: 5px 8px; border-radius: 5px; color: #435b58; font-size: 12px; }
+.checklist-status { width: fit-content; font-size: var(--fc-type-caption); }
 .checklist-proof { color: #465e61; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .checklist-proof code { overflow-wrap: anywhere; }
 .linked-observation-card { margin-top: 22px; }
@@ -485,15 +548,149 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
 .attestation input { margin-top: 3px; flex: 0 0 auto; accent-color: #075c57; width: 16px; height: 16px; }
 .review-form button { align-self: stretch; }
 .review-form input:focus-visible,.review-form select:focus-visible,.review-form textarea:focus-visible { outline: 3px solid var(--fc-color-focus); outline-offset: 2px; }
+/* UX-3.1: filters operate ONLY on already-authorized, paginated history. */
+.inbox-filters {
+  display: grid;
+  gap: var(--fc-space-2);
+  padding: var(--fc-space-3);
+  margin: var(--fc-space-3) 0 var(--fc-space-4);
+  border: 1px solid var(--fc-color-border-default);
+  border-radius: var(--fc-radius-control);
+  background: var(--fc-color-surface-subtle);
+}
+.inbox-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fc-space-2);
+}
+.inbox-filter-button {
+  flex: 1 1 138px;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid var(--fc-color-border-strong);
+  border-radius: var(--fc-radius-control);
+  padding: 10px 12px;
+  background: var(--fc-color-surface-base);
+  color: var(--fc-color-text-primary);
+  font: inherit;
+  font-size: var(--fc-type-label);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.inbox-filter-button[aria-pressed="true"] {
+  background: var(--fc-color-brand-primary);
+  border-color: var(--fc-color-brand-primary);
+  color: var(--fc-color-brand-on-primary);
+}
+.inbox-filter-button:focus-visible {
+  outline: 3px solid var(--fc-color-focus);
+  outline-offset: 3px;
+}
+.inbox-filter-button:disabled { opacity: .58; cursor: not-allowed; }
+.inbox-filter-note {
+  margin: 0;
+  font-size: var(--fc-type-caption);
+  color: var(--fc-color-text-secondary);
+  line-height: 1.6;
+}
 .observations-card { margin-top: 22px; }
 .observation-items li { padding: 15px 0; border-top: 1px solid #e7efeb; }
-.observation-heading { display: flex; justify-content: space-between; gap: 12px; }
+.observation-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--fc-space-3);
+}
+.observation-heading strong {
+  flex: 1 1 180px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .observation-heading strong { font-size: 14px; }
-.observation-heading > span { font-size: 11px; background: #fff3d4; color: #854600; border-radius: 6px; padding: 5px 9px; }
 .observation-items p { font-size: 13px; color: #536773; line-height: 1.6; overflow-wrap: anywhere; }
 .proof-reference { font-family: ui-monospace, Consolas, monospace; font-size: 11px !important; color: #075c57 !important; }
 @media (max-width: 850px) {
   .review-grid { grid-template-columns: 1fr; }
+}
+
+/* UX-3.2: evidence is context for human review, never an original-file preview. */
+.review-evidence-context {
+  display: grid;
+  gap: var(--fc-space-3);
+  padding: var(--fc-space-4);
+  margin-bottom: var(--fc-space-4);
+  border: 1px solid var(--fc-color-border-default);
+  border-radius: var(--fc-radius-control);
+  background: var(--fc-color-surface-base);
+  min-width: 0;
+}
+.review-evidence-context h4,
+.review-evidence-context h5 {
+  margin: 0;
+  color: var(--fc-color-text-primary);
+  letter-spacing: -.02em;
+}
+.review-evidence-context h4 { font-size: 17px; }
+.review-evidence-context h5 { font-size: var(--fc-type-label); }
+.review-evidence-disclaimer {
+  margin: 0;
+  color: var(--fc-color-text-secondary);
+  font-size: var(--fc-type-label);
+  line-height: 1.6;
+}
+.review-evidence-metadata {
+  display: grid;
+  gap: var(--fc-space-2);
+  margin: 0;
+  min-width: 0;
+}
+.review-evidence-metadata > div {
+  display: grid;
+  grid-template-columns: minmax(85px, 115px) minmax(0, 1fr);
+  gap: var(--fc-space-2);
+  padding: var(--fc-space-2) 0;
+  border-bottom: 1px solid var(--fc-color-border-default);
+}
+.review-evidence-metadata dt {
+  color: var(--fc-color-text-secondary);
+  font-size: var(--fc-type-caption);
+}
+.review-evidence-metadata dd {
+  margin: 0;
+  color: var(--fc-color-text-primary);
+  font-size: var(--fc-type-label);
+  font-weight: 600;
+  line-height: 1.5;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.review-evidence-list {
+  list-style: decimal;
+  padding-left: var(--fc-space-5);
+  margin: 0;
+  display: grid;
+  gap: var(--fc-space-3);
+}
+.review-evidence-list li {
+  min-width: 0;
+  padding-left: var(--fc-space-1);
+  color: var(--fc-color-text-primary);
+  overflow-wrap: anywhere;
+}
+.review-evidence-list li strong { font-size: var(--fc-type-label); }
+.review-evidence-list li p,
+.review-evidence-empty {
+  margin: var(--fc-space-1) 0 0;
+  color: var(--fc-color-text-secondary);
+  font-size: var(--fc-type-caption);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.review-evidence-list code { overflow-wrap: anywhere; word-break: break-all; }
+@media (max-width: 440px) {
+  .review-evidence-metadata > div { grid-template-columns: 1fr; gap: var(--fc-space-1); }
 }
 
 .decision-panel { margin-top: 13px; padding: 15px; border: 1px solid #cbded8; border-radius: 10px; background: #f8fbf9; }

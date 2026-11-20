@@ -22,6 +22,22 @@ function cfg(f:Awaited<ReturnType<typeof revocationFixture>>,db:D1Database):Isol
   return {mode:"synthetic-offline-only",db,revocationTrust:f.config};
 }
 
+function revokeOperator(db:ReturnType<typeof makeD1>,subject:string):void {
+  const key=`revoke_access_${subject}`;
+  db.sqlite.prepare(`
+    INSERT INTO processing_redrive_revocation_actions(
+      actor_subject,request_key,kind,target,incident_ref,approver_subject,
+      target_sha256,reason_sha256,approval_sha256,approval_key_thumbprint,payload_sha256
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+  `).run("audit_actor",key,"operator",subject,"INC_REVOKE_ACCESS_001",
+    "audit_approver","a".repeat(64),"b".repeat(64),"c".repeat(64),
+    "A".repeat(43),"d".repeat(64));
+  db.sqlite.prepare(`
+    INSERT INTO processing_redrive_revocations(kind,target,incident_ref)
+    VALUES('operator',?,'INC_REVOKE_ACCESS_001')
+  `).run(subject);
+}
+
 describe("R2.10: independent, asynchronous incident revocation approval",()=>{
   it("stores an authenticated actor request without the approver JWT; a separate later request finalizes without actor JWT",async()=>{
     const fdb=makeD1();
@@ -53,6 +69,98 @@ describe("R2.10: independent, asynchronous incident revocation approval",()=>{
       expect(persisted).not.toContain(actorJwt(f));
       expect(persisted).not.toContain(approverJwt(f));
     }finally{fdb.close();}
+  });
+
+  it.each(["actor","approver"] as const)(
+    "withdrawn %s authority denies a previously valid pending revocation before any D1 journal",
+    async(role)=>{
+      const db=makeD1();
+      try{
+        const f=await revocationFixture();
+        const config=cfg(f,db.db);
+        const proposal=await handleIsolatedOperatorRequest(call(
+          "revocation-proposals",f.scope,actorJwt(f)),config);
+        const id=(await proposal.json() as {id:string}).id;
+        revokeOperator(db,role==="actor"?f.actor:f.approver);
+        const result=await handleIsolatedOperatorRequest(call(
+          "revocation-approvals",{requestId:id},approverJwt(f),f.evidence.approvalJwt
+        ),config);
+        expect(result.status).toBe(403);
+        expect(db.sqlite.prepare("SELECT status FROM processing_async_revocation_requests WHERE id=?").get(id))
+          .toMatchObject({status:"pending"});
+        expect(db.sqlite.prepare("SELECT count(*) AS n FROM processing_redrive_revocation_actions").get())
+          .toMatchObject({n:1});
+      }finally{db.close();}
+    }
+  );
+
+  it("rejects a new or replayed proposal after its actor loses authority",async()=>{
+    const db=makeD1();
+    try{
+      const f=await revocationFixture();
+      const config=cfg(f,db.db);
+      const first=await handleIsolatedOperatorRequest(call(
+        "revocation-proposals",f.scope,actorJwt(f)),config);
+      expect(first.status).toBe(202);
+      revokeOperator(db,f.actor);
+      expect((await handleIsolatedOperatorRequest(call(
+        "revocation-proposals",f.scope,actorJwt(f)),config)).status).toBe(403);
+      expect((await handleIsolatedOperatorRequest(call(
+        "revocation-proposals",{...f.scope,requestKey:"revocation_new_after_loss"},actorJwt(f)),config)).status).toBe(403);
+      expect(()=>db.sqlite.prepare(`
+        INSERT INTO processing_async_revocation_requests(
+          id,actor_subject,request_key,kind,target,incident_ref,
+          target_sha256,reason_sha256,payload_sha256,expires_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,unixepoch()+3600)
+      `).run(crypto.randomUUID(),f.actor,"revoked_sql_direct_001",f.scope.kind,
+        f.scope.target,f.scope.incidentRef,"a".repeat(64),"b".repeat(64),"c".repeat(64)))
+        .toThrow(/ASYNC_REVOCATION_ACTOR_REVOKED/);
+      expect(db.sqlite.prepare("SELECT count(*) AS n FROM processing_async_revocation_requests").get())
+        .toMatchObject({n:1});
+    }finally{db.close();}
+  });
+
+  it("D1 aborts an incident approval if authority is withdrawn after preflight but before the atomic batch",async()=>{
+    const db=makeD1();
+    try{
+      const f=await revocationFixture();
+      const config=cfg(f,db.db);
+      const id=(await (await handleIsolatedOperatorRequest(call(
+        "revocation-proposals",f.scope,actorJwt(f)),config)).json() as {id:string}).id;
+      const concurrent={
+        prepare:db.db.prepare.bind(db.db),
+        batch:async(statements:Parameters<D1Database["batch"]>[0])=>{
+          revokeOperator(db,f.actor);
+          return db.db.batch(statements);
+        }
+      } as unknown as D1Database;
+      const result=await handleIsolatedOperatorRequest(call(
+        "revocation-approvals",{requestId:id},approverJwt(f),f.evidence.approvalJwt
+      ),{...config,db:concurrent});
+      expect(result.status).toBe(409);
+      expect(db.sqlite.prepare("SELECT status FROM processing_async_revocation_requests WHERE id=?").get(id))
+        .toMatchObject({status:"pending"});
+      expect(db.sqlite.prepare("SELECT count(*) AS n FROM processing_redrive_revocations").get())
+        .toMatchObject({n:1});
+      expect(db.sqlite.prepare("SELECT count(*) AS n FROM processing_redrive_revocation_actions").get())
+        .toMatchObject({n:1});
+    }finally{db.close();}
+  });
+
+  it("previously approved incident cannot be reapproved after actor authority is revoked",async()=>{
+    const db=makeD1();
+    try{
+      const f=await revocationFixture();
+      const config=cfg(f,db.db);
+      const id=(await (await handleIsolatedOperatorRequest(call(
+        "revocation-proposals",f.scope,actorJwt(f)),config)).json() as {id:string}).id;
+      expect((await handleIsolatedOperatorRequest(call(
+        "revocation-approvals",{requestId:id},approverJwt(f),f.evidence.approvalJwt),config)).status).toBe(200);
+      revokeOperator(db,f.actor);
+      expect((await handleIsolatedOperatorRequest(call(
+        "revocation-approvals",{requestId:id},approverJwt(f),f.evidence.approvalJwt),config)).status).toBe(403);
+      expect(db.sqlite.prepare("SELECT count(*) AS n FROM processing_redrive_revocations").get()).toMatchObject({n:2});
+    }finally{db.close();}
   });
 
   it("fails closed without first actor JWT, with self-approval, wrong approver or unsigned second stage",async()=>{
