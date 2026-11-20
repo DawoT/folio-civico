@@ -177,3 +177,27 @@ No se ejecuta ningún PDF a través del parser en este ensayo; la
 alcanzabilidad desde PDF, la corrección CVE y el release están **sin
 demostrar y no autorizados**. Dossier:
 [SECURITY_SPLASH_SPAN_REACHABILITY](../../../docs/SECURITY_SPLASH_SPAN_REACHABILITY_2026-11-19.md).
+
+
+## R1.26 · SplashClip::clipAALine con SplashBitmap real (NO RELEASE)
+
+`splash_clipa_line_method_probe.cc` crea un bitmap auténtico de 64 × 4
+subpíxeles con apenas 32 bytes de imagen y ejecuta `clipAALine` en las
+tres variantes SHA-pinned de Poppler. Dos coordenadas **fuera de los límites
+válidos del bitmap** reproducen sendos UBSan de entero con signo en
+`*x0 * splashAASize` y `(*x1 + 1) * splashAASize`; los dos controles
+normales pasan sin avisos.
+
+`run_splash_clipa_line_probe.sh` reusa las 27 pruebas R1.19/R1.21/R1.24
+y añade 12 llamadas con ASan/UBSan, **39/39 ejecuciones reales**. El
+constructor de `SplashBitmap` se enlaza a un ELF auxiliar R1.14
+**solo de investigación**, con SHA-256 validado fuera y dentro de Docker,
+montado por el SONAME exacto `libpoppler.so.147`. El binario NO equivale
+a una atestación del runtime operativo. El runner
+`../poppler_splash_clipa_line_probe.py` rechaza evidencia inconsistente,
+untrusted ELF, symlinks, fallos de linker, códigos de salida ajenos,
+crashes y timeouts.
+
+**No se prueba alcanzabilidad desde PDF ni desde un renderer con límites
+válidos**, ni se aplica ningún parche a una imagen operativa o se cierra CVE.
+Véase [dossier R1.26](../../../docs/SECURITY_SPLASH_CLIPAALINE_REAL_BITMAP_BOUNDS_2026-11-20.md).
