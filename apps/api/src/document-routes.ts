@@ -1,6 +1,7 @@
 import { assertMemberPermission } from "@folio/domain";
 import {
-  getBatchAccess, getExistingUpload, listBatchDocuments, persistDocumentUpload
+  getBatchAccess, getExistingUpload, listBatchDocuments, persistDocumentUpload,
+  type ExistingUpload
 } from "@folio/data";
 import { PdfValidationError, readPdfUpload } from "@folio/documents";
 
@@ -15,10 +16,13 @@ function json(body: unknown, status: number): Response {
   });
 }
 
-function documentResult(documentId: string, versionId: string, sha256: string, repeated: boolean): Response {
+function documentResult(
+  documentId: string, versionId: string, sha256: string,
+  processingStatus: ExistingUpload["processingStatus"], repeated: boolean
+): Response {
   return json({
     documentId, versionId, sha256, ingestStatus: "quarantined",
-    processingStatus: "pending", repeated
+    processingStatus, repeated
   }, repeated ? 200 : 201);
 }
 
@@ -56,7 +60,8 @@ export async function handleDocumentRequest(
       if (existing.sha256 !== pdf.sha256 || existing.batchId !== batchId) {
         return json({ error: "Idempotency key already belongs to another upload" }, 409);
       }
-      return documentResult(existing.documentId, existing.versionId, existing.sha256, true);
+      return documentResult(existing.documentId, existing.versionId, existing.sha256,
+        existing.processingStatus, true);
     }
 
     const documentId = crypto.randomUUID();
@@ -78,7 +83,7 @@ export async function handleDocumentRequest(
         commissionId, batchId, subject, documentId, versionId,
         sha256: pdf.sha256, r2Key, filename: pdf.filename, idempotencyKey: pdf.idempotencyKey
       });
-      return documentResult(documentId, versionId, pdf.sha256, false);
+      return documentResult(documentId, versionId, pdf.sha256, "pending", false);
     } catch {
       // Resolve a concurrent retry before declaring failure; only the second object is deleted.
       let concurrent: Awaited<ReturnType<typeof getExistingUpload>> = null;
@@ -95,7 +100,8 @@ export async function handleDocumentRequest(
       }
       if (concurrent) {
         if (concurrent.sha256 === pdf.sha256 && concurrent.batchId === batchId) {
-          return documentResult(concurrent.documentId, concurrent.versionId, concurrent.sha256, true);
+          return documentResult(concurrent.documentId, concurrent.versionId, concurrent.sha256,
+            concurrent.processingStatus, true);
         }
         return json({ error: "Idempotency key already belongs to another upload" }, 409);
       }

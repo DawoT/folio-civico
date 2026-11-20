@@ -187,6 +187,18 @@ describe("R2 · actual signed API intake → durable outbox → synthetic Queue 
       expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get())
         .toMatchObject({n:2});
 
+      // RED: idempotent retries must report the current processing state,
+      // not re-label an already inspected version as pending.
+      const readyReplay=await f.upload(author);
+      expect(readyReplay.response.status).toBe(200);
+      expect(readyReplay.json).toMatchObject({
+        documentId:ingested.json.documentId,versionId:ingested.json.versionId,
+        sha256:ingested.json.sha256,processingStatus:"ready",repeated:true
+      });
+      expect(f.put).toHaveBeenCalledTimes(1);
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get())
+        .toMatchObject({n:2});
+
       const pages=await f.call(reviewer,PREFIX+"/documents/"+ingested.json.versionId+"/pages");
       expect(pages.status).toBe(200);
       expect(pages.headers.get("Cache-Control")).toContain("no-store");
@@ -262,6 +274,13 @@ describe("R2 · actual signed API intake → durable outbox → synthetic Queue 
       expect(result.items[1]?.ack).toHaveBeenCalledOnce();
       expect(f.sqlite.prepare("SELECT extraction_status FROM document_versions").get())
         .toMatchObject({extraction_status:"needs_review"});
+      const rejectedReplay=await f.upload(author);
+      expect(rejectedReplay.response.status).toBe(200);
+      expect(rejectedReplay.json).toMatchObject({
+        documentId:uploaded.json.documentId,versionId:uploaded.json.versionId,
+        sha256:uploaded.json.sha256,processingStatus:"needs_review",repeated:true
+      });
+      expect(f.put).toHaveBeenCalledTimes(1);
       expect(f.sqlite.prepare("SELECT count(*) AS n FROM document_pages").get())
         .toMatchObject({n:0});
       expect(f.sqlite.prepare("SELECT count(*) AS n FROM document_processing_reports").get())

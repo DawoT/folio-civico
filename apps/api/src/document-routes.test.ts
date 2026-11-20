@@ -76,6 +76,30 @@ describe("authenticated PDF intake route", () => {
     } finally {f.close();}
   });
 
+  it("preserves the original upload while reporting intermediate and failed processing states",async()=>{
+    const f=fixture();
+    try{
+      const created=await handleDocumentRequest(post(),f.env,"alice","c_a","b_a");
+      const first=await created.json() as {documentId:string;versionId:string;sha256:string;processingStatus:string};
+      expect(first.processingStatus).toBe("pending");
+      for(const processingStatus of ["processing","failed"] as const){
+        f.sqlite.prepare("UPDATE document_versions SET extraction_status=? WHERE id=?")
+          .run(processingStatus,first.versionId);
+        const replay=await handleDocumentRequest(post(),f.env,"alice","c_a","b_a");
+        expect(replay.status).toBe(200);
+        expect(await replay.json()).toMatchObject({
+          documentId:first.documentId,versionId:first.versionId,sha256:first.sha256,
+          processingStatus,repeated:true,ingestStatus:"quarantined"
+        });
+      }
+      expect(f.put).toHaveBeenCalledTimes(1);
+      expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM document_versions").get())
+        .toMatchObject({n:1});
+      expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM audit_events").get())
+        .toMatchObject({n:1});
+    }finally{f.close();}
+  });
+
   it("rejects altered content with the same idempotency key", async () => {
     const f=fixture();
     try {

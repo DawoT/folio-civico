@@ -43,7 +43,7 @@ export interface UploadResult {
   versionId: string;
   sha256: string;
   ingestStatus: "quarantined";
-  processingStatus: "pending";
+  processingStatus: DocumentRow["extractionStatus"];
   repeated: boolean;
 }
 

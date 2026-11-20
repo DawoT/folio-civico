@@ -18,6 +18,7 @@ export interface ExistingUpload {
   versionId: string;
   batchId: string;
   sha256: string;
+  processingStatus: BatchDocument["extractionStatus"];
 }
 export interface DocumentUploadInput {
   commissionId: string;
@@ -69,7 +70,8 @@ export async function getExistingUpload(
 ): Promise<ExistingUpload | null> {
   if (!subject || !commissionId || !idempotencyKey) return null;
   return db.prepare(`
-    SELECT d.id AS documentId, v.id AS versionId, d.batch_id AS batchId, v.sha256
+    SELECT d.id AS documentId, v.id AS versionId, d.batch_id AS batchId, v.sha256,
+      v.extraction_status AS processingStatus
     FROM documents d
     JOIN commission_members m ON m.commission_id = d.commission_id
     JOIN document_versions v ON v.document_id = d.id AND v.version_number = 1
