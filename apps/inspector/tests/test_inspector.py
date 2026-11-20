@@ -42,6 +42,13 @@ class ScannerTests(unittest.TestCase):
         if command == "pdfdetach":
             return "0 embedded files\n"
         if command == "pdfinfo":
+            if "-box" in argv:
+                page = int(argv[argv.index("-f") + 1])
+                return (f"Pages: 2\nEncrypted: no\n"
+                        f"Page {page} size: 612 x 792 pts\n"
+                        f"Page {page} rot: 0\n"
+                        f"Page {page} MediaBox: 0.00 0.00 612.00 792.00\n"
+                        f"Page {page} CropBox: 0.00 0.00 612.00 792.00\n")
             return "Pages: 2\nEncrypted: no\n"
         if command == "pdftotext":
             page = int(argv[argv.index("-f") + 1])
@@ -303,8 +310,81 @@ class ScannerTests(unittest.TestCase):
                                   signatures=self.signatures, run=self.fake_runner)
         self.assertEqual(self.called, [])
 
-    def test_fallback_to_ocr_only_if_text_empty(self):
+    def test_ocr_media_preflight_blocks_extreme_page_even_if_cropbox_is_small(self):
+        calls = []
         def fake(argv, cwd):
+            calls.append(tuple(argv))
+            if argv[0] == "pdftotext":
+                return ""
+            if argv[0] == "pdfinfo" and "-box" in argv:
+                return (
+                    "Pages: 2\nEncrypted: no\n"
+                    "Page 1 size: 100 x 1 pts\n"
+                    "Page 1 rot: 0\n"
+                    "Page 1 MediaBox: 0 0 536870919 1\n"
+                    "Page 1 CropBox: 0 0 100 1\n"
+                )
+            if argv[0] == "pdftoppm":
+                self.fail("Oversized MediaBox must never reach rasterization")
+            return self.fake_runner(argv, cwd)
+        with self.assertRaises(inspector.ReviewRequired):
+            inspector.inspect_pdf(PDF, "ver_a", SHA, signatures=self.signatures, run=fake)
+        self.assertIn("pdfinfo", [cmd[0] for cmd in calls])
+        self.assertNotIn("pdftoppm", [cmd[0] for cmd in calls])
+
+    def test_ocr_media_geometry_rejects_malformed_and_ambiguous_reports(self):
+        valid = ("Pages: 2\nEncrypted: no\n"
+                 "Page 1 size: 612 x 792 pts\n"
+                 "Page 1 rot: 0\n"
+                 "Page 1 MediaBox: 0.00 0.00 612.00 792.00\n"
+                 "Page 1 CropBox: 0 0 612 792\n")
+        for broken in (
+            valid.replace("Page 1 MediaBox: 0.00 0.00 612.00 792.00\n", ""),
+            valid + "Page 1 MediaBox: 0 0 612 792\n",
+            valid.replace("612.00", "NaN", 1),
+            valid.replace("Page 1 rot: 0", "Page 1 rot: 45"),
+            valid.replace("Page 1 rot: 0", "Page 2 rot: 0"),
+            valid.replace("612.00", "0.00", 1),
+            valid.replace("Page 1 MediaBox: 0.00", "Page 1 MediaBox: 99999999.00", 1),
+            valid + "Page 2 MediaBox: 0 0 200 200\n",
+            valid + "Page 1 rot: 0\n",
+            valid + "\u202e",
+            "X" * 65_537,
+            "",
+        ):
+            with self.subTest(broken=broken[-85:]), self.assertRaises(
+                inspector.ReviewRequired
+            ):
+                inspector.verify_ocr_raster_geometry(broken, 1)
+        self.assertEqual(inspector.verify_ocr_raster_geometry(valid, 1), None)
+
+    def test_ocr_media_geometry_enforces_side_area_and_coordinate_budgets(self):
+        for bounds in ("0 0 3500 100", "0 0 2000 2000",
+                       "1000000 0 1000100 100", "0 0 -1 500"):
+            metadata = ("Pages: 1\nEncrypted: no\n"
+                        "Page 1 size: 100 x 100 pts\n"
+                        "Page 1 rot: 0\n"
+                        f"Page 1 MediaBox: {bounds}\n")
+            with self.subTest(bounds=bounds), self.assertRaises(
+                inspector.ReviewRequired
+            ):
+                inspector.verify_ocr_raster_geometry(metadata, 1)
+
+    def test_ocr_media_geometry_accepts_bounded_rotated_and_cropbox_pages(self):
+        for rotation, media in ((0, "0 0 612 792"), (90, "0 0 595 842"),
+                                (180, "-20 -30 500 700"), (270, "0 0 100 200")):
+            raw = ("Pages: 2\nEncrypted: no\n"
+                   "Page 2 size: 100 x 60 pts\n"
+                   f"Page 2 rot: {rotation}\n"
+                   f"Page 2 MediaBox: {media}\n"
+                   "Page 2 CropBox: 10 10 110 70\n")
+            with self.subTest(rotation=rotation, media=media):
+                self.assertIsNone(inspector.verify_ocr_raster_geometry(raw, 2))
+
+    def test_fallback_to_ocr_only_if_text_empty(self):
+        calls = []
+        def fake(argv, cwd):
+            calls.append(tuple(argv))
             if argv[0] == "pdftotext":
                 return ""
             if argv[0] == "pdftoppm":
@@ -316,6 +396,19 @@ class ScannerTests(unittest.TestCase):
         result = inspector.inspect_pdf(PDF, "ver_a", SHA,
                                        signatures=self.signatures, run=fake)
         self.assertIn("OCR", result["pages"][0]["text"])
+        self.assertEqual(len(result["pages"]), 2)
+        geometries = [i for i, args in enumerate(calls)
+                      if args[0] == "pdfinfo" and "-box" in args]
+        rasters = [i for i, args in enumerate(calls) if args[0] == "pdftoppm"]
+        self.assertEqual(len(geometries), 2)
+        self.assertEqual(len(rasters), 2)
+        self.assertTrue(all(before < after for before, after in zip(
+            geometries, rasters)))
+        for page, position in enumerate(geometries, 1):
+            self.assertEqual(calls[position][calls[position].index("-f") + 1],
+                             str(page))
+            raster = calls[rasters[page - 1]]
+            self.assertEqual(raster[raster.index("-r") + 1], str(inspector.OCR_DPI))
 
     def test_empty_ocr_or_oversized_extraction_is_not_clean(self):
         for value in ("", "X" * 8001, "<script>\u202eevil</script>"):
