@@ -154,3 +154,26 @@ resultados reales, rechaza mensajes de sanitizador falsificados y falla
 cerrado. **No** alcanza esta ruta mediante PDF ni implica CVE cerrado.
 Véase [R1.21](../../../docs/SECURITY_SPLASH_PUBLIC_TEST_RESIDUAL_UB_2026-11-19.md).
 Sin parche nuevo ni imagen operativa, OCI, VEX o despliegue.
+
+
+## R1.24 · SplashClip::testSpan, triángulo y límites antialias (NO RELEASE)
+
+`splash_span_method_probe.cc` llama a la API pública real
+`SplashClip::testSpan` con un triángulo de recorte pequeño, un rectángulo
+finito de coordenadas amplias y entradas sintéticas. Los tres árboles
+original / cinco prototipos / sexto overlay R1.19 muestran el mismo
+error UBSan `536870919 * 4` **solo** cuando, entre las cuatro condiciones
+ensayadas, hay trayectoria de recorte y el punto extremo pasa el
+guard rectangular. El mismo punto sin trayectoria y un punto fuera
+del rectángulo no desbordan.
+
+`run_splash_span_probe.sh` reutiliza el ejecutor R1.21, sus nueve
+pruebas R1.19 y seis públicas R1.21, además de verificar doce nuevas
+salidas C++ instrumentadas ASan/UBSan: **27/27 controles totales**.
+`../poppler_splash_span_probe.py` valida fuente y parches SHA-pinned
+y falla cerrado ante falsificación o ausencia de evidencia.
+
+No se ejecuta ningún PDF a través del parser en este ensayo; la
+alcanzabilidad desde PDF, la corrección CVE y el release están **sin
+demostrar y no autorizados**. Dossier:
+[SECURITY_SPLASH_SPAN_REACHABILITY](../../../docs/SECURITY_SPLASH_SPAN_REACHABILITY_2026-11-19.md).
