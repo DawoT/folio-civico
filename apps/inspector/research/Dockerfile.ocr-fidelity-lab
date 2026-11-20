@@ -1,0 +1,11 @@
+# R1.39 research-only overlay; NOT the deployable inspector runtime.
+# Parent local image ID (must be checked before and after the build):
+# sha256:ae2af683610b3e1b0f5de12bbcda21f6c26649fc886c9fd4e8341b62c08deca6
+FROM folio-civico-poppler-ocr-lab-r136:local
+USER root
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+       tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
+USER 65534:65534
