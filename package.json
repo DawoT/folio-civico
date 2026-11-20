@@ -9,6 +9,7 @@
     "test:watch": "vitest",
     "test:workers": "vitest run --config vitest.workers.config.ts",
     "test:browser": "playwright test --config=playwright.config.ts",
+    "test:performance": "playwright test --config=playwright.performance.config.ts",
     "demo:local": "pnpm --dir apps/web exec node demo-local.mjs",
     "test:demo": "playwright test --config=playwright.demo.config.ts",
     "test:inspector": "python3 -m unittest discover -s apps/inspector/tests",

@@ -18,6 +18,7 @@ EXPECTED = [
     "typecheck",
     "build",
     "check:frontend-budget",
+    "test:performance",
     "test:workers",
     "test:browser",
     "test:demo",
@@ -80,11 +81,28 @@ class LocalCiContractTests(unittest.TestCase):
         self.assertNotIn("CI PASSED", result.stdout)
         self.assertFalse(any("test:browser" in call or "d1 migrations" in call for call in self.calls()))
 
+    def test_performance_lab_failures_block_browser_and_success(self):
+        self.env["CI_FAIL_STEP"] = "test:performance"
+        result = self.run_ci()
+        self.assertEqual(result.returncode, 47)
+        self.assertEqual(self.calls(), EXPECTED[:8])
+        self.assertNotIn("CI PASSED", result.stdout)
+        self.assertFalse(any(call == "test:browser" or "d1 migrations" in call for call in self.calls()))
+
+    def test_performance_lab_never_reuses_previous_preview_or_dev_server(self):
+        config = (ROOT / "playwright.performance.config.ts").read_text(encoding="utf-8")
+        self.assertIn("reuseExistingServer: false", config)
+        self.assertIn("vite preview", config)
+        self.assertIn("--strictPort", config)
+        self.assertIn("Number(rawPort) < 1024", config)
+        self.assertIn("127.0.0.1", config)
+        self.assertNotIn("reuseExistingServer: !process.env.CI", config)
+
     def test_browser_failures_block_database_steps_and_success(self):
         self.env["CI_FAIL_STEP"] = "test:browser"
         result = self.run_ci()
         self.assertEqual(result.returncode, 47)
-        self.assertEqual(self.calls(), EXPECTED[:9])
+        self.assertEqual(self.calls(), EXPECTED[:10])
         self.assertNotIn("CI PASSED", result.stdout)
         self.assertFalse(any("d1 migrations" in call for call in self.calls()))
 
@@ -101,7 +119,7 @@ class LocalCiContractTests(unittest.TestCase):
         self.env["CI_FAIL_STEP"] = "test:demo"
         result = self.run_ci()
         self.assertEqual(result.returncode, 47)
-        self.assertEqual(self.calls(), EXPECTED[:10])
+        self.assertEqual(self.calls(), EXPECTED[:11])
         self.assertNotIn("CI PASSED", result.stdout)
         self.assertFalse(any("d1 migrations" in call for call in self.calls()))
 
