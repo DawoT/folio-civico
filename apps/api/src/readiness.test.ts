@@ -88,6 +88,33 @@ describe("authenticated API-core readiness contract", () => {
     }finally{f.close();}
   });
 
+  // Critical D1 write fences are introduced in migrations after 0001.
+  // A schema with the five initial tables but no admission guards must NOT be ready.
+  it.each([
+    ["trigger","processing_outbox_verified_completion"],
+    ["view","processing_redrive_consumer_denials"],
+    ["trigger","processing_redrive_consumer_report_authority_guard"],
+    ["trigger","processing_redrive_consumer_status_authority_guard"],
+    ["trigger","processing_report_active_commission_guard"],
+    ["trigger","processing_status_active_commission_guard"]
+  ] as const)("fails closed when the required %s %s is absent", async(type,name)=>{
+    const f=await signedFixture();
+    try{
+      const operator=await f.token("operator");
+      const complete=await handleApiRequest(f.request(operator),f.env);
+      expect(complete.status).toBe(200);
+      // The object name is a known literal fixture, never user input.
+      f.sqlite.exec(`DROP ${type.toUpperCase()} "${name}"`);
+      const response=await handleApiRequest(f.request(operator),f.env);
+      expect(response.status).toBe(503);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      expect(await response.json()).toEqual({error:"Service unavailable"});
+      expect(f.sqlite.prepare(
+        "SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name IN ('commissions','commission_members','document_batches','document_versions','audit_events')"
+      ).get()).toMatchObject({n:5});
+    }finally{f.close();}
+  });
+
   it("fails closed on a D1 error without leaking SQL, token or backend details",async()=>{
     const f=await signedFixture();
     try{
