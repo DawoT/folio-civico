@@ -56,7 +56,9 @@ Se probaron también **tres alteraciones reales**: parche adulterado, manifiesto
 
 ## Reproducibilidad
 
-`bash apps/inspector/fetch_util_linux_source_candidate.sh` descarga y valida los artefactos y retorna `exit 2`. Para compilar el smoke nativo se requiere un directorio temporal privado que contenga esos seis archivos (en la ejecución local se preparó tal carpeta): `bash apps/inspector/build_util_linux_nsenter_source_smoke.sh --artifacts-dir /tmp/your-signed-artifacts` (salida `exit 2`). No se versionan artefactos binarios upstream. El CI funcional sigue siendo `sh scripts/ci.sh` local; **CI verde no concede autorización de seguridad**.
+`bash apps/inspector/fetch_util_linux_source_candidate.sh` descarga y valida los artefactos y retorna `exit 2`. Para compilar el smoke nativo se requiere un directorio temporal privado que contenga esos seis archivos (en la ejecución local se preparó tal carpeta): `bash apps/inspector/build_util_linux_nsenter_source_smoke.sh --artifacts-dir /tmp/your-signed-artifacts` (salida `exit 2`). No se versionan artefactos binarios upstream. **CI local completa tras integrar el `main` vigente (`03ced86`):** `FOLIO_E2E_PORT=43322 sh scripts/ci.sh` terminó **exit 0**, con **520/520 Vitest TypeScript en 83 suites**, **317/317 Python inspector**, **5/5 Workers locales**, **132/132 Chromium/Playwright**, **1/1 demo E2E local**, **14/14 checks del contrato de CI** y **33/33 pruebas complementarias**. También pasó `tsc --noEmit`, compilaciones Web/API/MCP/Processor/Gateway, cuatro Workers dry-run, pruebas de rendimiento, Lighthouse móvil simulado y migraciones D1 **solo locales**. No se usó GitHub Actions ni se tocó producción.
+
+**Gate de CVE independiente verificado:** `bash apps/inspector/scan_util_linux_cve_scope.sh` → **exit 2 / release bloqueado**, 0 CRITICAL, 59 HIGH, 15 UNKNOWN, incluyendo **36/36 avisos util-linux HIGH** sin supresión. La verificación de la fuente firmada y el smoke de compilación retornan asimismo **exit 2 esperado** para recordar que no se construyó ni promovió ningún paquete Debian. **CI verde no concede autorización de seguridad**.
 
 ## Siguiente decisión
 
