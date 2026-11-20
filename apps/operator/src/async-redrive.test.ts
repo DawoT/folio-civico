@@ -102,6 +102,118 @@ function insertSyntheticAuditedRevocation(
 }
 
 describe("R2.11 · independent asynchronous redrive authority",()=>{
+  it("SQL denies a reservation if institutional invalidation arrives after preflight but before atomic insert",async()=>{
+    const f=await fixture();
+    try{
+      f.env.institutionalGate={reader:{readCurrentEvidence:async(query:Record<string,unknown>)=>{
+        const t=Math.floor(Date.now()/1000);
+        return {...query,revision:15,status:"open",decision:"approved",
+          reviewerSubject:query.approverSubject,checkedAt:t,
+          reviewedAt:t-5,mfaVerifiedAt:t-10,validUntil:t+60};
+      }}};
+      const id=(await (await f.propose()).json() as {id:string}).id;
+      const jwt=await f.approvalJwt(id);
+      expect((await f.approve(id,jwt)).status).toBe(200);
+      let injected=false;
+      const raced={
+        prepare:f.db.prepare.bind(f.db),
+        batch:async(statements:Parameters<D1Database["batch"]>[0])=>{
+          if(!injected){
+            injected=true;
+            f.sqlite.prepare(`
+              INSERT INTO processing_institutional_approval_invalidations(
+                purpose,request_id,case_revision,reason,evidence_sha256
+              ) VALUES('redrive',?,15,'case_closed',?)
+            `).run(id,"d".repeat(64));
+          }
+          return f.db.batch(statements);
+        }
+      } as unknown as D1Database;
+      const response=await f.execute(id,jwt,{
+        config:{...f.env,db:raced},headers:f.operatorHeader,
+        releaseJwt:f.signed.evidence.releaseJwt
+      });
+      expect(injected).toBe(true);
+      expect(response.status).toBe(409);
+      expect(f.counts().sends).toEqual({n:0});
+      expect(f.send).not.toHaveBeenCalled();
+      expect(f.sqlite.prepare(
+        "SELECT count(*) AS n FROM processing_manual_redrives"
+      ).get()).toMatchObject({n:0});
+    }finally{f.close();}
+  });
+
+
+  it("denies an institutionally invalidated approved redrive before Queue reservation",async()=>{
+    const f=await fixture();
+    try{
+      const reader={readCurrentEvidence:async(query:Record<string,unknown>)=>{
+        const t=Math.floor(Date.now()/1000);
+        return {...query,revision:9,status:"open",decision:"approved",
+          reviewerSubject:query.approverSubject,checkedAt:t,
+          reviewedAt:t-4,mfaVerifiedAt:t-10,validUntil:t+70};
+      }};
+      f.env.institutionalGate={reader};
+      const id=(await (await f.propose()).json() as {id:string}).id;
+      const jwt=await f.approvalJwt(id);
+      expect((await f.approve(id,jwt)).status).toBe(200);
+      f.sqlite.prepare(`
+        INSERT INTO processing_institutional_approval_invalidations(
+          purpose,request_id,case_revision,reason,evidence_sha256
+        ) VALUES('redrive',?,9,'case_closed',?)
+      `).run(id,"d".repeat(64));
+      const result=await f.execute(id,jwt);
+      expect(result.status).toBe(403);
+      expect(f.counts().sends).toEqual({n:0});
+      expect(f.send).not.toHaveBeenCalled();
+      expect((await f.approve(id,jwt)).status).toBe(403);
+    }finally{f.close();}
+  });
+
+  it("halts a reserved redrive if institutional invalidation races after D1 reservation",async()=>{
+    const f=await fixture();
+    try{
+      f.env.institutionalGate={reader:{readCurrentEvidence:async(query:Record<string,unknown>)=>{
+        const t=Math.floor(Date.now()/1000);
+        return {...query,revision:11,status:"open",decision:"approved",
+          reviewerSubject:query.approverSubject,checkedAt:t,
+          reviewedAt:t-2,mfaVerifiedAt:t-3,validUntil:t+70};
+      }}};
+      const id=(await (await f.propose()).json() as {id:string}).id;
+      const jwt=await f.approvalJwt(id);
+      expect((await f.approve(id,jwt)).status).toBe(200);
+      let injected=false;
+      const racing={
+        prepare:f.db.prepare.bind(f.db),
+        batch:async(statements:Parameters<D1Database["batch"]>[0])=>{
+          const result=await f.db.batch(statements);
+          if(!injected){
+            injected=true;
+            f.sqlite.prepare(`
+              INSERT INTO processing_institutional_approval_invalidations(
+                purpose,request_id,case_revision,reason,evidence_sha256
+              ) VALUES('redrive',?,11,'case_closed',?)
+            `).run(id,"d".repeat(64));
+          }
+          return result;
+        }
+      } as unknown as D1Database;
+      const res=await f.execute(id,jwt,{
+        config:{...f.env,db:racing},headers:f.operatorHeader,
+        releaseJwt:f.signed.evidence.releaseJwt
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({state:"halted",replayed:false});
+      expect(injected).toBe(true);
+      expect(f.send).not.toHaveBeenCalled();
+      expect(f.sqlite.prepare("SELECT state FROM processing_manual_redrives").get())
+        .toMatchObject({state:"halted"});
+      expect((await f.execute(id,jwt)).status).toBe(403);
+      expect(f.send).not.toHaveBeenCalled();
+    }finally{f.close();}
+  });
+
+
   it("D1 prevents downgrading a protected redrive and direct status approval with no receipt",async()=>{
     const f=await fixture();
     try{

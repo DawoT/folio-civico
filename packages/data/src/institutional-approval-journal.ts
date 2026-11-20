@@ -16,6 +16,23 @@ export interface StoredInstitutionalEvidence extends InstitutionalEvidenceReceip
   readonly approvalDigest:string;
   readonly expiresAt:number;
 }
+/**
+ * Read the append-only, synthetic-only invalidation ledger.
+ * A failed D1 read must reject the operation, not assume no invalidation.
+ * The external institutional event writer is NOT implemented.
+ */
+export async function isInstitutionalApprovalInvalidated(
+  db:D1Database,purpose:"revocation"|"redrive",requestId:string
+):Promise<boolean>{
+  const hit=await db.prepare(`
+    SELECT 1 AS blocked
+    FROM processing_institutional_approval_invalidations
+    WHERE purpose=? AND request_id=?
+    LIMIT 1
+  `).bind(purpose,requestId).first<{blocked:number}>();
+  return hit!==null;
+}
+
 /** A replay must reference the original immutable case revision and JWS. */
 export async function matchesInstitutionalEvidence(
   db:D1Database,purpose:"revocation"|"redrive",requestId:string,
