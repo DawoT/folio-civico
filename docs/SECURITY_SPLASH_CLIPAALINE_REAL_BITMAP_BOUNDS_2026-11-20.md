@@ -76,6 +76,26 @@ bash apps/inspector/audit_image.sh --experiment --advisories
 
 El verificador exige primero **27/27 resultados C++** anteriores y después **12/12 resultados de `clipAALine`** con salidas exactas, versión de fuente, códigos y ausencia de reportes ASan no relacionados. Las pruebas unitarias rechazan artefactos falsificados, rutas de fuente ajenas, salidas simbólicas, timeouts, ELF de tamaño o hash incorrectos y desajustes de SONAME. **Falla cerrado con `exit 3`**, siempre `release_authorized=false`.
 
+### Validaciones ejecutadas
+
+- **Runner de fuente R1.26: `exit 0`**, con 39/39 ensayos C++ reales;
+  los 12 nuevos abarcan dos controles normales y dos errores UBSan
+  por cada uno de los tres árboles SHA-pinned.
+- **210/210 pruebas Python del inspector**, incluidas 11 unitarias nuevas;
+  `bash -n` del script del contenedor: `exit 0`.
+- **CI integral local `FOLIO_E2E_PORT=43139 sh scripts/ci.sh`: `exit 0`**:
+  210/210 Python, 33/33 casos de estudio UX5, Vitest/workerd,
+  TypeScript, cinco paquetes compilados, builds Workers `--dry-run`,
+  Chromium E2E y migraciones D1 **únicamente locales hasta `0030`**.
+  No equivale a aprobación de seguridad del inspector.
+- **Smoke de motores existentes `exit 0, 8/8`** (PDF nativo, OCR,
+  antivirus, aislamiento, rechazos cifrados, archivos adjuntos y
+  malformados). La imagen existente **no incorpora** estos métodos
+  de investigación.
+- **Auditoría Trivy `exit 2 BLOQUEADO`**, 0 CRITICAL, 70 HIGH,
+  19 UNKNOWN, dos componentes nativos sin revisión CVE suficiente;
+  no VEX ni remediación declarada.
+
 ### Conclusión y siguiente trabajo
 
 Este ensayo identifica **dos sitios de desbordamiento potencial en una API nativa cuando se violan los límites de argumentos esperados**, no una vulnerabilidad PDF alcanzable. Antes de considerarlo corregible deben demostrarse las precondiciones del renderer, especialmente para los tres callsites `clipAALine` y la multiplicación de ancho en el constructor del buffer antialias. También queda pendiente la paridad de bibliotecas completas R1.20 en su propio worktree, y otras rutas Splash, JBIG2, TrueType, Expat y ClamAV.
