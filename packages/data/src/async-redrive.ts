@@ -5,6 +5,7 @@ import {
   type VerifiedAsyncRedriveDecision
 } from "@folio/auth";
 import {areOperatorSubjectsRevoked} from "./async-authority-guards";
+import {matchesInstitutionalEvidence,type InstitutionalEvidenceReceipt} from "./institutional-approval-journal";
 
 /** Global private D1 operation: no Worker routes, secrets, or remote host. */
 export class AsyncRedriveAccessError extends Error {}
@@ -14,6 +15,7 @@ export type PendingRedrive=StoredAsyncRedrive & {
   approverSubject:string|null;
   approvalDigest:string|null;
   approvalKeyThumbprint:string|null;
+  institutionalGateRequired:number;
 };
 export type ProposalResult=Readonly<{
   id:string;status:"pending"|"approved";replayed:boolean;
@@ -44,14 +46,15 @@ export async function findAsyncRedrive(
       recovery_review_id AS reviewId,request_key AS requestKey,
       approval_ref AS approvalRef,expires_at AS expiresAt,status,
       approver_subject AS approverSubject,approval_sha256 AS approvalDigest,
-      approval_key_thumbprint AS approvalKeyThumbprint
+      approval_key_thumbprint AS approvalKeyThumbprint,
+      institutional_gate_required AS institutionalGateRequired
     FROM processing_async_redrive_requests
     WHERE id=?
   `).bind(id).first<PendingRedrive>();
 }
 export async function proposeAsyncRedrive(
   db:D1Database,scope:OneShotAuthorizationScope,
-  operator:VerifiedAsyncRedriveRequester
+  operator:VerifiedAsyncRedriveRequester,institutionalGateRequired=false
 ):Promise<ProposalResult>{
   if(!validOneShotRedriveScope(scope)||!isVerifiedAsyncRedriveRequester(operator)){
     throw new AsyncRedriveAccessError("Verified operator and valid recovery scope required");
@@ -61,17 +64,19 @@ export async function proposeAsyncRedrive(
   }
   const prior=async()=>db.prepare(`
     SELECT id,status,commission_id AS commissionId,recovery_review_id AS reviewId,
-      approval_ref AS approvalRef,expires_at AS expiresAt
+      approval_ref AS approvalRef,expires_at AS expiresAt,
+      institutional_gate_required AS institutionalGateRequired
     FROM processing_async_redrive_requests
     WHERE operator_subject=? AND request_key=?
   `).bind(operator.subject,scope.requestKey).first<{
     id:string;status:"pending"|"approved";commissionId:string;
-    reviewId:string;approvalRef:string;expiresAt:number
+    reviewId:string;approvalRef:string;expiresAt:number;institutionalGateRequired:number
   }>();
   const old=await prior();
   if(old){
     if(old.commissionId!==scope.commissionId || old.reviewId!==scope.reviewId
       || old.approvalRef!==scope.approvalRef
+      || Boolean(old.institutionalGateRequired)!==institutionalGateRequired
       || old.expiresAt<=Math.floor(Date.now()/1000)){
       throw new AsyncRedriveConflictError("Proposal key already used or expired");
     }
@@ -84,17 +89,18 @@ export async function proposeAsyncRedrive(
     const result=await db.prepare(`
       INSERT INTO processing_async_redrive_requests(
         id,commission_id,recovery_review_id,operator_subject,request_key,
-        approval_ref,expires_at
-      ) VALUES(?,?,?,?,?,?,unixepoch()+?)
+        approval_ref,expires_at,institutional_gate_required
+      ) VALUES(?,?,?,?,?,?,unixepoch()+?,?)
     `).bind(id,scope.commissionId,scope.reviewId,operator.subject,
-      scope.requestKey,scope.approvalRef,TTL).run();
+      scope.requestKey,scope.approvalRef,TTL,institutionalGateRequired?1:0).run();
     if(!result.success || result.meta.changes!==1)throw new Error("No proposal recorded");
     return {id,status:"pending",replayed:false};
   }catch{
     const concurrent=await prior();
     if(concurrent && concurrent.commissionId===scope.commissionId
       && concurrent.reviewId===scope.reviewId
-      && concurrent.approvalRef===scope.approvalRef){
+      && concurrent.approvalRef===scope.approvalRef
+      && Boolean(concurrent.institutionalGateRequired)===institutionalGateRequired){
       return {id:concurrent.id,status:concurrent.status,replayed:true};
     }
     throw new AsyncRedriveConflictError("Proposal already exists or D1 unavailable");
@@ -118,16 +124,24 @@ async function sameApproval(db:D1Database,stored:PendingRedrive,
   return !!exists;
 }
 export async function approveAsyncRedrive(
-  db:D1Database,stored:PendingRedrive,decision:VerifiedAsyncRedriveDecision
+  db:D1Database,stored:PendingRedrive,decision:VerifiedAsyncRedriveDecision,
+  evidence?:InstitutionalEvidenceReceipt
 ):Promise<DecisionResult>{
   if(!isVerifiedAsyncRedriveDecision(decision,stored)){
     throw new AsyncRedriveAccessError("Independent signed redrive approver required");
+  }
+  if(stored.institutionalGateRequired && !evidence){
+    throw new AsyncRedriveAccessError("Institutional receipt required");
   }
   if(await areOperatorSubjectsRevoked(db,stored.operatorSubject,decision.approverSubject)){
     throw new AsyncRedriveAccessError("Redrive approval authority withdrawn");
   }
   if(stored.status==="approved"){
-    if(await sameApproval(db,stored,decision))return {status:"approved",replayed:true};
+    if(await sameApproval(db,stored,decision)
+      && (!evidence || await matchesInstitutionalEvidence(
+        db,"redrive",stored.id,stored.operatorSubject,
+        decision.approverSubject,decision.approvalDigest,stored.expiresAt,evidence
+      )))return {status:"approved",replayed:true};
     throw new AsyncRedriveConflictError("Different approval already recorded");
   }
   if(stored.expiresAt<=Math.floor(Date.now()/1000))
@@ -144,6 +158,15 @@ export async function approveAsyncRedrive(
             AND operator_subject<>?
       `).bind(decision.approverSubject,decision.approvalDigest,
         decision.approvalKeyThumbprint,stored.id,decision.approverSubject),
+      ...(evidence?[db.prepare(`
+        INSERT INTO processing_institutional_approval_evidence(
+          purpose,request_id,actor_subject,approver_subject,scope_sha256,
+          approval_sha256,case_revision,checked_at,expires_at
+        ) SELECT 'redrive',id,operator_subject,?,?,?,?,?,expires_at
+        FROM processing_async_redrive_requests
+        WHERE id=? AND status='pending'
+      `).bind(decision.approverSubject,evidence.scopeDigest,
+        decision.approvalDigest,evidence.caseRevision,evidence.checkedAt,stored.id)]:[]),
       db.prepare(`
         UPDATE processing_async_redrive_requests
         SET status='approved',approver_subject=?,approval_sha256=?,
@@ -153,13 +176,18 @@ export async function approveAsyncRedrive(
       `).bind(decision.approverSubject,decision.approvalDigest,
         decision.approvalKeyThumbprint,stored.id)
     ]);
-    if(results.length!==2 || results.some(r=>!r.success||r.meta.changes!==1)){
+    if(results.length!==(evidence?3:2)
+      || results.some(r=>!r.success||r.meta.changes!==1)){
       throw new Error("Incomplete independent redrive approval");
     }
     return {status:"approved",replayed:false};
   }catch{
     const current=await findAsyncRedrive(db,stored.id);
-    if(current && await sameApproval(db,current,decision)){
+    if(current && await sameApproval(db,current,decision)
+      && (!evidence || await matchesInstitutionalEvidence(
+        db,"redrive",stored.id,stored.operatorSubject,
+        decision.approverSubject,decision.approvalDigest,stored.expiresAt,evidence
+      ))){
       return {status:"approved",replayed:true};
     }
     throw new AsyncRedriveConflictError("Redrive approval already decided or unavailable");
