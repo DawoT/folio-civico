@@ -1,5 +1,6 @@
 import { describe,expect,it } from "vitest";
 import { makeD1 } from "../../../tests/helpers/d1";
+import {afterFirstRead,aroundBatch} from "../../../tests/helpers/d1-write-replay-race";
 import {
   createCommissionBatch, createCommissionChecklistItem,
   ProvisioningAccessError, ProvisioningConflictError
@@ -23,6 +24,72 @@ const itemInput={commissionId:"a",subject:"president",area:"works" as const,
   expectedDocument:"Expediente de obra",requestKey:"checklist_req_12345"};
 
 describe("president-only idempotent commission provisioning",()=>{
+  it.each(["revoked","demoted","closed"] as const)(
+    "never replays a batch after the president becomes %s during the resource read",
+    async(change)=>{
+      const f=fixture();
+      try{
+        await createCommissionBatch(f.db,batchInput);
+        const raced=afterFirstRead(f.db,"SELECT id,label FROM document_batches",()=>{
+          if(change==="revoked") {
+            f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='a' AND subject='president'");
+          } else if(change==="demoted") {
+            f.sqlite.exec("UPDATE commission_members SET role='member' WHERE commission_id='a' AND subject='president'");
+          } else {
+            f.sqlite.exec("UPDATE commissions SET status='closed' WHERE id='a'");
+          }
+        });
+        await expect(createCommissionBatch(raced,batchInput)).rejects.toBeInstanceOf(
+          change==="closed"?ProvisioningConflictError:ProvisioningAccessError
+        );
+        expect(f.sqlite.prepare("SELECT count(*) AS n FROM document_batches").get()).toEqual({n:1});
+        expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:1});
+      }finally{f.close();}
+    }
+  );
+
+  it("never replays a checklist item if presidency is revoked during its resource read",async()=>{
+    const f=fixture();
+    try{
+      await createCommissionChecklistItem(f.db,itemInput);
+      const raced=afterFirstRead(f.db,"FROM checklist_items WHERE id=?",()=>{
+        f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='a' AND subject='president'");
+      });
+      await expect(createCommissionChecklistItem(raced,itemInput)).rejects.toBeInstanceOf(ProvisioningAccessError);
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM checklist_items").get()).toEqual({n:1});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:1});
+    }finally{f.close();}
+  });
+
+  it("never replays the winner after a competing provisioning transaction invalidates presidency",async()=>{
+    const f=fixture();
+    try{
+      const raced=aroundBatch(f.db,async()=>{
+        await createCommissionBatch(f.db,batchInput);
+        f.sqlite.exec("UPDATE commission_members SET role='observer' WHERE commission_id='a' AND subject='president'");
+        throw new Error("SYNTHETIC_CONCURRENT_PROVISION_KEY");
+      });
+      await expect(createCommissionBatch(raced,batchInput)).rejects.toBeInstanceOf(ProvisioningAccessError);
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM commission_provisioning_requests").get()).toEqual({n:1});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:1});
+    }finally{f.close();}
+  });
+
+  it("does not acknowledge a just-committed checklist write after commission closure during D1.batch",async()=>{
+    const f=fixture();
+    try{
+      const raced=aroundBatch(f.db,async statements=>{
+        const results=await f.db.batch(statements);
+        f.sqlite.exec("UPDATE commissions SET status='closed' WHERE id='a'");
+        return results;
+      });
+      await expect(createCommissionChecklistItem(raced,itemInput)).rejects.toBeInstanceOf(ProvisioningConflictError);
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM checklist_items").get()).toEqual({n:1});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:1});
+    }finally{f.close();}
+  });
+
+
   it("creates a batch, a pending checklist item and two audit events atomically",async()=>{
     const f=fixture();
     try{

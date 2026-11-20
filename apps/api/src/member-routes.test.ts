@@ -1,5 +1,6 @@
 import {describe,expect,it} from "vitest";
 import {makeD1} from "../../../tests/helpers/d1";
+import {afterFirstRead} from "../../../tests/helpers/d1-write-replay-race";
 import {handleMemberRequest} from "./member-routes";
 
 function fixture(){
@@ -45,6 +46,27 @@ function afterAuthorizedRows(db:D1Database,needle:string,change:()=>void):D1Data
 }
 
 describe("authenticated membership management endpoint",()=>{
+  it("does not return HTTP 200 for an idempotent member grant after president revocation during its journal lookup",async()=>{
+    const f=fixture();
+    try{
+      const action="/api/commissions/a/members";
+      const input={subject:"newperson",role:"advisor",expectedRevision:null};
+      const key="grant_race_12345";
+      const created=await handleMemberRequest(post(action,input,key),{DB:f.db},"president","a","members");
+      expect(created.status).toBe(201);
+      const raced=afterFirstRead(f.db,"FROM commission_member_actions",()=>{
+        f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='a' AND subject='president'");
+      });
+      const res=await handleMemberRequest(post(action,input,key),{DB:raced},"president","a","members");
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({error:"Forbidden"});
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM commission_member_actions").get()).toEqual({n:1});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:1});
+    }finally{f.close();}
+  });
+
+
   it.each(["revoked","demoted"] as const)(
     "does not reveal the membership roster after the president is %s during D1 list",
     async(change)=>{

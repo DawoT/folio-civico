@@ -1,5 +1,6 @@
 import {describe,expect,it} from "vitest";
 import {makeD1} from "../../../tests/helpers/d1";
+import {afterFirstRead,aroundBatch} from "../../../tests/helpers/d1-write-replay-race";
 import {
   listCommissionMembers,grantCommissionMember,revokeCommissionMember,
   MembershipAccessError,MembershipConflictError,MembershipInputError
@@ -23,6 +24,60 @@ const base={commissionId:"a",actorSubject:"president",requestKey:"request_grant_
 const target={...base,memberSubject:"new_member",role:"advisor" as const,expectedRevision:null};
 
 describe("commission member lifecycle",()=>{
+  it.each(["revoked","demoted","closed"] as const)(
+    "does not replay an existing membership action after the actor becomes %s during journal lookup",
+    async(change)=>{
+      const f=fixture();
+      try{
+        await grantCommissionMember(f.db,target);
+        const raced=afterFirstRead(f.db,"FROM commission_member_actions",()=>{
+          if(change==="revoked") {
+            f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='a' AND subject='president'");
+          } else if(change==="demoted") {
+            f.sqlite.exec("UPDATE commission_members SET role='member' WHERE commission_id='a' AND subject='president'");
+          } else {
+            f.sqlite.exec("UPDATE commissions SET status='closed' WHERE id='a'");
+          }
+        });
+        await expect(grantCommissionMember(raced,target)).rejects.toBeInstanceOf(
+          change==="closed"?MembershipConflictError:MembershipAccessError
+        );
+        expect(f.sqlite.prepare("SELECT count(*) AS n FROM commission_member_actions").get()).toEqual({n:1});
+        expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:1});
+      } finally {f.close();}
+    }
+  );
+
+  it("does not acknowledge an idempotent winner if the actor is revoked before the batch conflict recovery",async()=>{
+    const f=fixture();
+    try {
+      const raced=aroundBatch(f.db,async()=>{
+        await grantCommissionMember(f.db,target);
+        f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='a' AND subject='president'");
+        throw new Error("SYNTHETIC_CONCURRENT_KEY_CLAIM");
+      });
+      await expect(grantCommissionMember(raced,target)).rejects.toBeInstanceOf(MembershipAccessError);
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM commission_member_actions").get()).toEqual({n:1});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:1});
+    }finally{f.close();}
+  });
+
+  it("does not acknowledge a committed membership mutation if the actor loses authority after D1.batch",async()=>{
+    const f=fixture();
+    try{
+      const raced=aroundBatch(f.db,async statements=>{
+        const results=await f.db.batch(statements);
+        f.sqlite.exec("UPDATE commission_members SET role='observer' WHERE commission_id='a' AND subject='president'");
+        return results;
+      });
+      await expect(grantCommissionMember(raced,target)).rejects.toBeInstanceOf(MembershipAccessError);
+      // The already committed D1 transaction is not rolled back by a response fence.
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM commission_member_actions").get()).toEqual({n:1});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:1});
+    }finally{f.close();}
+  });
+
+
   it("lists only within one commission for an active president, including inactive members and revisions",async()=>{
     const f=fixture();
     try {

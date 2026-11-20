@@ -112,6 +112,9 @@ async function mutate(
       || prior.memberSubject!==input.memberSubject) {
       throw new MembershipConflictError("Idempotency key belongs to another action");
     }
+    // The journal read is another D1 await. A former president must not
+    // receive an apparently successful replay after revocation or closure.
+    await authorize(db,input.actorSubject,input.commissionId);
     return replay(prior);
   }
 
@@ -205,10 +208,19 @@ async function mutate(
   } catch(error) {
     const saved=await findRequest(db,input);
     if(saved && saved.payloadSha256===hash && saved.memberSubject===input.memberSubject
-      && saved.operation===operation) return replay(saved);
+      && saved.operation===operation) {
+      // The competing winner is durable, but the actor may have lost
+      // authority before the recovery query completed.
+      await authorize(db,input.actorSubject,input.commissionId);
+      return replay(saved);
+    }
     if(error instanceof MembershipConflictError) throw error;
     throw new MembershipConflictError("Membership change failed or conflicted");
   }
+  // A write can commit immediately before the president is revoked.
+  // Do not acknowledge a successful operation with stale authority; the
+  // already-committed transaction and audit remain durable.
+  await authorize(db,input.actorSubject,input.commissionId);
   return {subject:input.memberSubject,role,active,revision,replayed:false};
 }
 
