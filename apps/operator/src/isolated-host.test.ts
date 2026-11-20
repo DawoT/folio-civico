@@ -177,7 +177,11 @@ describe("R2.9 · isolated private operator HTTP adapter (not deployed)",()=>{
       const twice=await handleIsolatedOperatorRequest(request("redrives",input,redriveHeaders(x)),cfg);
       expect(twice.status).toBe(200);
       expect(await twice.json()).toEqual({...payload,replayed:true});
-      expect(sent).toEqual([{kind:"folio.process.pdf",versionId:"version_a",sourceSha256:SHA}]);
+      const manual=f.sqlite.prepare("SELECT id FROM processing_manual_redrives").get() as {id:string};
+      expect(sent).toEqual([{
+        kind:"folio.process.pdf",versionId:"version_a",sourceSha256:SHA,
+        manualRedriveId:manual.id
+      }]);
       expect(f.sqlite.prepare("SELECT attempts FROM document_processing_outbox WHERE document_version_id='version_a'").get()).toMatchObject({attempts:10});
     }finally{f.close();}
   });
