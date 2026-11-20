@@ -11,6 +11,7 @@ const demoOrigin = `http://127.0.0.1:${demoPort}`;
 export default defineConfig({
   testDir: "./tests/demo",
   testMatch: "**/*.spec.ts",
+  testIgnore: "**/*.perf.spec.ts",
   fullyParallel: false,
   workers: 1,
   timeout: 60_000,

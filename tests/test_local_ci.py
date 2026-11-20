@@ -23,6 +23,7 @@ EXPECTED = [
     "test:workers",
     "test:browser",
     "test:demo",
+    "test:demo:performance",
     "exec wrangler d1 migrations apply folio-civico-preview --local --config apps/api/wrangler.jsonc",
     "exec wrangler d1 migrations apply folio-civico-preview --local --config apps/mcp/wrangler.jsonc",
     "exec wrangler d1 migrations apply folio-civico-preview --local --config apps/processor/wrangler.jsonc",
@@ -141,6 +142,24 @@ class LocalCiContractTests(unittest.TestCase):
         self.assertEqual(self.calls(), EXPECTED[:12])
         self.assertNotIn("CI PASSED", result.stdout)
         self.assertFalse(any("d1 migrations" in call for call in self.calls()))
+
+    def test_real_api_performance_failure_blocks_migrations_and_success(self):
+        self.env["CI_FAIL_STEP"] = "test:demo:performance"
+        result = self.run_ci()
+        self.assertEqual(result.returncode, 47)
+        self.assertEqual(self.calls(), EXPECTED[:13])
+        self.assertNotIn("CI PASSED", result.stdout)
+        self.assertFalse(any("d1 migrations" in call for call in self.calls()))
+
+    def test_real_api_performance_requires_fresh_signed_demo_and_built_assets(self):
+        config = (ROOT / "playwright.demo.performance.config.ts").read_text(encoding="utf-8")
+        spec = (ROOT / "tests/demo/real-api.perf.spec.ts").read_text(encoding="utf-8")
+        self.assertIn("reuseExistingServer: false", config)
+        self.assertIn("real-api.perf.spec.ts", config)
+        self.assertIn("loadCompiledWeb", spec)
+        self.assertIn('"/api/session"', spec)
+        self.assertIn("compiledResponseForPath", spec)
+        self.assertIn("route.continue()", spec)
 
     def test_rejects_unknown_options_before_running_anything(self):
         result = self.run_ci("--skip-security")
