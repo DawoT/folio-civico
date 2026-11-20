@@ -17,6 +17,7 @@ EXPECTED = [
     "test:inspector",
     "typecheck",
     "build",
+    "check:frontend-budget",
     "test:workers",
     "test:browser",
     "test:demo",
@@ -71,11 +72,19 @@ class LocalCiContractTests(unittest.TestCase):
         self.assertEqual(self.calls(), EXPECTED[:4])
         self.assertNotIn("CI PASSED", result.stdout)
 
+    def test_frontend_budget_failure_blocks_browser_and_success(self):
+        self.env["CI_FAIL_STEP"] = "check:frontend-budget"
+        result = self.run_ci()
+        self.assertEqual(result.returncode, 47)
+        self.assertEqual(self.calls(), EXPECTED[:7])
+        self.assertNotIn("CI PASSED", result.stdout)
+        self.assertFalse(any("test:browser" in call or "d1 migrations" in call for call in self.calls()))
+
     def test_browser_failures_block_database_steps_and_success(self):
         self.env["CI_FAIL_STEP"] = "test:browser"
         result = self.run_ci()
         self.assertEqual(result.returncode, 47)
-        self.assertEqual(self.calls(), EXPECTED[:8])
+        self.assertEqual(self.calls(), EXPECTED[:9])
         self.assertNotIn("CI PASSED", result.stdout)
         self.assertFalse(any("d1 migrations" in call for call in self.calls()))
 
@@ -92,7 +101,7 @@ class LocalCiContractTests(unittest.TestCase):
         self.env["CI_FAIL_STEP"] = "test:demo"
         result = self.run_ci()
         self.assertEqual(result.returncode, 47)
-        self.assertEqual(self.calls(), EXPECTED[:9])
+        self.assertEqual(self.calls(), EXPECTED[:10])
         self.assertNotIn("CI PASSED", result.stdout)
         self.assertFalse(any("d1 migrations" in call for call in self.calls()))
 
