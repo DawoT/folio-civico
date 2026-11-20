@@ -22,7 +22,49 @@ function post(path:string,body:unknown,key:string,origin?:string){
   });
 }
 
+function afterAuthorizedRows(db:D1Database,needle:string,change:()=>void):D1Database {
+  let triggered=false;
+  return {
+    prepare(sql:string) {
+      const statement=db.prepare(sql);
+      if(!sql.includes(needle)) return statement;
+      return {
+        bind(...values:unknown[]) {
+          const bound=statement.bind(...values);
+          return {
+            async all<T>() {
+              const result=await bound.all<T>();
+              if(!triggered) {triggered=true;change();}
+              return result;
+            }
+          };
+        }
+      } as unknown as D1PreparedStatement;
+    }
+  } as D1Database;
+}
+
 describe("authenticated membership management endpoint",()=>{
+  it.each(["revoked","demoted"] as const)(
+    "does not reveal the membership roster after the president is %s during D1 list",
+    async(change)=>{
+      const f=fixture();
+      try {
+        const raced=afterAuthorizedRows(f.db,"SELECT m.subject,m.role,m.active,m.revision",()=>{
+          f.sqlite.exec(change==="revoked"
+            ? "UPDATE commission_members SET active=0 WHERE commission_id='a' AND subject='president'"
+            : "UPDATE commission_members SET role='member' WHERE commission_id='a' AND subject='president'");
+        });
+        const res=await handleMemberRequest(new Request(base),{DB:raced},"president","a","members");
+        expect(res.status).toBe(change==="revoked"?404:403);
+        expect(await res.json()).toEqual({error:change==="revoked"?"Not found":"Forbidden"});
+        expect(res.headers.get("Cache-Control")).toBe("no-store");
+        expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:0});
+      }finally{f.close();}
+    }
+  );
+
+
   it("GET returns the complete scoped member list only to active presidents",async()=>{
     const f=fixture();
     try {

@@ -1,3 +1,5 @@
+import { getCommissionSummary } from "./commissions";
+
 /**
  * Signed admission boundary for text produced by a separate PDF inspection
  * service. This module NEVER parses or serves the untrusted PDF itself.
@@ -251,5 +253,10 @@ export async function getDocumentTextPages(
   const pages=result.results;
   if(pages.length!==metadata.pageCount || pages.some((item,i)=>item.page!==i+1
     || typeof item.text!=="string" || item.text.length>MAX_PAGE_TEXT))return null;
+  // D1 page reads are asynchronous. Membership can be revoked after the
+  // joined page query returns, so check current authority before releasing
+  // sensitive inspected text. A closed commission remains readable to active
+  // members; the final check intentionally does not require active status.
+  if (!await getCommissionSummary(db,subject,commissionId)) return null;
   return {versionId,sha256:metadata.sha256,pageCount:metadata.pageCount,pages};
 }
