@@ -1,4 +1,4 @@
-import {publishInspectedText,isProcessingRedriveAuthorized,type InspectedTextManifest,type ProcessingQueueMessage} from "@folio/data";
+import {publishInspectedText,isProcessingRedriveAuthorized,verifyUnsafeInspectionVerdict,type UnsafeInspectionVerdict,type InspectedTextManifest,type ProcessingQueueMessage} from "@folio/data";
 
 export interface ProcessorEnv {
   DB:D1Database;
@@ -162,17 +162,41 @@ export async function processProcessingMessage(
   if(!await isActivePendingVersion(env.DB,message.versionId,message.sourceSha256))return "stale";
   // Service binding only: an operator-deployed and isolated inspection service.
   // No arbitrary URL from messages, credentials, hostnames or D1 records.
+  const requestNonce=crypto.randomUUID().replaceAll("-","");
   const response=await env.INSPECTOR.fetch(new Request("https://inspector.internal/inspect",{
     method:"POST",
     headers:{
       "Content-Type":"application/pdf",
       "X-Folio-Document-Version":message.versionId,
       "X-Folio-Source-Sha256":message.sourceSha256,
+      "X-Folio-Inspection-Nonce":requestNonce,
       "X-Folio-Inspector-Token":env.INSPECTOR_SERVICE_TOKEN
     },
     body:originalBytes as BodyInit
   }));
   if(response.status===422){
+    // 422 alone is not a terminal document verdict: require gateway HMAC,
+    // version, original SHA and a fresh challenge bound to THIS request.
+    // Unsigned, replayed or mismatched responses are retried, not persisted.
+    if(!response.headers.get("Content-Type")?.toLowerCase().startsWith("application/json")){
+      throw new Error("Unsigned unsafe inspection verdict");
+    }
+    const raw=await boundedJson(response);
+    if(!raw || typeof raw!=="object" || Array.isArray(raw)
+      || Object.keys(raw).length!==2 || !("verdict" in raw)
+      || !("signature" in raw) || typeof raw.signature!=="string"){
+      throw new Error("Invalid unsafe inspection verdict");
+    }
+    const verdict=raw.verdict as UnsafeInspectionVerdict;
+    if(!verdict || typeof verdict!=="object" || Array.isArray(verdict)
+      || verdict.documentVersionId!==message.versionId
+      || verdict.sourceSha256!==message.sourceSha256
+      || verdict.requestNonce!==requestNonce
+      || !await verifyUnsafeInspectionVerdict(
+        verdict,raw.signature,env.INSPECTOR_HMAC_KEY
+      )){
+      throw new Error("Invalid signed unsafe inspection verdict");
+    }
     if(!await isProcessingRedriveAuthorized(
       env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
     ))return "stale";

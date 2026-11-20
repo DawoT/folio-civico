@@ -274,6 +274,39 @@ describe("R2 · actual signed API intake → durable outbox → synthetic Queue 
     }finally{f.close();}
   });
 
+  it("retries a tampered gateway-signed 422 without persisting findings, then accepts the authentic verdict",async()=>{
+    const f=await fixture();
+    try{
+      const author=await f.token("author");
+      await f.upload(author);
+      expect((await dispatchProcessingOutbox(f.db,f.queue,new Date(DATE))).sent).toBe(1);
+      const queued=f.queued.splice(0);
+      f.forward.mockImplementation(async()=>new Response("parser-private-details",{status:422}));
+      f.setGatewayTransform(async response=>{
+        if(response.status!==422)return response;
+        const data=await response.json() as {verdict:object;signature:string};
+        return Response.json({...data,signature:"0".repeat(64)},{status:422});
+      });
+      const first=await f.deliver(queued);
+      expect(first.result).toEqual({acked:0,retried:1,invalid:0});
+      expect(first.items[0]?.retry).toHaveBeenCalledOnce();
+      expect(f.sqlite.prepare("SELECT extraction_status FROM document_versions").get())
+        .toMatchObject({extraction_status:"pending"});
+      expect(f.sqlite.prepare(
+        "SELECT count(*) AS n FROM audit_events WHERE action='document.inspection_rejected'"
+      ).get()).toMatchObject({n:0});
+      f.setGatewayTransform(async response=>response);
+      const second=await f.deliver(queued);
+      expect(second.result).toEqual({acked:1,retried:0,invalid:0});
+      expect(f.sqlite.prepare("SELECT extraction_status FROM document_versions").get())
+        .toMatchObject({extraction_status:"needs_review"});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM document_processing_reports").get())
+        .toMatchObject({n:0});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM document_pages").get())
+        .toMatchObject({n:0});
+    }finally{f.close();}
+  });
+
   it("retries forged gateway signatures and mutated originals without admitting pages or leaking private details",async()=>{
     const f=await fixture();
     try{
