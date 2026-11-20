@@ -134,3 +134,23 @@ hashes no coinciden y siempre declara `release_authorized=false`.
 Véase [dossier R1.19](../../../docs/SECURITY_SPLASH_YMAX_CHECKED_OVERLAY_2026-11-19.md).
 Sin imágenes operativas, publicación OCI, VEX, despliegue ni CVE declarados
 corregidos.
+
+
+## R1.21 · Overflow residual mediante SplashClip::test (NO RELEASE)
+
+`splash_public_test_probe.cc` invoca la **API pública real**
+`SplashClip::test(int x, int y)` con un rectángulo finito sintético,
+sin reservar bitmap gigante. El punto `x=536870919` pasa el guard
+rectangular, pero desborda `x *= splashAASize` dentro de
+`SplashClip::testClipPaths`. El error UBSan ocurre en las tres variantes
+de fuente: Debian original, cinco prototipos y cinco más overlay R1.19.
+
+`run_splash_public_test.sh` reutiliza **sin alterarlo** el laboratorio
+R1.19, sus SHA-256, tres árboles fuente, nueve regresiones y aislamiento
+offline; después compila tres harnesses C++ nuevos con
+`-fsanitize=address,undefined` para seis salidas adicionales. El
+orquestador `../poppler_splash_public_test_probe.py` exige **15/15**
+resultados reales, rechaza mensajes de sanitizador falsificados y falla
+cerrado. **No** alcanza esta ruta mediante PDF ni implica CVE cerrado.
+Véase [R1.21](../../../docs/SECURITY_SPLASH_PUBLIC_TEST_RESIDUAL_UB_2026-11-19.md).
+Sin parche nuevo ni imagen operativa, OCI, VEX o despliegue.
