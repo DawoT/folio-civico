@@ -56,6 +56,70 @@ describe("read-only processed text endpoint",()=>{
       expect((await handleTextRequest(new Request(url),{DB:f.db},"alice","c_b","ver_a")).status).toBe(404);
     }finally{f.close();}
   });
+  it("does not return inspected page text when membership is revoked after pages load",async()=>{
+    const f=fixture(true);
+    try {
+      let injected=false;
+      const raced={
+        prepare(sql:string){
+          const statement=f.db.prepare(sql);
+          if(!sql.includes("SELECT p.page,p.extracted_text AS text")) return statement;
+          return {
+            bind(...args:unknown[]){
+              const bound=statement.bind(...args);
+              return {
+                async all<T>(){
+                  const result=await bound.all<T>();
+                  if(!injected){
+                    injected=true;
+                    f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='c_a' AND subject='alice'");
+                  }
+                  return result;
+                }
+              };
+            }
+          } as unknown as D1PreparedStatement;
+        }
+      } as D1Database;
+      const res=await handleTextRequest(new Request(url),{DB:raced},"alice","c_a","ver_a");
+      expect(injected).toBe(true);
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({error:"Not found"});
+      expect(res.headers.get("Cache-Control")).toContain("no-store");
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:0});
+    } finally {f.close();}
+  });
+
+  it("denies inspected pages if the last membership lookup fails",async()=>{
+    const f=fixture(true);
+    try {
+      let lastProbe=0;
+      const failing={
+        prepare(sql:string) {
+          if(sql.includes("SELECT c.id, c.name, c.status, m.role") && ++lastProbe===1){
+            throw new Error("PRIVATE_DB_CONNECTION");
+          }
+          return f.db.prepare(sql);
+        }
+      } as D1Database;
+      const res=await handleTextRequest(new Request(url),{DB:failing},"alice","c_a","ver_a");
+      expect(lastProbe).toBe(1);
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({error:"Unable to retrieve inspected text"});
+      expect(res.headers.get("Cache-Control")).toContain("no-store");
+    }finally{f.close();}
+  });
+
+  it("keeps inspected pages readable to an active member after commission closure",async()=>{
+    const f=fixture(true);
+    try {
+      f.sqlite.exec("UPDATE commissions SET status='closed' WHERE id='c_a'");
+      const res=await handleTextRequest(new Request(url),{DB:f.db},"alice","c_a","ver_a");
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({pageCount:2,pages:[{page:1,text:"Página de prueba"},{page:2,text:"Página segunda"}]});
+    }finally{f.close();}
+  });
+
   it("never accepts mutation methods for page content",async()=>{
     const f=fixture(true);
     try {

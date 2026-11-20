@@ -89,6 +89,11 @@ export async function handleMemberRequest(
 
     if(method==="GET") {
       const members=await listCommissionMembers(env.DB,actor,commissionId);
+      // Listing member identities is sensitive; the president may be revoked
+      // or demoted after the joined SQL query returns.
+      const current=await getCommissionSummary(env.DB,actor,commissionId);
+      if(!current) return json({error:"Not found"},404);
+      if(current.role!=="president") return json({error:"Forbidden"},403);
       return json(members,200);
     }
     if(commission.status!=="active") return json({error:"Commission closed"},409);
