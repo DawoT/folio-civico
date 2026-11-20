@@ -64,4 +64,14 @@
   --fc-type-label: 13px;
   --fc-type-caption: 12px;
   --fc-type-heading-lg: clamp(29px, 3.2vw, 42px);
+
+  /* UX-4.1: calm, deliberate institutional hierarchy; light theme only. */
+  --fc-color-surface-wash: #eef4f1;
+  --fc-shadow-shell: 0 1px 0 rgb(23 39 64 / 4%);
+  --fc-shadow-card: 0 6px 24px rgb(23 39 64 / 5%);
+  --fc-reading-measure: 66ch;
+  --fc-type-heading-md: clamp(20px, 2.4vw, 26px);
+  --fc-type-heading-sm: clamp(17px, 1.7vw, 20px);
+  --fc-line-body: 1.65;
+  --fc-motion-medium: 220ms;
 }

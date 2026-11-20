@@ -220,6 +220,7 @@ export function App() {
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">Saltar al contenido principal</a>
       <header className="topbar">
         <div className="brand" aria-label="Folio Cívico">
           <span className="brand-mark" aria-hidden="true">F</span>
@@ -232,7 +233,7 @@ export function App() {
         <strong>Insumo de trabajo.</strong> No constituye el acta oficial de transferencia.
       </div>
 
-      <main className="main-content">
+      <main className="main-content" id="main-content" tabIndex={-1}>
         <section className="intro" aria-labelledby="page-title">
           <div>
             <p className="eyebrow">TRANSFERENCIA DE GESTIÓN · OBRAS Y CONTRATACIONES</p>
