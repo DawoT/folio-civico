@@ -1,5 +1,5 @@
 import {
-  collectFinalizedReviews, MAX_FINALIZED_REVIEW_EXPORT, ReviewExportLimitError
+  collectFinalizedReviews, getCommissionSummary, MAX_FINALIZED_REVIEW_EXPORT, ReviewExportLimitError
 } from "@folio/data";
 
 export interface ReviewExportEnv { DB: D1Database; }
@@ -50,6 +50,12 @@ export async function handleReviewExportRequest(
       new Uint8Array(await crypto.subtle.digest("SHA-256", encoded)),
       byte => byte.toString(16).padStart(2, "0")
     ).join("");
+    // WebCrypto is asynchronous. Membership may be revoked while hashing,
+    // even if the collector already fenced its D1 rows read. Revalidate
+    // immediately before returning a download, with no subsequent awaits.
+    if (!await getCommissionSummary(env.DB, subject, commissionId)) {
+      return errorJson(404, "Not found");
+    }
     const body = JSON.stringify({ format: REVIEW_EXPORT_FORMAT, sha256, payload: payloadJson });
     return new Response(body, {
       status: 200,

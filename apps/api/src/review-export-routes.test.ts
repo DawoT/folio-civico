@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -119,6 +119,35 @@ describe("finalized observations export API",()=>{
       expect(body).not.toContain("Comisión A");
       expect(body).not.toContain("Expediente no ubicado");
       expect(response.headers.get("Cache-Control")).toBe("no-store");
+    }finally{f.close();}
+  });
+
+  it("returns 404 without a download if access is revoked while SHA-256 is pending",async()=>{
+    const f=fixture();
+    const originalDigest=crypto.subtle.digest.bind(crypto.subtle);
+    let revoked=false;
+    try {
+      await finalized(f.db);
+      const digestSpy=vi.spyOn(crypto.subtle,"digest").mockImplementation(async(algorithm,data)=>{
+        const hash=await originalDigest(algorithm,data);
+        f.sqlite.prepare(
+          "UPDATE commission_members SET active=0 WHERE commission_id='commission_a' AND subject='reader'"
+        ).run();
+        revoked=true;
+        return hash;
+      });
+      try {
+        const response=await handleReviewExportRequest(
+          new Request(base),{DB:f.db},"reader","commission_a"
+        );
+        expect(revoked).toBe(true);
+        expect(response.status).toBe(404);
+        expect(response.headers.get("Content-Disposition")).toBeNull();
+        expect(response.headers.get("X-Report-SHA256")).toBeNull();
+        const body=await response.text();
+        expect(body).not.toContain("Comisión A");
+        expect(body).not.toContain("Expediente no ubicado");
+      }finally{digestSpy.mockRestore();}
     }finally{f.close();}
   });
 
