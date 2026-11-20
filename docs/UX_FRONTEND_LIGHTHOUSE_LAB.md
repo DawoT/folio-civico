@@ -63,6 +63,33 @@ puerto incorrecto, URL ajena y texto incidental. Red: 3/4 aprobadas (1 nueva
 fallida); Green: **4/4 aprobadas**. La integración CI de GitHub es necesaria
 antes de afirmar que el bloqueo común quedó resuelto.
 
+## Diagnóstico fail-closed de reportes ausentes (issue #81)
+
+Se identificó una falla intermitente: el proceso `pnpm exec lighthouse` podía
+terminar con exit 0 sin escribir un archivo `run-N.json`. Antes la lectura
+directa lanzaba únicamente `ENOENT`, sin conservar indicios del proceso cerrado.
+
+El ejecutor `scripts/lighthouse-cli.mjs` ahora distingue **proceso no cero**,
+**señal**, **timeout de 90 s**, **JSON ausente**, **vacío** e **inválido**. Recoge
+stdout y stderr por separado con un máximo de 7 KiB cada uno, pero solo emite
+códigos de error conocidos y clases de fallo permitidas (Chromium, sandbox,
+red, timeout); jamás imprime líneas originales, tokens, URLs o rutas de
+archivos. Si el proceso afirma éxito pero falta un reporte, el gate falla
+con la causa y los marcadores seguros; no fabrica métricas ni reintenta.
+
+**TDD:** proceso Node real que sale con código 0 sin escribir su JSON,
+salidas con secretos que no aparecen en el error, salida 7, señal, timeout,
+**proceso padre terminado con pipes heredados todavía abiertos**,
+archivo vacío, JSON corrupto y JSON válido. La prueba adversarial de pipes
+reprodujo un plazo configurado en 200 ms que tardaba 1557 ms en fallar;
+el ejecutor ahora rechaza inmediatamente al vencer el plazo. El runner conserva exactamente
+**tres auditorías Lighthouse válidas** antes de calcular medianas.
+
+Esto mejora la capacidad de diagnóstico; **no determina todavía la causa raíz
+ambiental** del fallo intermitente ni equivale a garantizar que no vuelva a
+ocurrir. Para esa investigación siguen siendo útiles las evidencias de
+versión Node/Chromium, puerto y carga concurrente sanitizadas.
+
 ## Reproducir
 
 ```sh

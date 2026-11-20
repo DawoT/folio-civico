@@ -3,13 +3,14 @@
  * No remote service, no institutional data, no synthetic user-performance claim.
  */
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { chromium } from "@playwright/test";
 import { enforceFrontendBudget } from "./check-frontend-budget.mjs";
+import { runLighthouseCli } from "./lighthouse-cli.mjs";
 import {
   summarizeLighthouseRuns, validateLighthousePort, hasOwnVitePreviewUrl
 } from "./lighthouse-lab-metrics.mjs";
@@ -80,31 +81,10 @@ async function lighthouseRun(output, chromePath) {
     "--throttling.cpuSlowdownMultiplier=4",
     "--chrome-flags=--headless=new --no-sandbox --disable-dev-shm-usage --disable-background-networking"
   ];
-  await new Promise((resolveRun, rejectRun) => {
-    const child = spawn("pnpm", flags, {
-      cwd: root, stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, CHROME_PATH: chromePath }
-    });
-    let outputText = "";
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-    }, 90_000);
-    for (const stream of [child.stdout, child.stderr]) {
-      stream.on("data", chunk => {
-        outputText = (outputText + chunk.toString()).slice(-7000);
-      });
-    }
-    child.once("error", err => {
-      clearTimeout(timer);
-      rejectRun(err);
-    });
-    child.once("close", (code, signal) => {
-      clearTimeout(timer);
-      if (code !== 0) rejectRun(new Error("Lighthouse failed (" + (signal || code) + "): " + outputText.slice(-2500)));
-      else resolveRun();
-    });
+  return runLighthouseCli({
+    command:"pnpm",args:flags,outputPath:output,cwd:root,
+    env:{ ...process.env, CHROME_PATH:chromePath },timeoutMs:90_000
   });
-  return JSON.parse(readFileSync(output, "utf8"));
 }
 
 async function main() {
