@@ -1,5 +1,6 @@
 import { describe,expect,it } from "vitest";
 import { makeD1 } from "../../../tests/helpers/d1";
+import {afterFirstRead} from "../../../tests/helpers/d1-write-replay-race";
 import { handleProvisioningRequest } from "./provisioning-routes";
 
 function fixture() {
@@ -24,6 +25,26 @@ function request(kind:"batch"|"checklist",body:unknown,key="provision_req_12345"
 }
 
 describe("commission president provisioning API",()=>{
+  it("does not return HTTP 200 for a repeated provision after commission closure during its resource read",async()=>{
+    const f=fixture();
+    try{
+      const kind="batch";
+      const payload={label:"Obras 2026"};
+      const first=await handleProvisioningRequest(request(kind,payload),{DB:f.db},"president","a",kind);
+      expect(first.status).toBe(201);
+      const raced=afterFirstRead(f.db,"SELECT id,label FROM document_batches",()=>{
+        f.sqlite.exec("UPDATE commissions SET status='closed' WHERE id='a'");
+      });
+      const res=await handleProvisioningRequest(request(kind,payload),{DB:raced},"president","a",kind);
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({error:"Provisioning conflict or limit reached"});
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM document_batches").get()).toEqual({n:1});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:1});
+    }finally{f.close();}
+  });
+
+
   it("creates and replays a batch and a checklist item using independent keys",async()=>{
     const f=fixture();
     try {

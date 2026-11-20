@@ -85,13 +85,7 @@ async function readResource(
   return {...row,replayed};
 }
 
-async function provision(
-  db:D1Database, input:BaseProvisioningInput, operation:Operation,
-  payloadParts:string[], label:string, area?: "works" | "procurement"
-):Promise<Resource> {
-  if (!/^[A-Za-z0-9_-]{8,96}$/.test(input.requestKey)) {
-    throw new ProvisioningInputError("Invalid idempotency key");
-  }
+async function authorizeProvisioning(db:D1Database,input:BaseProvisioningInput):Promise<void> {
   const membership=await getCommissionSummary(db,input.subject,input.commissionId);
   if (!membership || membership.role !== "president") {
     throw new ProvisioningAccessError("Only active presidents may provision records");
@@ -99,13 +93,33 @@ async function provision(
   if (membership.status !== "active") {
     throw new ProvisioningConflictError("Commission is closed");
   }
+}
+
+async function authorizedResource(
+  db:D1Database,input:BaseProvisioningInput,operation:Operation,id:string,replayed:boolean
+):Promise<Resource> {
+  const resource=await readResource(db,operation,id,input.commissionId,replayed);
+  // Data, including the durable winner of a concurrent key claim, is read
+  // asynchronously. Check the current president role after that final await.
+  await authorizeProvisioning(db,input);
+  return resource;
+}
+
+async function provision(
+  db:D1Database, input:BaseProvisioningInput, operation:Operation,
+  payloadParts:string[], label:string, area?: "works" | "procurement"
+):Promise<Resource> {
+  if (!/^[A-Za-z0-9_-]{8,96}$/.test(input.requestKey)) {
+    throw new ProvisioningInputError("Invalid idempotency key");
+  }
+  await authorizeProvisioning(db,input);
   const payloadHash=await hashPayload([operation,...payloadParts]);
   const previous=await findRequest(db,input);
   if (previous) {
     if (previous.operation !== operation || previous.payloadHash !== payloadHash) {
       throw new ProvisioningConflictError("Idempotency key reused for another resource");
     }
-    return readResource(db,operation,previous.resourceId,input.commissionId,true);
+    return authorizedResource(db,input,operation,previous.resourceId,true);
   }
 
   const id=crypto.randomUUID();
@@ -157,11 +171,11 @@ async function provision(
     // attempted the insert. Re-read the durable winner before deciding.
     const replay=await findRequest(db,input);
     if (replay && replay.operation===operation && replay.payloadHash===payloadHash) {
-      return readResource(db,operation,replay.resourceId,input.commissionId,true);
+      return authorizedResource(db,input,operation,replay.resourceId,true);
     }
     throw new ProvisioningConflictError("Provisioning rejected or request key in use");
   }
-  return readResource(db,operation,id,input.commissionId,false);
+  return authorizedResource(db,input,operation,id,false);
 }
 
 export async function createCommissionBatch(

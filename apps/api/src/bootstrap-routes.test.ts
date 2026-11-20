@@ -12,6 +12,27 @@ function request(body:unknown,key="bootstrap_api_key"){
 }
 const body={name:"Comisión de Transferencia 2026",initialPresidentSubject:"lead"};
 describe("operator-only initial commission bootstrap API",()=>{
+  it("does not let an ordinary signed member replay a key already claimed by the trusted operator",async()=>{
+    const f=makeD1();
+    try{
+      const privileged={DB:f.db,operatorSubject:"operator"};
+      const created=await handleBootstrapRequest(request(body),privileged,"operator","create");
+      expect(created.status).toBe(201);
+      const id=(await created.json() as {id:string}).id;
+      f.sqlite.prepare("UPDATE commissions SET status='closed' WHERE id=?").run(id);
+      const replay=await handleBootstrapRequest(request(body),privileged,"operator","create");
+      expect(replay.status).toBe(200); // Immutable operator journal receipt, not an active commission claim.
+      expect(await replay.json()).toMatchObject({id,replayed:true});
+      for(const caller of ["lead","outsider"]){
+        const denied=await handleBootstrapRequest(request(body),privileged,caller,"create");
+        expect(denied.status).toBe(403);
+        expect(await denied.json()).toEqual({error:"Forbidden"});
+      }
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:1});
+    }finally{f.close();}
+  });
+
+
   it("does not enable bootstrap without a configured trusted operator and signed subject",async()=>{
     const f=makeD1();
     try{
