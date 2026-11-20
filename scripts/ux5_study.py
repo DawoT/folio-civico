@@ -208,6 +208,67 @@ def summarize_sessions(sessions: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def public_summary(internal: dict[str, Any]) -> dict[str, Any]:
+    """Reduced-disclosure status, *not* an anonymity or publication guarantee.
+
+    Individual role/task combinations can reveal performance even when a
+    detailed aggregate hides percentages. Keep task statuses hidden until
+    there are at least five sessions overall, and never include counts,
+    outcomes, durations, incident categories or observed roles in this view.
+    """
+    expected_keys = frozenset({
+        "schema_version", "study_version", "source", "session_count",
+        "human_usability", "aggregate_minimum", "tasks", "critical_incidents",
+        "manual_assistive_technology", "institutional_authorization", "release_gate",
+    })
+    report = _strict_keys(internal, expected_keys, "internal_summary")
+    if (type(report["schema_version"]) is not int or report["schema_version"] != 1
+            or report["study_version"] != STUDY_VERSION
+            or report["source"] != "moderator_entered_local_observations"
+            or report["manual_assistive_technology"] != "not_verified"
+            or report["institutional_authorization"] != "not_granted"
+            or report["release_gate"] != "requires_independent_approval"
+            or report["aggregate_minimum"] != MIN_AGGREGATE_DENOMINATOR):
+        raise StudyDataError("Resumen interno inconsistente o no autorizado.")
+    session_count = _integer(report["session_count"], 0, MAX_INPUT_SESSIONS, "session_count")
+    expected_human_status = "not_conducted" if session_count == 0 else "moderator_entered_observations"
+    if report["human_usability"] != expected_human_status:
+        raise StudyDataError("Estado humano inconsistente.")
+    tasks = report["tasks"]
+    if type(tasks) is not list or len(tasks) != len(TASK_IDS):
+        raise StudyDataError("Resumen de tareas incompleto.")
+    for i, task in enumerate(tasks):
+        if type(task) is not dict or task.get("id") != TASK_IDS[i]:
+            raise StudyDataError("Resumen de tareas desconocido o fuera de orden.")
+        _integer(task.get("attempted"), 0, session_count, "attempted")
+    # Only emit coarse coverage once enough sessions exist. A respondent's
+    # failure and the presence of a rare-role respondent are never exported.
+    if session_count < MIN_AGGREGATE_DENOMINATOR:
+        coverage: list[dict[str, str]] | str = "not_released"
+        status = "not_conducted" if session_count == 0 else "limited_observations"
+    else:
+        coverage = [
+            {
+                "id": task_id,
+                "coverage": "minimum_met"
+                    if task["attempted"] >= MIN_AGGREGATE_DENOMINATOR
+                    else "below_minimum",
+            }
+            for task_id, task in zip(TASK_IDS, tasks)
+        ]
+        status = "coverage_review_available"
+    return {
+        "schema_version": 1,
+        "study_status": status,
+        "task_coverage": coverage,
+        "authorization": "not_granted",
+        "manual_accessibility": "not_verified",
+        # Coarse statuses still reveal participation patterns; human privacy
+        # review remains mandatory before any external disclosure.
+        "disclosure": "requires_human_review",
+    }
+
+
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     value: dict[str, Any] = {}
     for key, item in pairs:
@@ -244,7 +305,11 @@ def main(argv: list[str] | None = None) -> int:
     template.add_argument("--role", choices=sorted(ROLES), default=None)
     validate = sub.add_parser("validate", help="Valida una sesión sin publicar datos.")
     validate.add_argument("file")
-    summarize = sub.add_parser("summarize", help="Publica únicamente métricas agregadas.")
+    summarize = sub.add_parser(
+        "summarize", help="Estado de baja divulgación por defecto; detalle solo con --internal."
+    )
+    summarize.add_argument("--internal", action="store_true",
+                           help="Expone recuentos de cohortes pequeñas; solo uso local restringido.")
     summarize.add_argument("files", nargs="+")
     args = parser.parse_args(argv)
     try:
@@ -259,8 +324,12 @@ def main(argv: list[str] | None = None) -> int:
             resolved = [Path(item).resolve() for item in args.files]
             if len(set(resolved)) != len(resolved):
                 raise StudyDataError("Ruta de sesión duplicada.")
+            detailed = summarize_sessions([_load_file(item) for item in args.files])
+            if args.internal:
+                print("AVISO: solo uso local restringido; no compartir recuentos detallados.",
+                      file=sys.stderr)
             print(json.dumps(
-                summarize_sessions([_load_file(item) for item in args.files]),
+                detailed if args.internal else public_summary(detailed),
                 ensure_ascii=False, indent=2
             ))
         return 0
