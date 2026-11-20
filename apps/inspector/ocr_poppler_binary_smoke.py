@@ -12,15 +12,13 @@ import hashlib
 import json
 from pathlib import Path
 import re
-import struct
 import subprocess
 import tempfile
 from typing import Callable
-import zlib
 
 from inspector import (
     OCR_DPI, ReviewRequired, require_ocr_raster_geometry,
-    parse_qpdf_page_inventory, parse_qpdf_user_unit,
+    require_ocr_png_envelope, parse_qpdf_page_inventory, parse_qpdf_user_unit,
 )
 from poppler_ocr_box_semantics_research import build_matrix_pdf, CORPUS_SHA256
 
@@ -139,27 +137,11 @@ def validate_page_raster_admission(
 
 
 def inspect_png_envelope(path: Path, upper: tuple[int, int]) -> tuple[int, int]:
-    """Check IHDR, CRC, IEND, size, and dimensions. No full image decode."""
-    if (not path.is_file() or path.is_symlink()
-            or not 45 <= path.stat().st_size <= 32 * 1024 * 1024):
-        raise ValueError("PNG raster missing or larger than the runtime file budget")
-    with path.open("rb") as stream:
-        header = stream.read(33)
-        stream.seek(-12, 2)
-        trailer = stream.read(12)
-    if (header[:16] != b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR"
-            or trailer != b"\x00\x00\x00\x00IEND\xaeB\x60\x82"
-            or header[24] != 8 or header[25] not in (2, 6)
-            or header[26:29] != b"\x00\x00\x00"):
-        raise ValueError("Unexpected PNG raster envelope")
-    checksum = struct.unpack(">I", header[29:33])[0]
-    if checksum != (zlib.crc32(header[12:29]) & 0xFFFFFFFF):
-        raise ValueError("PNG IHDR CRC mismatch")
-    dimensions = struct.unpack(">II", header[16:24])
-    if (not all(0 < n <= bound for n, bound in zip(dimensions, upper))
-            or dimensions[0] * dimensions[1] > upper[0] * upper[1]):
-        raise ValueError("PNG exceeded geometry preflight")
-    return dimensions
+    """Shared runtime validator; translate its fail-closed verdict for the lab."""
+    try:
+        return require_ocr_png_envelope(path, upper)
+    except ReviewRequired as error:
+        raise ValueError("Experimental PNG raster rejected") from error
 
 
 def _parse_hash_report(stdout: str) -> dict[str, str]:
