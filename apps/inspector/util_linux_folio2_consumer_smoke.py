@@ -137,6 +137,12 @@ def verify_binary_handoff(folder: Path) -> dict:
     entries = {x["name"]: x for x in packages}
     if set(entries) != EXPECTED_PACKAGES:
         raise ValueError("Experimental package identity set was altered")
+    expected_filenames = {row.get("file") for row in packages}
+    actual_filenames = {item.name for item in folder.glob("*.deb")}
+    if (not all(isinstance(name, str) and "/" not in name
+                for name in expected_filenames)
+            or expected_filenames != actual_filenames):
+        raise ValueError("Candidate Debian package inventory contains extra/missing files")
     for package, expected_sha in PINNED_DEBS.items():
         if package not in entries:
             raise ValueError("Required candidate library missing")

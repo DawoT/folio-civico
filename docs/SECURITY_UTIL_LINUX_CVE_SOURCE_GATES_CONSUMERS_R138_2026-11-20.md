@@ -52,7 +52,7 @@ python3 apps/inspector/util_linux_folio2_consumer_smoke.py \
 # release_authorized=false; debian_trixie_abi_validated=false
 ```
 
-Este smoke prueba **enlace dinámico y arranque de comandos seguros**, no compatibilidad ABI exhaustiva, integridad de semántica de llamadas, operaciones de disco/montaje ni resistencia a explotaciones de los CVE. Las referencias stock se obtuvieron y ejecutaron por separado de los `.deb` candidatos, sin modificar el host.
+Este smoke prueba **enlace dinámico y arranque de comandos seguros**, no compatibilidad ABI exhaustiva, integridad de semántica de llamadas, operaciones de disco/montaje ni resistencia a explotaciones de los CVE. Las referencias stock se obtuvieron y ejecutaron por separado de los `.deb` candidatos, sin modificar el host. El verificador rechaza también cualquier fichero `.deb` extra que no coincida con las 43 identidades del inventario R1.37, evitando selecciones ambiguas mediante glob.
 
 ## Pruebas y siguiente paso
 
@@ -60,7 +60,7 @@ Las pruebas TDD verifican la presencia/ausencia de guardas por CVE, alteraciones
 
 **Resultados ejecutados (2026-11-20):** el verificador CVE se ejecutó independientemente contra las **dos fuentes privadas folio2** de R1.36; ambas devolvieron `exit 3`, con la única entrada en `missing_source_guards` igual a `CVE-2026-78409`. El smoke de consumidores se ejecutó contra las **dos compilaciones binaras privadas folio2** de R1.37; ambas devolvieron `exit 2`, siete comandos aprobados y cinco bibliotecas candidatas comprobadas en `LD_DEBUG=libs`. El resultado de ambas pruebas conserva `release_authorized=false`.
 
-**TDD:** 19 nuevas pruebas (`8` controles de fuente CVE y `11` de consumidores/hashes/aislamiento); `py_compile` aprobado. Después de incorporar los cambios concurrentes del `main` (incluidas PR #99 OCR y #96 CI), el conjunto completo del inspector pasó **449/449** pruebas Python. Los artefactos permanecen fuera de Git, en carpetas privadas; la salida fuente de prueba de seguridad fallida no debe convertirse en un resultado verde artificial.
+**TDD:** 20 nuevas pruebas (`8` controles de fuente CVE y `12` de consumidores/hashes/aislamiento, incluido rechazo de un `.deb` adicional no declarado); `py_compile` aprobado. Después de incorporar los cambios concurrentes del `main` (incluidas PR #99 OCR y #96 CI), el conjunto completo del inspector pasó **450/450** pruebas Python. Los artefactos permanecen fuera de Git, en carpetas privadas; la salida fuente de prueba de seguridad fallida no debe convertirse en un resultado verde artificial.
 
 Para R1.39: portar con revisión manual el parche upstream CVE-2026-78409 a la **rama 2.41.6** (las estructuras de `hook_mount` y `hook_subdir` difieren de la rama 2.42), generar versión distinta `folio3` y `.dsc` con entrada quilt explícita; comprobar rutas relativas/absolutas, symlinks intermedios y `..` mediante pruebas no privilegiadas, repetir extracción de fuente y builds, consumidores ABI y CVE, y solo después plantear una imagen OCI aislada con CycloneDX/Trivy del digest exacto.
 

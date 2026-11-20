@@ -38,6 +38,10 @@ class Consumers(unittest.TestCase):
             f = self.folder / f"{name}_{SOURCE_VERSION}_amd64.deb"
             f.write_bytes(blob)
             f.chmod(0o600)
+        for name in EXPECTED_PACKAGES - set(self.blobs):
+            f = self.folder / f"{name}_{SOURCE_VERSION}_amd64.deb"
+            f.write_bytes(b"synthetic-unselected-package")
+            f.chmod(0o600)
         self.doc = {
             "status": "folio2_debian13_binary_research_release_blocked",
             "source_version": SOURCE_VERSION,
@@ -190,6 +194,13 @@ class Consumers(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._verified()
         self.doc["packages"][-1]["name"] = old
+
+    def test_unmanifested_extra_deb_is_rejected(self):
+        extra = self.folder / "libmount1_attacker-controlled.deb"
+        extra.write_bytes(b"foreign")
+        extra.chmod(0o600)
+        with self.assertRaises(ValueError):
+            self._verified()
 
     def test_host_root_operator_rejected(self):
         with patch("util_linux_folio2_consumer_smoke.os.geteuid",
