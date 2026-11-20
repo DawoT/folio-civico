@@ -69,6 +69,11 @@ export async function runLighthouseCli({
     const timer=setTimeout(()=>{
       timedOut=true;
       child.kill("SIGKILL");
+      // A descendant may inherit these pipes after pnpm has exited; waiting
+      // for 'close' can then exceed the deadline. Stop observing them now.
+      child.stdout.destroy();
+      child.stderr.destroy();
+      finish(new Error("Lighthouse CLI timed out after "+timeoutMs+"ms ("+diagnostic()+")"));
     },timeoutMs);
     child.stdout.on("data",chunk=>{
       stdout=(stdout+chunk.toString()).slice(-MAX_OUTPUT_BYTES);

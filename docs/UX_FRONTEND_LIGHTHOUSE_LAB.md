@@ -79,7 +79,10 @@ con la causa y los marcadores seguros; no fabrica métricas ni reintenta.
 
 **TDD:** proceso Node real que sale con código 0 sin escribir su JSON,
 salidas con secretos que no aparecen en el error, salida 7, señal, timeout,
-archivo vacío, JSON corrupto y JSON válido. El runner conserva exactamente
+**proceso padre terminado con pipes heredados todavía abiertos**,
+archivo vacío, JSON corrupto y JSON válido. La prueba adversarial de pipes
+reprodujo un plazo configurado en 200 ms que tardaba 1557 ms en fallar;
+el ejecutor ahora rechaza inmediatamente al vencer el plazo. El runner conserva exactamente
 **tres auditorías Lighthouse válidas** antes de calcular medianas.
 
 Esto mejora la capacidad de diagnóstico; **no determina todavía la causa raíz
