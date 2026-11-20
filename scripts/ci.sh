@@ -47,6 +47,9 @@ pnpm check:frontend-budget
 step 'Chromium lab: production-build FCP/LCP/CLS/TTFB (synthetic API, local only)'
 pnpm test:performance
 
+step 'Lighthouse mobile lab (simulated network/CPU, production build, loopback only)'
+pnpm test:lighthouse
+
 step 'Cloudflare workerd integration tests (local D1/R2)'
 pnpm test:workers
 

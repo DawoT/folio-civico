@@ -371,6 +371,9 @@ describe("R2 · actual signed API intake → durable outbox → synthetic Queue 
     try{
       const author=await f.token("author");
       await f.upload(author);
+      // The queue's simulated timeline starts on Nov 19. Do not leave
+      // created_at at SQLite's host CURRENT_TIMESTAMP (which can be later).
+      f.sqlite.exec("UPDATE document_processing_outbox SET created_at='2026-11-19 12:00:00'");
       for(let attempt=0;attempt<10;attempt++){
         const clock=new Date(new Date(DATE).getTime()+attempt*16*60_000);
         const result=await dispatchProcessingOutbox(f.db,f.queue,clock);

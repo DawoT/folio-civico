@@ -1,0 +1,36 @@
+# NON-DEPLOYABLE R1.21: remove GnuPG runtime CLI chain, never a CVE waiver.
+# Inherits the audited local Expat experimental image without mutating its tag.
+FROM folio-civico-inspector:expat-experiment
+USER root
+
+# Fixed allowlist includes only the seven GnuPG CVE-bearing packages and their
+# two GPGME library dependents; APT may NOT remove anything else.
+ARG GPG_RUNTIME_PACKAGES="dirmngr gnupg gnupg-l10n gpg gpg-agent gpgconf gpgsm libgpgme11t64 libgpgmepp6t64"
+RUN set -eux; \
+  apt-get -s purge $GPG_RUNTIME_PACKAGES > /tmp/folio-gpg-prune-plan; \
+  python3 -c 'import os,pathlib; plan=pathlib.Path("/tmp/folio-gpg-prune-plan").read_text(); expected=set(os.environ.get("GPG_RUNTIME_PACKAGES","").split()); removed={line.split()[1] for line in plan.splitlines() if line.startswith("Purg ")}; assert removed==expected and len(removed)==9 and "WARNING:" not in plan, (expected,removed)'; \
+  apt-get purge -y --no-install-recommends $GPG_RUNTIME_PACKAGES; \
+  rm /tmp/folio-gpg-prune-plan; \
+  for package in $GPG_RUNTIME_PACKAGES; do \
+    status="$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null)" || status=""; \
+    test "$status" != "install ok installed"; \
+  done; \
+  test -x /opt/folio-poppler/bin/pdfinfo; \
+  test -x /opt/folio-poppler/bin/pdftotext; \
+  test -x /opt/folio-poppler/bin/pdftoppm; \
+  test -x /opt/folio-poppler/bin/pdfdetach; \
+  test -x /opt/folio-poppler/bin/pdfattach; \
+  test -x /opt/folio-ocr/bin/tesseract; \
+  test -s /usr/share/tesseract-ocr/5/tessdata/spa.traineddata; \
+  test -s /usr/share/tesseract-ocr/5/tessdata/eng.traineddata; \
+  test -r /etc/fonts/fonts.conf; \
+  ldd /opt/folio-poppler/lib/libpoppler.so.147 | grep -F 'libfontconfig'; \
+  for tool in pdfinfo pdftotext pdftoppm pdfdetach pdfattach; do \
+    ! ldd "/opt/folio-poppler/bin/$tool" | grep -F 'not found'; \
+  done; \
+  command -v clamscan; \
+  clamscan --version | grep -F 'ClamAV 1.5.5'
+
+# ClamAV 1.5.5 and its signatures are still prerequisites, not a finding waiver.
+USER 65534:65534
+CMD ["python3", "-I", "/srv/folio-inspector/inspector.py"]
