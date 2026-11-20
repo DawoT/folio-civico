@@ -12,13 +12,15 @@ import { chromium } from "@playwright/test";
 import { enforceFrontendBudget } from "./check-frontend-budget.mjs";
 import { runLighthouseCli, localLighthouseInvocation } from "./lighthouse-cli.mjs";
 import {
-  summarizeLighthouseRuns, validateLighthousePort, hasOwnVitePreviewUrl
+  summarizeLighthouseRuns, validateLighthousePort, extractOwnVitePreviewUrl
 } from "./lighthouse-lab-metrics.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const web = join(root, "apps/web");
-const port = validateLighthousePort(process.env.FOLIO_LIGHTHOUSE_PORT ?? "4181");
-const url = `http://127.0.0.1:${port}/`;
+// With no explicit port, ask Vite/OS for a free loopback port. The exact
+// process-owned Local: address is still mandatory before any audit begins.
+const requestedPort = process.env.FOLIO_LIGHTHOUSE_PORT === undefined
+  ? 0 : validateLighthousePort(process.env.FOLIO_LIGHTHOUSE_PORT);
 const runs = 3;
 const profile = Object.freeze({
   device: "mobile",
@@ -35,28 +37,33 @@ function startPreview() {
     // --strictPort and a verified own startup marker prevent stale-server reuse.
     const viteBin = join(web, "node_modules/vite/bin/vite.js");
     const child = spawn(process.execPath, [
-      viteBin, "preview", "--host", "127.0.0.1", "--port", String(port), "--strictPort"
+      viteBin, "preview", "--host", "127.0.0.1", "--port", String(requestedPort), "--strictPort"
     ], { cwd: web, stdio: ["ignore", "pipe", "pipe"] });
     let output = "";
     let settled = false;
     const timer = setTimeout(() => finish(new Error("Vite preview startup timed out")), 25_000);
-    function finish(error) {
+    function finish(error, ownedUrl) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       if (error) {
         child.kill("SIGTERM");
         rejectReady(error);
-      } else resolveReady(child);
+      } else resolveReady({ child, url: ownedUrl });
     }
-    child.stdout.on("data", data => {
+    function observe(data) {
       output = (output + data.toString()).slice(-8000);
-      if (hasOwnVitePreviewUrl(output, url)) finish(null);
-    });
-    child.stderr.on("data", data => {
-      output = (output + data.toString()).slice(-8000);
-      if (hasOwnVitePreviewUrl(output, url)) finish(null);
-    });
+      const ownedUrl = extractOwnVitePreviewUrl(output);
+      if (!ownedUrl) return;
+      if (requestedPort !== 0 &&
+          ownedUrl !== `http://127.0.0.1:${requestedPort}/`) {
+        finish(new Error("Vite preview returned an unexpected loopback port"));
+        return;
+      }
+      finish(null, ownedUrl);
+    }
+    child.stdout.on("data", observe);
+    child.stderr.on("data", observe);
     child.once("error", error => finish(error));
     child.once("exit", code => {
       if (!settled) finish(new Error("Vite preview stopped before ready (" + code + "): " + output.slice(-1300)));
@@ -64,7 +71,7 @@ function startPreview() {
   });
 }
 
-async function lighthouseRun(output, chromePath) {
+async function lighthouseRun(output, chromePath, url) {
   const flags = [
     url,
     "--quiet", "--no-enable-error-reporting",
@@ -96,18 +103,20 @@ async function main() {
   const temporary = mkdtempSync(join(tmpdir(), "folio-lighthouse-"), { mode: 0o700 });
   let server;
   try {
-    server = await startPreview();
+    const preview = await startPreview();
+    server = preview.child;
+    const url = preview.url;
     const response = await fetch(url, { redirect: "error" });
     if (response.status !== 200 || !(await response.text()).includes("/assets/")) {
       throw new Error("Lighthouse target is not the built production frontend");
     }
     const reports = [];
     for (let index = 0; index < runs; index++) {
-      reports.push(await lighthouseRun(join(temporary, `run-${index + 1}.json`), chromePath));
+      reports.push(await lighthouseRun(join(temporary, `run-${index + 1}.json`), chromePath, url));
     }
     const summary = summarizeLighthouseRuns(reports, url);
     console.log("PERF-003 LIGHTHOUSE LOCAL (simulated mobile profile): " +
-      JSON.stringify({ lighthouse: reports[0].lighthouseVersion, ...profile, ...summary }));
+      JSON.stringify({ lighthouse: reports[0].lighthouseVersion, port: Number(new URL(url).port), ...profile, ...summary }));
   } finally {
     if (server && server.exitCode === null) {
       server.kill("SIGTERM");
