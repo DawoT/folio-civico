@@ -307,6 +307,68 @@ describe("R2.11 · independent asynchronous redrive authority",()=>{
     }finally{f.close();}
   });
 
+  it.each(["operator","approver"] as const)(
+    "revoked %s cannot authorize or replay an asynchronous redrive approval",
+    async(role)=>{
+      const f=await fixture();
+      try{
+        const id=(await (await f.propose()).json() as {id:string}).id;
+        const jws=await f.approvalJwt(id);
+        insertSyntheticAuditedRevocation(f,"operator",
+          role==="operator"?f.signed.config.configuredOperatorSubject!:APPROVER);
+        expect((await f.approve(id,jws)).status).toBe(403);
+        if(role==="operator"){
+          expect(()=>f.sqlite.prepare(`
+            INSERT INTO processing_async_redrive_approvals(
+              request_id,operator_subject,approver_subject,
+              approval_sha256,approval_key_thumbprint
+            ) VALUES(?,?,?,?,?)
+          `).run(id,f.signed.config.configuredOperatorSubject!,APPROVER,
+            "a".repeat(64),"A".repeat(43)))
+            .toThrow(/ASYNC_REDRIVE_OPERATOR_REVOKED/);
+        }
+        expect(f.counts()).toEqual({proposals:{n:1},approvals:{n:0},sends:{n:0}});
+        expect(f.send).not.toHaveBeenCalled();
+      }finally{f.close();}
+    }
+  );
+
+  it("D1 rejects operator revocation racing between redrive approval preflight and batch",async()=>{
+    const f=await fixture();
+    try{
+      const id=(await (await f.propose()).json() as {id:string}).id;
+      const jws=await f.approvalJwt(id);
+      const concurrent={
+        prepare:f.db.prepare.bind(f.db),
+        batch:async(statements:Parameters<D1Database["batch"]>[0])=>{
+          insertSyntheticAuditedRevocation(f,"operator",f.signed.config.configuredOperatorSubject!);
+          return f.db.batch(statements);
+        }
+      } as unknown as D1Database;
+      const result=await handleIsolatedOperatorRequest(post("redrive-approvals",
+        {requestId:id},{...f.approverHeader,"X-Folio-Redrive-Approval-Jws":jws}
+      ),{...f.env,db:concurrent});
+      expect(result.status).toBe(409);
+      expect(f.counts()).toEqual({proposals:{n:1},approvals:{n:0},sends:{n:0}});
+      expect(f.sqlite.prepare("SELECT status FROM processing_async_redrive_requests").get())
+        .toMatchObject({status:"pending"});
+      expect(f.send).not.toHaveBeenCalled();
+    }finally{f.close();}
+  });
+
+  it("does not return an approved replay after the operator loses authority",async()=>{
+    const f=await fixture();
+    try{
+      const id=(await (await f.propose()).json() as {id:string}).id;
+      const jws=await f.approvalJwt(id);
+      expect((await f.approve(id,jws)).status).toBe(200);
+      insertSyntheticAuditedRevocation(f,"operator",f.signed.config.configuredOperatorSubject!);
+      expect((await f.approve(id,jws)).status).toBe(403);
+      expect((await f.execute(id,jws)).status).toBe(403);
+      expect(f.counts()).toEqual({proposals:{n:1},approvals:{n:1},sends:{n:0}});
+    }finally{f.close();}
+  });
+
   it("revoking the independent approver after approval blocks the final Queue action",async()=>{
     const f=await fixture();
     try{

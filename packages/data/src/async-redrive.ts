@@ -4,6 +4,7 @@ import {
   type StoredAsyncRedrive,type VerifiedAsyncRedriveRequester,
   type VerifiedAsyncRedriveDecision
 } from "@folio/auth";
+import {areOperatorSubjectsRevoked} from "./async-authority-guards";
 
 /** Global private D1 operation: no Worker routes, secrets, or remote host. */
 export class AsyncRedriveAccessError extends Error {}
@@ -54,6 +55,9 @@ export async function proposeAsyncRedrive(
 ):Promise<ProposalResult>{
   if(!validOneShotRedriveScope(scope)||!isVerifiedAsyncRedriveRequester(operator)){
     throw new AsyncRedriveAccessError("Verified operator and valid recovery scope required");
+  }
+  if(await areOperatorSubjectsRevoked(db,operator.subject)){
+    throw new AsyncRedriveAccessError("Operator authority withdrawn");
   }
   const prior=async()=>db.prepare(`
     SELECT id,status,commission_id AS commissionId,recovery_review_id AS reviewId,
@@ -118,6 +122,9 @@ export async function approveAsyncRedrive(
 ):Promise<DecisionResult>{
   if(!isVerifiedAsyncRedriveDecision(decision,stored)){
     throw new AsyncRedriveAccessError("Independent signed redrive approver required");
+  }
+  if(await areOperatorSubjectsRevoked(db,stored.operatorSubject,decision.approverSubject)){
+    throw new AsyncRedriveAccessError("Redrive approval authority withdrawn");
   }
   if(stored.status==="approved"){
     if(await sameApproval(db,stored,decision))return {status:"approved",replayed:true};
