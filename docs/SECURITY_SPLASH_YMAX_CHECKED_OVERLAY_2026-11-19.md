@@ -82,10 +82,12 @@ La compilación y verificación real de los nueve ensayos pasó. También se inc
 
 - `python3 -m unittest discover -s apps/inspector/tests -p 'test_*.py'`:
   **181/181 aprobadas**, incluidas las nueve unitarias R1.19.
-- `sh scripts/ci.sh` con `FOLIO_E2E_PORT=42973`: **exit 0**, 181/181 Python,
-  Vitest/workerd, typecheck, builds Workers `--dry-run`, Chromium E2E y
-  accesibilidad, migraciones D1 **solo locales** hasta `0027`; no implica
-  autorización de seguridad ni despliegue.
+- `sh scripts/ci.sh` con `FOLIO_E2E_PORT=42973` (antes de sincronizar UX) y
+  nuevamente con **`FOLIO_E2E_PORT=42983` tras fusionar los cambios recientes de `origin/main`**:
+  **exit 0** en ambas ejecuciones. La segunda aprobó **181/181 Python**,
+  **120/120 casos Chromium**, Vitest/workerd, typecheck, builds Workers
+  `--dry-run` y migraciones D1 **solo locales** hasta `0027`, sin migraciones
+  pendientes. Estos controles no autorizan la seguridad ni el despliegue del inspector.
 - `bash -n apps/inspector/research_patches/run_splash_ymax_overlay.sh`:
   **exit 0**.
 - `bash apps/inspector/verify_raster_guard.sh`: **exit 0, 8/8** con
