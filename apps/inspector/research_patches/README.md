@@ -238,3 +238,30 @@ El reporte incluye el SHA del runner para que sea auditable.
 Esta atestación de integridad local no convierte el script en una firma
 externa ni prueba alcanzabilidad PDF, corrección CVE o autorización OCI.
 Véase [R1.28](../../../docs/SECURITY_SPLASH_CONSTRUCTOR_RUNNER_ATTESTATION_2026-11-20.md).
+
+
+## R1.31 · PDF sintético y ancho AA de Splash (NO RELEASE)
+
+`../poppler_splash_pdf_width_probe.py` compila y ejecuta `pdftoppm` y
+`pdfinfo` de Debian Poppler `25.03.0-5+deb13u4` con ASan/UBSan. Usa PDFs
+sintéticos originales de una sola página (8 × 1 y 536870919 × 1 puntos)
+con huellas SHA-256 fijas. Comprueba un control Mono1 sin AA, otro con AA,
+los metadatos del ancho extremo, una salida escalada a 32 × 1 y tres procesos
+extremos separados: Mono1 sin AA, Mono1 solicitando AA y **grises Mono8 con AA real**.
+En `SplashOutputDev::setVectorAntialias`, Mono1 fuerza el AA vectorial a
+falso; el caso Mono1 es, por tanto, control negativo de alcanzabilidad.
+Las salidas potencialmente grandes se descartan.
+
+El script `run_splash_pdf_width_probe.sh` también tiene SHA-256 fijo; la
+instrumentación se recompila y ejecuta offline, sin modificar imágenes OCI.
+Un diagnóstico del constructor `Splash.cc:1454` solo puede acreditarse si
+proviene del proceso real sobre el PDF y supera controles de integridad.
+Un rechazo previo, fallback, timeout o ausencia del diagnóstico **no**
+acreditan alcanzabilidad. El ensayo real de siete procesos terminó con
+**seis salidas `exit 0` y un `wide_gray_aa exit 1`**, con diagnóstico UBSan
+**`536870919 * 4` de `Splash.cc:1454`**. Esto acredita una ruta desde un
+PDF **sintético de dimensiones extremas** al constructor de la biblioteca
+Debian recompilada con sanitizadores, no explotabilidad ni normalidad de
+ese PDF. La equivalencia con el binario operativo y el release permanecen
+sin verificar. Véase el
+[dossier R1.31](../../../docs/SECURITY_SPLASH_PDF_WIDTH_REACHABILITY_2026-11-20.md).
