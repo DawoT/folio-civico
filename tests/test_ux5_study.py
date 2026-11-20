@@ -115,6 +115,118 @@ class UX5ModeratedStudyTests(unittest.TestCase):
         with self.assertRaises(study.StudyDataError):
             study.validate_session(sample)
 
+    def test_pilot_role_task_assignments_are_exact_and_distinct(self):
+        self.assertEqual(study.ROLE_TASKS, {
+            "president": ("scope_opened",),
+            "author": ("scope_opened", "pdf_quarantined",
+                       "draft_registered", "submitted_for_review"),
+            "reviewer": ("scope_opened", "independent_decision"),
+            "observer": ("scope_opened", "observer_read_only",
+                         "sha256_export_verified"),
+        })
+        self.assertEqual(set(study.ROLE_TASKS), study.ROLES)
+        self.assertEqual(set.union(*(set(v) for v in study.ROLE_TASKS.values())),
+                         set(study.TASK_IDS))
+
+    def test_role_specific_template_is_unobserved_and_requires_consent(self):
+        for role, eligible in study.ROLE_TASKS.items():
+            with self.subTest(role=role):
+                template = study.new_session_template(role=role)
+                self.assertEqual(template["role"], role)
+                self.assertFalse(template["consent_obtained"])
+                self.assertFalse(template["moderated_observation"])
+                self.assertEqual(len(template["tasks"]), len(study.TASK_IDS))
+                self.assertTrue(all(t["outcome"] == "not_attempted" for t in template["tasks"]))
+                self.assertTrue(eligible)
+                with self.assertRaises(study.StudyDataError):
+                    study.validate_session(template)
+        with self.assertRaises(study.StudyDataError):
+            study.new_session_template(role="unrecognized")
+
+    def test_ineligible_task_cannot_be_attributed_to_another_role(self):
+        examples = [
+            ("president", "pdf_quarantined"),
+            ("author", "independent_decision"),
+            ("reviewer", "draft_registered"),
+            ("observer", "submitted_for_review"),
+        ]
+        for role, task_id in examples:
+            sample = observed_session(role)
+            observed_task(sample, "scope_opened")
+            observed_task(sample, task_id)
+            with self.subTest(role=role, task_id=task_id):
+                with self.assertRaisesRegex(study.StudyDataError, "perfil"):
+                    study.validate_session(sample)
+
+    def test_each_role_accepts_only_its_own_planned_tasks(self):
+        for role, eligible in study.ROLE_TASKS.items():
+            with self.subTest(role=role):
+                sample = observed_session(role)
+                for task_id in eligible:
+                    observed_task(sample, task_id)
+                self.assertIs(study.validate_session(sample), sample)
+
+    def test_role_template_cli_is_unobserved_and_rejects_unknown_profiles(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for role in study.ROLES:
+                result = subprocess.run(
+                    [sys.executable, str(MODULE_PATH), "template", "--role", role],
+                    cwd=ROOT, capture_output=True, text=True
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                template = json.loads(result.stdout)
+                self.assertEqual(template["role"], role)
+                self.assertIs(template["consent_obtained"], False)
+            invalid = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "template", "--role", "admin"],
+                cwd=ROOT, capture_output=True, text=True
+            )
+            self.assertNotEqual(invalid.returncode, 0)
+
+    def test_ineligible_tasks_never_enter_role_based_denominators(self):
+        roles = ("president", "author", "reviewer", "observer", "author")
+        samples = []
+        for role in roles:
+            sample = observed_session(role)
+            for task_id in study.ROLE_TASKS[role]:
+                observed_task(sample, task_id)
+            samples.append(sample)
+        report = study.summarize_sessions(samples)
+        scope = next(t for t in report["tasks"] if t["id"] == "scope_opened")
+        pdf = next(t for t in report["tasks"] if t["id"] == "pdf_quarantined")
+        review = next(t for t in report["tasks"] if t["id"] == "independent_decision")
+        self.assertEqual(scope["attempted"], 5)
+        self.assertEqual(scope["unassisted_rate"], 1.0)
+        self.assertEqual(pdf["attempted"], 2)
+        self.assertIsNone(pdf["unassisted_rate"])
+        self.assertEqual(review["attempted"], 1)
+        self.assertIsNone(review["median_seconds"])
+        self.assertEqual(report["institutional_authorization"], "not_granted")
+
+    def test_legacy_protocol_version_requires_explicit_review_not_silent_upgrade(self):
+        session = observed_session("author")
+        observed_task(session, "scope_opened")
+        session["study_version"] = "ux5.2-v1"
+        with self.assertRaisesRegex(study.StudyDataError, "Versión"):
+            study.validate_session(session)
+
+    def test_cli_rejects_cross_role_observation_without_echoing_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            record = observed_session("observer")
+            observed_task(record, "scope_opened")
+            observed_task(record, "independent_decision")
+            path = Path(directory) / "not-allowed.json"
+            path.write_text(json.dumps(record), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "validate", str(path)],
+                cwd=ROOT, capture_output=True, text=True
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("perfil", result.stderr)
+            self.assertNotIn("observer", result.stderr)
+            self.assertNotIn("independent_decision", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+
     def test_blank_consented_form_cannot_be_reported_as_a_completed_session(self):
         with self.assertRaises(study.StudyDataError):
             study.validate_session(observed_session())
@@ -171,11 +283,14 @@ class UX5ModeratedStudyTests(unittest.TestCase):
         self.assertIn("test_ux5_study.py", ci)
         self.assertIn("/.ux5-study/", ignored)
 
-    def test_summary_is_not_marked_ready_even_if_all_tasks_have_results(self):
-        sample = observed_session()
-        for task in study.TASK_IDS:
-            observed_task(sample, task)
-        report = study.summarize_sessions([sample] * 5)
+    def test_summary_is_not_marked_ready_even_if_all_eligible_tasks_have_results(self):
+        samples = []
+        for role in ("president", "author", "reviewer", "observer", "author"):
+            sample = observed_session(role)
+            for task_id in study.ROLE_TASKS[role]:
+                observed_task(sample, task_id)
+            samples.append(sample)
+        report = study.summarize_sessions(samples)
         self.assertEqual(report["session_count"], 5)
         self.assertEqual(report["release_gate"], "requires_independent_approval")
         self.assertEqual(report["institutional_authorization"], "not_granted")

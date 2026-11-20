@@ -6,7 +6,7 @@
 
 ## Objetivo y límites
 
-En UX-5.1 se automatizaron siete tareas encadenadas usando identidades y expedientes sintéticos, más regresión visual. UX-5.2 prepara la observación de **personas autorizadas reales** sin afirmar que sus resultados ya existen. No se usa este instrumental para aprobar Cloudflare Preview, producción, el inspector, una aprobación institucional o una auditoría WCAG.
+En UX-5.1 se automatizaron siete tareas encadenadas usando identidades y expedientes sintéticos, más regresión visual. UX-5.2 prepara la observación de **personas autorizadas reales** sin afirmar que sus resultados ya existen. **UX-5.3 calibra esas tareas por perfil para que el reporte no mezcle responsabilidades incompatibles.** No se usa este instrumental para aprobar Cloudflare Preview, producción, el inspector, una aprobación institucional o una auditoría WCAG.
 
 El contrato y el cálculo están implementados en `scripts/ux5_study.py`. Utilizan únicamente Python 3 estándar. No envían información por red, no escriben datos de sesión automáticamente y no forman parte de la aplicación web. La salida de `summarize` es un agregado estructurado.
 
@@ -22,6 +22,19 @@ Una persona responsable debe confirmar, antes de usar el instrumento, que:
 
 **Perfiles disponibles:** `president`, `author`, `reviewer`, `observer`. Idealmente reclutar 5–8 participantes autorizados distribuidos entre los roles; el tamaño no da precisión estadística representativa del universo municipal.
 
+**Matriz de tareas asignadas (UX-5.3):**
+
+| Perfil moderado | Tareas evaluables | Tareas de otros perfiles |
+| --- | --- | --- |
+| Presidencia (`president`) | `scope_opened` | `not_attempted` |
+| Autor (`author`) | `scope_opened`, `pdf_quarantined`, `draft_registered`, `submitted_for_review` | `not_attempted` |
+| Revisor independiente (`reviewer`) | `scope_opened`, `independent_decision` | `not_attempted` |
+| Observador (`observer`) | `scope_opened`, `observer_read_only`, `sha256_export_verified` | `not_attempted` |
+
+Esta matriz corresponde **a las tareas de investigación moderada del piloto UX-5.1**, no redefine permisos de Cloudflare Access ni afirma que una persona con otro rol no pueda realizar una acción legítima en la aplicación. En el estudio, una tarea no asignada al perfil **no es un fallo** y tampoco puede reportarse como completada: permanece `not_attempted`. De ese modo, la tasa de éxito de una tarea se calcula solo con intentos de personas a quienes se asignó.
+
+**Compatibilidad de registros:** la versión del protocolo pasa a `ux5.3-v1`. Los archivos `ux5.2-v1` anteriores no se convierten automáticamente; deben revisarse y, si representan observaciones reales autorizadas, verificarse manualmente frente a esta matriz antes de decidir si corresponde recrearlos. No reemplazar el campo de versión sin revisar la evidencia original. El cambio no afirma que exista alguna sesión humana previa.
+
 ## Uso local
 
 Desde la raíz del repositorio:
@@ -29,8 +42,10 @@ Desde la raíz del repositorio:
 ```sh
 mkdir -p .ux5-study/sessions
 
-# Crear una plantilla incompleta, con consentimiento en false y sin rol.
-python3 scripts/ux5_study.py template > .ux5-study/sessions/session-01.json
+# Crear una plantilla incompleta, sin consentimiento ni resultados,
+# preconfigurada para un perfil del estudio. Otros perfiles: president,
+# reviewer, observer. Sin --role conserva role=null.
+python3 scripts/ux5_study.py template --role author > .ux5-study/sessions/session-01.json
 
 # Completar el JSON únicamente después de la sesión moderada real.
 # Validar estructura y restricciones antes de aceptar el registro.
@@ -55,7 +70,7 @@ Todos los campos son obligatorios; **ningún campo adicional es aceptado**. El f
 ```json
 {
   "schema_version": 1,
-  "study_version": "ux5.2-v1",
+  "study_version": "ux5.3-v1",
   "role": "author",
   "consent_obtained": true,
   "moderated_observation": true,
@@ -73,7 +88,7 @@ Todos los campos son obligatorios; **ningún campo adicional es aceptado**. El f
 }
 ```
 
-El ejemplo muestra **solo un registro de tarea** por brevedad. Un archivo válido exige las **siete tareas** en el orden del contrato UX-5.1; las no realizadas usan `outcome: "not_attempted"`, `duration_seconds: null`, `navigation_errors: null`, `interpretation: "not_evaluated"` y `incident_codes: []`. El ejemplo no representa una sesión realizada.
+El ejemplo muestra **solo un registro de tarea** por brevedad. Un archivo válido exige las **siete tareas** en el orden del contrato UX-5.1; las no realizadas **o no asignadas a ese perfil** usan `outcome: "not_attempted"`, `duration_seconds: null`, `navigation_errors: null`, `interpretation: "not_evaluated"` y `incident_codes: []`. El ejemplo no representa una sesión realizada.
 
 Los IDs de tarea corresponden, en orden, a: `scope_opened`, `pdf_quarantined`, `draft_registered`, `submitted_for_review`, `independent_decision`, `observer_read_only` y `sha256_export_verified`.
 
@@ -98,7 +113,7 @@ La validación es **fail-closed**: rechaza campos desconocidos, JSON con claves 
 | Mediana de duración | Segundos entre intentos, **solo con al menos 5 intentos** |
 | Incidentes críticos | Cantidad por categoría predefinida |
 
-Con menos de cinco intentos por tarea, `unassisted_rate` y `median_seconds` son **`null`**, nunca cero ni porcentajes inventados. El reporte con cero sesiones tiene `human_usability: "not_conducted"`. Si existe al menos una sesión estructuralmente aceptada, se marca `"moderator_entered_observations"` (declaración de procedencia, **no certificación**).
+Con menos de cinco intentos por tarea, `unassisted_rate` y `median_seconds` son **`null`**, nunca cero ni porcentajes inventados. **El mínimo es por tarea y no por número total de participantes**: cinco personas de perfiles distintos no bastan para estimar la tasa de una tarea realizada solo por un revisor. Los recuentos internos incluso con muestras menores de cinco pueden revelar información sobre individuos de grupos pequeños: **no publicar ni compartir el resumen sin una revisión de divulgación específica**. El reporte con cero sesiones tiene `human_usability: "not_conducted"`. Si existe al menos una sesión estructuralmente aceptada, se marca `"moderator_entered_observations"` (declaración de procedencia, **no certificación**).
 
 **Siempre** se mantiene `manual_assistive_technology: "not_verified"`, `institutional_authorization: "not_granted"` y `release_gate: "requires_independent_approval"`. Las pruebas NVDA/VoiceOver, zoom nativo y alto contraste Windows deberán registrarse y aprobarse mediante un procedimiento manual separado.
 
@@ -108,7 +123,7 @@ Interpretar un error 503 como prueba de ausencia documental, la cuarentena como 
 
 ## Verificación del incremento
 
-- `tests/test_ux5_study.py` contiene contratos Red → Green para plantilla, coincidencia con el contrato de siete tareas UX-5.1, consentimiento, privacidad de campos, tipos, límites, errores y agregación.
+- `tests/test_ux5_study.py` contiene contratos Red → Green para plantilla y asignación de tareas por perfil, coincidencia con el contrato de siete tareas UX-5.1, consentimiento, privacidad de campos, tipos, límites, errores y agregación.
 - `scripts/ci.sh` ejecuta estas pruebas en un paso propio, sin añadir dependencias, GitHub Actions ni conectores de datos personales.
 - `.gitignore` excluye `.ux5-study/` para reducir la posibilidad de añadir registros individuales por accidente. Esta protección por sí sola no impide un `git add -f` deliberado.
 - No cambian la aplicación React, los Workers, el inspector, D1/R2 ni los permisos de la comisión.
