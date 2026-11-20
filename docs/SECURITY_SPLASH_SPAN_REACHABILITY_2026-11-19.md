@@ -102,6 +102,11 @@ bash apps/inspector/audit_image.sh --experiment --advisories
   incluyendo **199/199 pruebas Python del inspector**, **21/21 pruebas de
   estudio UX5**, Vitest/workerd, TypeScript, builds Workers `--dry-run`,
   Chromium E2E y migraciones D1 **solo locales hasta `0030`**.
+- Tras integrar el último cambio concurrente de privacidad UX5 de
+  `origin/main` se volvieron a ejecutar sus pruebas específicas:
+  **26/26 UX5 y 199/199 inspector aprobadas**. El contrato CI remoto del
+  PR comprueba la combinación final; las cifras del CI local anterior
+  pertenecen a la base previa a ese merge de UX.
 - Smoke de motores existentes `bash apps/inspector/verify_raster_guard.sh`:
   **exit 0, 8/8** (antivirus, OCR, PDF nativo, aislamiento, cifrados,
   adjuntos y malformados). La imagen existente **no** incorpora el overlay
