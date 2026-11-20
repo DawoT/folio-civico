@@ -107,10 +107,16 @@ def _process(root: Path, name: str) -> tuple[int, str, str]:
 
 def _bitmap(root: Path, name: str, size: str) -> None:
     path = root / f"{name}.pbm"
-    if (not path.is_file() or path.is_symlink()
-            or not 0 < path.stat().st_size < 65536):
-        raise ValueError("Missing, symlinked or oversized PBM control")
-    if not path.read_bytes().startswith(f"P4\n{size}\n".encode("ascii")):
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("Missing or symlinked PBM control")
+    width, height = (int(value) for value in size.split())
+    header = f"P4\n{size}\n".encode("ascii")
+    # P4 stores exactly ceil(width / 8) bytes per raster row.
+    # A valid header without its pixel bytes is not evidence of rendering.
+    expected_length = len(header) + ((width + 7) // 8) * height
+    if expected_length >= 65536 or path.stat().st_size != expected_length:
+        raise ValueError("Incomplete or oversized PBM control")
+    if not path.read_bytes().startswith(header):
         raise ValueError("Unexpected rendered PDF dimensions")
 
 
@@ -153,14 +159,14 @@ def verify_results(root: Path) -> dict:
     if not _no_sanitizer(scaled_stderr):
         raise ValueError("Scaled PDF renderer sanitizer failure")
     scaled_render_succeeded = scaled_code == 0
-    if scaled_render_succeeded:
-        if scaled_stdout != "":
-            raise ValueError("Unexpected stdout from bounded raster control")
-        _bitmap(root, "scaled_wide_aa", "32 1")
+    if not scaled_render_succeeded or scaled_stdout != "":
+        raise ValueError("Scaled PDF raster control did not complete")
+    _bitmap(root, "scaled_wide_aa", "32 1")
 
     wide_noaa_code, wide_noaa_stdout, wide_noaa_stderr = records["wide_noaa"]
-    if wide_noaa_stdout != "" or not _no_sanitizer(wide_noaa_stderr):
-        raise ValueError("Untrusted wide no-AA PDF process result")
+    if (wide_noaa_code != 0 or wide_noaa_stdout != ""
+            or not _no_sanitizer(wide_noaa_stderr)):
+        raise ValueError("Wide no-AA PDF raster control did not complete")
 
     # SplashOutputDev::setVectorAntialias disables AA for Mono1, even if
     # the command line requests it. This mode is a *negative* control.
