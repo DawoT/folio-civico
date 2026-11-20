@@ -58,10 +58,10 @@ Tras descargar el JSON desde la comisión, guarda su SHA-256 en un registro inde
 
 ```sh
 node scripts/verify-review-export.mjs folio-civico-COMISION-revision-interna.json
-# Exit 0: payload íntegro y estructura reconocida; exit 2: no verificado.
+# Exit 0: SHA-256 y contrato v1 comprobados; exit 2: archivo no verificado.
 ```
 
-La huella **no es una firma digital ni prueba autoría**: la aplicación sigue siendo un insumo de revisión interna. No se generan actas oficiales y se rechazan reportes superiores a 500 decisiones finalizadas u 8 MiB, en vez de truncarlos.
+El CLI también comprueba que las decisiones no estén duplicadas, que las evidencias sean estructuralmente válidas y pertenezcan a la comisión, y que el informe respete los límites de completitud. **Un SHA-256 recalculado no prueba procedencia ni autoría**: la aplicación sigue siendo un insumo de revisión interna. No se generan actas oficiales y se rechazan reportes superiores a 500 decisiones finalizadas u 8 MiB, en vez de truncarlos.
 
 ## Cloudflare
 
