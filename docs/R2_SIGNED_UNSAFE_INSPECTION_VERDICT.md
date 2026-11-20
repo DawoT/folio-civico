@@ -41,4 +41,6 @@ pnpm typecheck
 FOLIO_E2E_PORT=42935 sh scripts/ci.sh
 ```
 
+**Resultado real:** `FOLIO_E2E_PORT=42935 sh scripts/ci.sh` terminó **exit 0**, **470 Vitest + 190 Python inspector + 7 contratos CI + 26 UX5 privacidad + 5 workerd + 129 Chromium = 827/827**, typecheck, builds/dry-runs y **30 migraciones D1 solo locales** (API/MCP/Processor). Gate ejecutado sobre `origin/main` `5f3be01` sin usar GitHub Actions. Este CI no acredita el gate CVE de la imagen del inspector.
+
 **Cierre:** únicamente código local, contrato y regresiones verificables; no se infiere cumplimiento institucional ni autorización Preview. [Issue institucional #19](https://github.com/DawoT/folio-civico/issues/19).
