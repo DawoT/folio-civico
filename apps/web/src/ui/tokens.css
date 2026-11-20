@@ -1,0 +1,96 @@
+/* Folio Design System v0.1 — light theme only.
+ * Stable, semantic tokens for a gradual migration of the existing React UI.
+ * Preserve the current colors and dimensions; do not imply approval of a new brand.
+ * Color pairs must pass the contrast regression in tests/design-tokens.test.ts.
+ */
+:root {
+  color-scheme: light;
+
+  /* Brand and interactive controls */
+  --fc-color-brand-primary: #075c57;
+  --fc-color-brand-primary-hover: #064d49;
+  --fc-color-brand-on-primary: #ffffff;
+  --fc-color-focus: #0f7771;
+
+  /* Reading surfaces */
+  --fc-color-text-primary: #172740;
+  --fc-color-text-secondary: #536773;
+  --fc-color-text-muted: #60737b;
+  --fc-color-surface-base: #ffffff;
+  --fc-color-surface-canvas: #f5f7f6;
+  --fc-color-surface-subtle: #f7faf9;
+  --fc-color-surface-selected: #edf7f4;
+  --fc-color-border-default: #dce4e1;
+  --fc-color-border-strong: #aebfbc;
+
+  /* Semantic messages and workflow states.
+     A validated manual search is NOT an official finding. */
+  --fc-color-status-warning-fg: #854600;
+  --fc-color-status-warning-bg: #fff3d4;
+  --fc-color-status-warning-border: #efddb4;
+  --fc-color-status-error-fg: #9c3326;
+  --fc-color-status-error-bg: #fdede8;
+  --fc-color-status-error-border: #edd0c8;
+  --fc-color-status-success-fg: #075c57;
+  --fc-color-status-success-bg: #eaf6f2;
+  --fc-color-status-success-border: #c8e4d9;
+  --fc-color-status-quarantined-fg: #854600;
+  --fc-color-status-reviewing-fg: #77501c;
+  --fc-color-status-validated-fg: #075c57;
+  --fc-color-status-dismissed-fg: #9c3326;
+  --fc-color-status-draft-fg: #435b58;
+
+  /* Spacing: four-point rhythm */
+  --fc-space-1: 4px;
+  --fc-space-2: 8px;
+  --fc-space-3: 12px;
+  --fc-space-4: 16px;
+  --fc-space-5: 20px;
+  --fc-space-6: 24px;
+  --fc-space-8: 32px;
+  --fc-space-10: 40px;
+  --fc-space-12: 48px;
+
+  /* Existing geometry: no layout migration in DS-001 */
+  --fc-radius-control: 9px;
+  --fc-radius-card: 16px;
+  --fc-radius-message: 10px;
+  --fc-control-min-height: 46px;
+  --fc-motion-fast: 150ms;
+
+  --fc-font-body: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --fc-font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  /* Relative type scales with browser text-size preferences. At 16px root
+     these preserve the established visual rhythm. */
+  --fc-type-body: 0.9375rem;
+  --fc-type-label: 0.8125rem;
+  --fc-type-caption: 0.75rem;
+  --fc-type-heading-lg: 2.625rem;
+
+  /* UX-4.1: calm, deliberate institutional hierarchy; light theme only. */
+  --fc-color-surface-wash: #eef4f1;
+  --fc-shadow-shell: 0 1px 0 rgb(23 39 64 / 4%);
+  --fc-shadow-card: 0 6px 24px rgb(23 39 64 / 5%);
+  --fc-reading-measure: 66ch;
+  --fc-type-heading-md: 1.625rem;
+  --fc-type-heading-sm: 1.25rem;
+  --fc-line-body: 1.65;
+  --fc-motion-medium: 220ms;
+}
+
+/* Viewport-specific hierarchy in rem: increases proportionally with root text size.
+ * Avoid mixed vw/rem clamps that cap 200% text magnification on desktop. */
+@media (max-width: 900px) {
+  :root {
+    --fc-type-heading-lg: 2.25rem;
+    --fc-type-heading-md: 1.4375rem;
+    --fc-type-heading-sm: 1.125rem;
+  }
+}
+@media (max-width: 600px) {
+  :root {
+    --fc-type-heading-lg: 1.8125rem;
+    --fc-type-heading-md: 1.25rem;
+    --fc-type-heading-sm: 1.0625rem;
+  }
+}

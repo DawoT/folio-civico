@@ -7,25 +7,25 @@ import {handleInspectorGatewayRequest} from "./route";
 const source=new TextEncoder().encode("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF");
 const sampleServiceCredential="synthetic-service-sampleServiceCredential-".repeat(2);
 const key="synthetic-hmac-key-".repeat(3);
-const digest=async()=>Array.from(new Uint8Array(await crypto.subtle.digest(
- "SHA-256",new Uint8Array(source).buffer)))
+const digest=async(bytes:Uint8Array=source)=>Array.from(new Uint8Array(await crypto.subtle.digest(
+ "SHA-256",new Uint8Array(bytes).buffer)))
  .map(b=>b.toString(16).padStart(2,"0")).join("");
 
-async function fixture(){
+async function fixture(original:Uint8Array=source){
  const f=makeD1();
  f.sqlite.exec(`
    INSERT INTO commissions(id,name,status) VALUES('c_a','Synthetic commission','active');
    INSERT INTO commission_members(commission_id,subject,role) VALUES('c_a','reviewer','member');
    INSERT INTO document_batches(id,commission_id,label) VALUES('b_a','c_a','Synthetic lot');
  `);
- const sha=await digest();
+ const sha=await digest(original);
  await persistDocumentUpload(f.db,{
    commissionId:"c_a",batchId:"b_a",subject:"reviewer",
    documentId:"doc_01",versionId:"version_01",
    filename:"synthetic.pdf",sha256:sha,
    r2Key:"quarantine/private-opaque-name.pdf",idempotencyKey:"signed_pipeline_001"
  });
- const get=vi.fn(async()=>({size:source.length,arrayBuffer:async()=>new Uint8Array(source).buffer}));
+ const get=vi.fn(async()=>({size:original.length,arrayBuffer:async()=>new Uint8Array(original).buffer}));
  const mockContainer=vi.fn(async(_incoming:Request)=>Response.json({manifest:{
    documentVersionId:"version_01",sourceSha256:sha,scanVerdict:"clean",
    scanner:"isolated-scanner-v1",scannerReportId:"test_report_gateway_001",
@@ -66,6 +66,30 @@ describe("outbox -> Queue consumer -> gateway signer -> D1 admission",()=>{
        .toMatchObject({n:2});
    }finally{f.close();}
  });
+ it("settles an existing eight-byte quarantined header with signed 422 instead of retrying",async()=>{
+   const short=new TextEncoder().encode("%PDF-1.7");
+   const f=await fixture(short);
+   try{
+     const outcome=await processProcessingMessage({
+       kind:"folio.process.pdf",versionId:"version_01",sourceSha256:f.sha
+     },f.env);
+     expect(outcome).toBe("needs_review");
+     expect(f.mockContainer).not.toHaveBeenCalled();
+     expect(f.sqlite.prepare(
+       "SELECT extraction_status FROM document_versions WHERE id='version_01'"
+     ).get()).toMatchObject({extraction_status:"needs_review"});
+     expect(f.sqlite.prepare(
+       "SELECT count(*) AS n FROM document_processing_reports"
+     ).get()).toMatchObject({n:0});
+     expect(f.sqlite.prepare(
+       "SELECT count(*) AS n FROM document_pages"
+     ).get()).toMatchObject({n:0});
+     expect(f.sqlite.prepare(
+       "SELECT count(*) AS n FROM audit_events WHERE action='document.inspection_rejected'"
+     ).get()).toMatchObject({n:1});
+   }finally{f.close();}
+ });
+
  it("fails closed when a compromised parser returns a forged original hash",async()=>{
    const f=await fixture();
    try{

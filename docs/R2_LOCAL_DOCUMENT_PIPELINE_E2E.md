@@ -8,7 +8,7 @@ Demostrar con una **misma ejecución reproducible** que la recepción PDF autent
 
 El código productivo de ingesta, outbox, consumidor y gateway se ejecuta sin reemplazarse; las dependencias externas se simulan con controles verificables:
 
-- **D1:** SQLite en memoria con migraciones reales `0001–0017`, transacciones y triggers.
+- **D1:** SQLite en memoria con las migraciones reales vigentes del repositorio, transacciones y triggers; no se usa D1 remota.
 - **Autenticación:** JWT RS256 firmados con clave temporal común y JWKS de prueba; emisor, audiencia, firma y `sub` se validan con `handleApiRequest`.
 - **R2:** bucket privado simulado en memoria con operaciones `put/get/head/list/delete`, bytes PDF sintéticos y metadatos SHA-256. No se utiliza un bucket real.
 - **Queue:** `send` capturado y mensajes con `ack/retry` reales del contrato de consumidor, simulando entregas, caída y redelivery.
@@ -31,7 +31,7 @@ Archivo: `apps/api/src/processing-pipeline.e2e.test.ts`. No requiere red Cloudfl
 | Flujo completo, incluido JWT real | Alta PDF produce una sola versión y clave privada en R2; D1 outbox `pending`; Queue no recibe nombres ni claves; Processor lee y rehash; Gateway firma resultado; D1 registra dos páginas `ready`; API solo sirve texto a miembros autorizados |
 | Idempotencia triple | Repetir carga devuelve el mismo ID; reentregar mensaje completado no llama otra vez al scanner ni duplica informe/páginas/auditoría; outbox no reenvía completados |
 | Fallo de Queue y error 503 | Un envío rechazado deja `pending/0`; reenvío posterior marca `sent`; 503 obliga a `retry` sin publicar; envío antes de 15 minutos se bloquea y después del lease se permite; posterior recuperación completa una vez |
-| 422 y mensajes malformados | Mensaje inválido se confirma sin leer R2; rechazo del gateway mueve a `needs_review`, no produce páginas y deja estadística operativa `rejected` |
+| Cabecera PDF truncada | La API rechaza documentos inferiores a 12 bytes antes de R2/D1; un registro histórico simulado con SHA correcto recibe `422` **firmado** del gateway y finaliza en `needs_review` sin invocar al parser ([P9](R2_SHORT_PDF_PREFLIGHT.md)) |\n| 422 y mensajes malformados | Mensaje inválido se confirma sin leer R2; únicamente un **422 HMAC del gateway vinculado al ID/SHA/nonce de la petición** mueve a `needs_review`, no produce páginas y deja estadística `rejected`. Un 422 vacío, manipulado o de otra petición provoca retry sin alterar D1 ([P8](R2_SIGNED_UNSAFE_INSPECTION_VERDICT.md)) |
 | HMAC manipulado y original alterado | Firma modificada provoca retry sin páginas; bytes de R2 que no coinciden con la huella frenan procesamiento antes del gateway; la conciliación R2/D1 **no** afirma integridad de bytes |
 | Comisión cerrada | No se despacha si está cerrada; si se cerró después de publicar en Queue, el consumidor confirma el mensaje obsoleto **sin leer R2 ni contactar al inspector** |
 | Intentos agotados | Tras 10 despachos sin consumo, no se envían más; el diagnóstico expone `exhausted:1` sin borrar objetos ni fingir un resultado `completed` |

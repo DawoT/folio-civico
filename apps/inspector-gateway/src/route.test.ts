@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { serializeInspectionManifest, type InspectedTextManifest } from "@folio/data";
+import { serializeInspectionManifest,serializeUnsafeInspectionVerdict,type UnsafeInspectionVerdict,type InspectedTextManifest } from "@folio/data";
 import { handleInspectorGatewayRequest } from "./route";
 
 const sampleServiceCredential = "test-service-".repeat(4);
 const signingKey = "synthetic-hmac-key-".repeat(3);
+const requestNonce="0123456789abcdef0123456789abcdef";
 const bytes = new TextEncoder().encode("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF");
 const sha = async (content: Uint8Array): Promise<string> =>
   Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(content).buffer)))
@@ -18,6 +19,7 @@ async function request(overrides: Record<string,string> = {}, body: Uint8Array =
       "Content-Type":"application/pdf",
       "X-Folio-Document-Version":"version_01",
       "X-Folio-Source-Sha256":await sha(body),
+      "X-Folio-Inspection-Nonce":requestNonce,
       ...overrides
     },
     body:body as BodyInit
@@ -52,7 +54,8 @@ describe("internal Cloudflare Container inspector gateway",()=>{
       new Request("https://inspector.internal/inspect?inspect=true",{method:"POST"}),
       await request({Origin:"https://evil.test"}),
       await request({"X-Folio-Source-Sha256":"a".repeat(64)}),
-      await request({"Content-Type":"text/plain"})
+      await request({"Content-Type":"text/plain"}),
+      await request({"X-Folio-Inspection-Nonce":""})
     ];
     for(const value of bad){
       const response=await handleInspectorGatewayRequest(value,env,forward);
@@ -77,6 +80,7 @@ describe("internal Cloudflare Container inspector gateway",()=>{
     expect(new URL(seen!.url).pathname).toBe("/inspect");
     expect(seen!.headers.get("X-Evil-Header")).toBeNull();
     expect(seen!.headers.get("X-Folio-Inspector-Token")).toBe(sampleServiceCredential);
+    expect(seen!.headers.get("X-Folio-Inspection-Nonce")).toBeNull();
     expect(seen!.headers.has("INSPECTOR_HMAC_KEY")).toBe(false);
     expect(new Uint8Array(await seen!.arrayBuffer())).toEqual(bytes);
     expect(response.headers.get("Set-Cookie")).toBeNull();
@@ -109,6 +113,61 @@ describe("internal Cloudflare Container inspector gateway",()=>{
     expect(alreadySigned.status).toBe(502);
   });
 
+  it("signs a matching malformed PDF finding but never treats SHA mismatch as unsafe",async()=>{
+    const forward=vi.fn(async()=>new Response(null,{status:422}));
+    const malformed=new TextEncoder().encode("not-a-pdf-file-but-with-a-valid-hash");
+    const signed=await handleInspectorGatewayRequest(
+      await request({},malformed),env,forward
+    );
+    expect(signed.status).toBe(422);
+    const data=await signed.json() as {verdict:UnsafeInspectionVerdict;signature:string};
+    expect(data.verdict).toMatchObject({
+      kind:"folio.inspection.unsafe.v1",sourceSha256:await sha(malformed),
+      requestNonce,documentVersionId:"version_01"
+    });
+    expect(data.signature).toMatch(/^[a-f0-9]{64}$/);
+    expect(forward).not.toHaveBeenCalled();
+
+    const mismatch=await handleInspectorGatewayRequest(await request({
+      "X-Folio-Source-Sha256":"f".repeat(64)
+    }),env,forward);
+    expect(mismatch.status).toBe(400);
+    expect(await mismatch.text()).toBe("");
+    expect(forward).not.toHaveBeenCalled();
+  });
+
+  it("provides a signed terminal 422 for a previously quarantined short PDF",async()=>{
+    const forward=vi.fn(async()=>Response.json({unexpected:true}));
+    const short=new TextEncoder().encode("%PDF-1.7");
+    const result=await handleInspectorGatewayRequest(
+      await request({},short),env,forward
+    );
+    expect(result.status).toBe(422);
+    expect(result.headers.get("Content-Type")).toContain("application/json");
+    const signed=await result.json() as {verdict:UnsafeInspectionVerdict;signature:string};
+    expect(signed.verdict).toEqual({
+      kind:"folio.inspection.unsafe.v1",
+      documentVersionId:"version_01",
+      sourceSha256:await sha(short),
+      requestNonce
+    });
+    const key=await crypto.subtle.importKey("raw",new TextEncoder().encode(signingKey),
+      {name:"HMAC",hash:"SHA-256"},false,["verify"]);
+    const signature=new Uint8Array(signed.signature.match(/../g)!.map(x=>parseInt(x,16)));
+    expect(await crypto.subtle.verify(
+      "HMAC",key,signature,
+      new Uint8Array(serializeUnsafeInspectionVerdict(signed.verdict)).buffer
+    )).toBe(true);
+    expect(forward).not.toHaveBeenCalled();
+
+    const tampered=await handleInspectorGatewayRequest(
+      await request({"X-Folio-Source-Sha256":"f".repeat(64)},short),env,forward
+    );
+    expect(tampered.status).toBe(400);
+    expect(await tampered.text()).toBe("");
+    expect(forward).not.toHaveBeenCalled();
+  });
+
   it("caps payloads before forwarding and caps inspection responses after forwarding",async()=>{
     const forward=vi.fn(async()=>new Response("X".repeat(2*1024*1024+1),{
       status:200,headers:{"Content-Type":"application/json"}
@@ -126,7 +185,21 @@ describe("internal Cloudflare Container inspector gateway",()=>{
     const reject=vi.fn(async()=>new Response("internal-debug-secret",{status:422}));
     const r=await handleInspectorGatewayRequest(await request(),env,reject);
     expect(r.status).toBe(422);
-    expect(await r.text()).toBe("");
+    expect(r.headers.get("Cache-Control")).toContain("no-store");
+    const signed=await r.json() as {verdict:UnsafeInspectionVerdict;signature:string};
+    expect(signed.verdict).toEqual({
+      kind:"folio.inspection.unsafe.v1",
+      documentVersionId:"version_01",sourceSha256:await sha(bytes),
+      requestNonce
+    });
+    const cryptoKey=await crypto.subtle.importKey("raw",new TextEncoder().encode(signingKey),
+      {name:"HMAC",hash:"SHA-256"},false,["verify"]);
+    const sig=new Uint8Array(signed.signature.match(/../g)!.map(hex=>parseInt(hex,16)));
+    expect(await crypto.subtle.verify(
+      "HMAC",cryptoKey,sig,
+      new Uint8Array(serializeUnsafeInspectionVerdict(signed.verdict)).buffer
+    )).toBe(true);
+    expect(JSON.stringify(signed)).not.toContain("internal-debug-secret");
 
     const unavailable=vi.fn(async()=>{throw new Error("quarantine/secret.pdf");});
     const result=await handleInspectorGatewayRequest(await request(),env,unavailable);

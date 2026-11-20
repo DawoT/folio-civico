@@ -4,6 +4,14 @@ import "./styles.css";
 import { ReviewWorkspace } from "./ReviewWorkspace";
 import { InspectedTextViewer } from "./InspectedTextViewer";
 import { CommissionAdminPanel, BootstrapCommissionPanel } from "./CommissionAdmin";
+import { Button } from "./ui/Button";
+import { InlineAlert } from "./ui/InlineAlert";
+import { StatusBadge } from "./ui/StatusBadge";
+import { SelectField } from "./ui/Fields";
+import { Card } from "./ui/Card";
+import { DocumentListState } from "./ui/DocumentListState";
+import { TaskNavigation } from "./layout/TaskNavigation";
+import { CommissionOverview, summaryScopeKey, type ReviewSummary } from "./layout/CommissionOverview";
 
 const statusText: Record<DocumentRow["extractionStatus"], string> = {
   pending: "En cuarentena", processing: "Procesando", ready: "Texto disponible",
@@ -26,6 +34,7 @@ function initialScope(): Scope | null {
 export function App() {
   const initial = initialScope();
   const [commissionId, setCommissionId] = useState(initial?.commissionId ?? "");
+  const [administrationOpen, setAdministrationOpen] = useState(false);
   const [batchId, setBatchId] = useState(initial?.batchId ?? "");
   const [scope, setScope] = useState<Scope | null>(initial);
   const [commissions, setCommissions] = useState<Commission[]>([]);
@@ -36,6 +45,9 @@ export function App() {
   const [batchesLoading, setBatchesLoading] = useState(false);
   const [catalogError, setCatalogError] = useState("");
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
+  const [loadedDocumentScopeKey, setLoadedDocumentScopeKey] = useState<string | null>(null);
+  const [documentsFailed, setDocumentsFailed] = useState(false);
+  const [reviewSummary, setReviewSummary] = useState<ReviewSummary | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [reviewRefresh,setReviewRefresh]=useState(0);
@@ -101,14 +113,19 @@ export function App() {
     let alive = true;
     setLoading(true);
     setError("");
+    setDocumentsFailed(false);
+    setLoadedDocumentScopeKey(null);
     loadDocuments(scope).then((rows) => {
       if (alive) {
         setDocuments(rows);
+        setLoadedDocumentScopeKey(summaryScopeKey(scope));
         setSelectedId((id) => id && rows.some((row) => row.id === id) ? id : (rows[0]?.id ?? null));
       }
     }).catch((problem: unknown) => {
       if (alive) {
         setDocuments([]);
+        setLoadedDocumentScopeKey(null);
+        setDocumentsFailed(true);
         setSelectedId(null);
         setError(problem instanceof Error ? problem.message : "No se pudo cargar el lote.");
       }
@@ -116,8 +133,26 @@ export function App() {
     return () => { alive = false; };
   }, [scope, refresh]);
 
-  const selected = documents.find((document) => document.id === selectedId) ?? null;
+  // Never retain the previous lot's evidence when a scope is changing, loading,
+  // or unavailable. The loaded scope key is the UI's freshness guard.
+  const documentsReady = scope !== null && !loading && !documentsFailed
+    && loadedDocumentScopeKey === summaryScopeKey(scope);
+  const selected = documentsReady
+    ? documents.find((document) => document.id === selectedId) ?? null
+    : null;
+  const documentListPhase = !scope ? "unselected"
+    : loading || (loadedDocumentScopeKey !== summaryScopeKey(scope) && !documentsFailed)
+      ? "loading"
+      : documentsFailed ? "failed"
+        : documentsReady && documents.length === 0 ? "empty" : null;
   const selectedCommission = commissions.find((item) => item.id === commissionId);
+  // The opened scope may differ from an unsubmitted dropdown selection.
+  const activeCommission = scope
+    ? commissions.find((item) => item.id === scope.commissionId)
+    : undefined;
+  const activeBatch = scope
+    ? batches.find((item) => item.id === scope.batchId)
+    : undefined;
   const canUpload = selectedCommission?.status === "active" && selectedCommission.role !== "observer";
   const canManage = selectedCommission?.status === "active" && selectedCommission.role === "president";
 
@@ -131,6 +166,9 @@ export function App() {
       }
       const nextScope = { commissionId: commissionId.trim(), batchId: batchId.trim() };
       setScope(nextScope);
+      setReviewSummary(null);
+      setLoadedDocumentScopeKey(null);
+      setDocumentsFailed(false);
       setNotice("");
       setError("");
       if (typeof window !== "undefined") {
@@ -193,6 +231,7 @@ export function App() {
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">Saltar al contenido principal</a>
       <header className="topbar">
         <div className="brand" aria-label="Folio Cívico">
           <span className="brand-mark" aria-hidden="true">F</span>
@@ -205,90 +244,110 @@ export function App() {
         <strong>Insumo de trabajo.</strong> No constituye el acta oficial de transferencia.
       </div>
 
-      <main className="main-content">
+      <main className="main-content" id="main-content" tabIndex={-1}>
         <section className="intro" aria-labelledby="page-title">
           <div>
             <p className="eyebrow">TRANSFERENCIA DE GESTIÓN · OBRAS Y CONTRATACIONES</p>
             <h1 id="page-title">Mesa de revisión</h1>
             <p>Recibe expedientes, conserva sus versiones y prepara evidencia para revisión humana.</p>
           </div>
-          <span className="status-label">Sin validación automática</span>
+          <StatusBadge status="warning" className="status-label">Sin validación automática</StatusBadge>
         </section>
 
-        {session?.canBootstrap && (
-          <BootstrapCommissionPanel onCreated={()=> {
-            void loadCommissions().then(setCommissions).catch(problem=>
-              setCatalogError(problem instanceof Error?problem.message:"No se actualizaron las comisiones."));
-          }}/>
-        )}
-
         <form className="scope-form" onSubmit={connect} aria-label="Conectar comisión y lote">
-          <label>
-            <span>Comisión</span>
-            <select aria-label="Identificador de comisión" value={commissionId}
-              onChange={(event) => {
-                setCommissionId(event.target.value);
-                setBatchId("");
-                setBatches([]);
-                setScope(null);
-                setDocuments([]);
-                setSelectedId(null);
-                setCatalogError("");
-                setNewBatchLabel("");
-                pendingBatch.current=null;
-              }} disabled={catalogLoading} required>
-              <option value="">{catalogLoading ? "Consultando comisiones…" : "Selecciona una comisión"}</option>
-              {commissions.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === "closed" ? " · Cerrada" : ""}</option>)}
-            </select>
-          </label>
-          <label>
-            <span>Lote de expedientes</span>
-            <select aria-label="Identificador de lote" value={batchId}
-              onChange={(event) => setBatchId(event.target.value)} disabled={!commissionId || batchesLoading} required>
-              <option value="">{batchesLoading ? "Consultando lotes…" : "Selecciona un lote"}</option>
-              {batches.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-            </select>
-          </label>
-          <button className="button primary" type="submit" disabled={!commissionId || !batchId || catalogLoading || batchesLoading}>Abrir lote</button>
+          <SelectField id="scope-commission" label="Comisión"
+            aria-label="Identificador de comisión" value={commissionId}
+            onChange={(event) => {
+              setCommissionId(event.target.value);
+              setAdministrationOpen(false);
+              setReviewSummary(null);
+              setLoadedDocumentScopeKey(null);
+              setDocumentsFailed(false);
+              setBatchId("");
+              setBatches([]);
+              setScope(null);
+              setDocuments([]);
+              setSelectedId(null);
+              setCatalogError("");
+              setNewBatchLabel("");
+              pendingBatch.current=null;
+            }} disabled={catalogLoading} required>
+            <option value="">{catalogLoading ? "Consultando comisiones…" : "Selecciona una comisión"}</option>
+            {commissions.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === "closed" ? " · Cerrada" : ""}</option>)}
+          </SelectField>
+          <SelectField id="scope-batch" label="Lote de expedientes"
+            aria-label="Identificador de lote" value={batchId}
+            onChange={(event) => setBatchId(event.target.value)} disabled={!commissionId || batchesLoading} required>
+            <option value="">{batchesLoading ? "Consultando lotes…" : "Selecciona un lote"}</option>
+            {batches.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </SelectField>
+          <Button variant="primary" type="submit" disabled={!commissionId || !batchId || catalogLoading || batchesLoading}>Abrir lote</Button>
         </form>
 
-        {canManage && (
-          <form className="manage-form" onSubmit={createBatch} aria-label="Crear lote de expedientes">
-            <label htmlFor="new-batch-label">Nuevo lote de expedientes</label>
-            <input id="new-batch-label" value={newBatchLabel} maxLength={120}
-              onChange={event=>setNewBatchLabel(event.target.value)}
-              placeholder="Obras y contrataciones · 2026" required
-              disabled={batchCreating||batchesLoading}/>
-            <button type="submit" className="button secondary"
-              disabled={batchCreating||batchesLoading||newBatchLabel.trim().length<3}>
-              {batchCreating?"Creando lote…":"Crear lote"}
-            </button>
-          </form>
+        <TaskNavigation hasScope={Boolean(scope)} canDraft={Boolean(canUpload)}
+          canAdmin={Boolean(canManage || session?.canBootstrap)}
+          commissionName={activeCommission?.name ?? selectedCommission?.name}
+          batchLabel={activeBatch?.label}
+          onOpenAdministration={()=>setAdministrationOpen(true)}/>
+        {scope && (
+          <CommissionOverview scope={scope}
+            commissionName={activeCommission?.name} batchLabel={activeBatch?.label}
+            documents={!loading && loadedDocumentScopeKey === summaryScopeKey(scope) ? documents : null}
+            documentsFailed={documentsFailed}
+            review={reviewSummary}
+            canDraft={Boolean(canUpload)}/>
         )}
 
-        {canManage && session && commissionId && (
-          <CommissionAdminPanel key={commissionId} commissionId={commissionId}
-            currentSubject={session.subject}/>
+        {(canManage || session?.canBootstrap) && (
+          <details id="administracion" className="administration-drawer"
+            open={administrationOpen} onToggle={event=>setAdministrationOpen(event.currentTarget.open)}>
+            <summary>Administración de la comisión</summary>
+            <p className="review-note">Área de gestión de accesos, lotes y configuración. El trabajo documental continúa debajo.</p>
+            {session?.canBootstrap && (
+              <BootstrapCommissionPanel onCreated={()=> {
+                void loadCommissions().then(setCommissions).catch(problem=>
+                  setCatalogError(problem instanceof Error?problem.message:"No se actualizaron las comisiones."));
+              }}/>
+            )}
+            {canManage && (
+              <form className="manage-form" onSubmit={createBatch} aria-label="Crear lote de expedientes">
+                <label htmlFor="new-batch-label">Nuevo lote de expedientes</label>
+                <input id="new-batch-label" value={newBatchLabel} maxLength={120}
+                  onChange={event=>setNewBatchLabel(event.target.value)}
+                  placeholder="Obras y contrataciones · 2026" required
+                  disabled={batchCreating||batchesLoading}/>
+                <button type="submit" className="button secondary"
+                  disabled={batchCreating||batchesLoading||newBatchLabel.trim().length<3}>
+                  {batchCreating?"Creando lote…":"Crear lote"}
+                </button>
+              </form>
+            )}
+            {canManage && session && commissionId && (
+              <CommissionAdminPanel key={commissionId} commissionId={commissionId}
+                currentSubject={session.subject}/>
+            )}
+          </details>
         )}
         {sessionError && <p role="alert" className="message error">
           La administración no está disponible: {sessionError}
         </p>}
-        {catalogError && <div className="message error" role="alert">{catalogError}</div>}
+        {catalogError && <InlineAlert tone="error">{catalogError}</InlineAlert>}
         {!catalogLoading && !catalogError && !session?.canBootstrap && commissions.length === 0 && <div className="message" role="status">No tienes comisiones asignadas. Solicita acceso al administrador de la entidad.</div>}
         {(error || notice) && (
-          <div className={error ? "message error" : "message success"} role={error ? "alert" : "status"} aria-live="polite">
-            {error || notice}
-          </div>
+          <InlineAlert tone={error ? "error" : "success"}>{error || notice}</InlineAlert>
         )}
 
         <div className="workspace">
-          <section className="documents-panel" aria-labelledby="documents-title">
+          <Card as="section" id="expedientes" className="documents-panel" aria-labelledby="documents-title">
             <div className="panel-header">
               <div>
                 <p className="eyebrow">01 · DOCUMENTACIÓN</p>
                 <h2 id="documents-title">Documentos del lote</h2>
               </div>
-              <span className="count">{documents.length}</span>
+              <span className="count" aria-label={
+                !documentsReady ? "Cantidad de documentos no disponible"
+                : `${documents.length} documentos en el lote`
+              }>{documentsReady ? documents.length : "—"}</span>
             </div>
 
             <form className="upload-form" onSubmit={upload}>
@@ -296,16 +355,17 @@ export function App() {
               <input id="upload-pdf" ref={fileInput} type="file" accept=".pdf,application/pdf"
                 disabled={!scope || !canUpload || uploading} required/>
               <p>{scope && !canUpload ? "Solo las comisiones activas con rol de revisión pueden cargar archivos. " : ""}Máximo 8 MiB. Se conservará en cuarentena, sin lectura automática.</p>
-              <button className="button primary upload-button" type="submit" disabled={!scope || !canUpload || uploading}>
+              <Button variant="primary" className="upload-button" type="submit" busy={uploading}
+                disabled={!scope || !canUpload}>
                 {uploading ? "Registrando…" : "Registrar PDF"}
-              </button>
+              </Button>
             </form>
 
             <div className="document-list" aria-live="polite">
-              {!scope && <p className="empty">Indica una comisión y un lote para consultar los documentos autorizados.</p>}
-              {scope && loading && <p className="empty">Consultando documentos…</p>}
-              {scope && !loading && documents.length === 0 && <p className="empty">No hay documentos disponibles para este lote.</p>}
-              {!loading && documents.map((document) => (
+              {documentListPhase && <DocumentListState phase={documentListPhase}
+                canUpload={Boolean(scope && canUpload)}
+                onRetry={()=>setRefresh(value=>value+1)}/>}
+              {documentsReady && documents.map((document) => (
                 <button className={document.id === selectedId ? "document-item selected" : "document-item"}
                   key={document.id} type="button" onClick={() => setSelectedId(document.id)}
                   aria-pressed={document.id === selectedId}>
@@ -318,9 +378,9 @@ export function App() {
                 </button>
               ))}
             </div>
-          </section>
+          </Card>
 
-          <section className="evidence-panel" aria-labelledby="evidence-title">
+          <Card as="section" className="evidence-panel" aria-labelledby="evidence-title">
             <div className="panel-header">
               <div>
                 <p className="eyebrow">02 · EVIDENCIA</p>
@@ -353,13 +413,25 @@ export function App() {
             ) : (
               <div className="empty-evidence">
                 <div className="placeholder-art" aria-hidden="true"><span/><span/><span/></div>
-                <h3>Evidencia, no suposiciones</h3>
-                <p>Selecciona un documento para ver su versión, huella de integridad y estado de procesamiento.</p>
+                <h3>{!scope ? "Primero abre un lote"
+                  : loading || (!documentsFailed && !documentsReady) ? "Consultando evidencia"
+                    : documentsFailed ? "Evidencia no disponible" : "Evidencia, no suposiciones"}</h3>
+                <p>{!scope
+                  ? "Selecciona una comisión y un lote para comenzar la consulta autorizada."
+                  : loading || (!documentsFailed && !documentsReady)
+                    ? "La información del lote todavía se está consultando."
+                    : documentsFailed
+                      ? "No fue posible consultar los documentos. Reintenta desde el listado; no se ha verificado ninguna ausencia."
+                      : documents.length === 0
+                        ? "Todavía no hay documentos registrados para mostrar su versión, huella y estado."
+                        : "Selecciona un documento para ver su versión, huella de integridad y estado de procesamiento."}</p>
               </div>
             )}
-          </section>
+          </Card>
         </div>
-        {scope && <ReviewWorkspace key={scope.commissionId+":"+scope.batchId+":"+reviewRefresh} scope={scope} canDraft={Boolean(canUpload)} canManage={Boolean(canManage)}/>}
+        {scope && <ReviewWorkspace key={scope.commissionId+":"+scope.batchId+":"+reviewRefresh}
+          scope={scope} canDraft={Boolean(canUpload)} canManage={Boolean(canManage)}
+          onSummaryChange={setReviewSummary}/>} 
         <footer className="page-footer">Folio Cívico · Herramienta de apoyo técnico-administrativo · Las decisiones corresponden a la comisión.</footer>
       </main>
     </div>

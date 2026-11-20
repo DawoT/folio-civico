@@ -1,4 +1,4 @@
-import {serializeInspectionManifest,type InspectedTextManifest} from "@folio/data";
+import {serializeInspectionManifest,serializeUnsafeInspectionVerdict,type InspectedTextManifest,type UnsafeInspectionVerdict} from "@folio/data";
 
 /**
  * Fail-closed service-binding gateway between the PDF Queue Worker and a
@@ -46,6 +46,27 @@ async function readBounded(body:ReadableStream<Uint8Array>|null,limit:number):Pr
   for(const chunk of chunks){buffer.set(chunk,offset);offset+=chunk.byteLength;}
   return buffer;
 }
+async function signCanonical(data:Uint8Array,secret:string):Promise<string>{
+  const key=await crypto.subtle.importKey(
+    "raw",new TextEncoder().encode(secret),
+    {name:"HMAC",hash:"SHA-256"},false,["sign"]
+  );
+  const mac=new Uint8Array(await crypto.subtle.sign(
+    "HMAC",key,new Uint8Array(data).buffer
+  ));
+  return Array.from(mac,n=>n.toString(16).padStart(2,"0")).join("");
+}
+async function signedUnsafeResponse(
+  documentVersionId:string,sourceSha256:string,requestNonce:string,secret:string
+):Promise<Response>{
+  const verdict:UnsafeInspectionVerdict={
+    kind:"folio.inspection.unsafe.v1",documentVersionId,sourceSha256,requestNonce
+  };
+  const signature=await signCanonical(serializeUnsafeInspectionVerdict(verdict),secret);
+  return new Response(JSON.stringify({verdict,signature}),{
+    status:422,headers:{...RESPONSE_HEADERS,"Content-Type":"application/json; charset=utf-8"}
+  });
+}
 async function sha256(input:Uint8Array):Promise<string>{
   const hash=await crypto.subtle.digest("SHA-256",new Uint8Array(input).buffer);
   return Array.from(new Uint8Array(hash),n=>n.toString(16).padStart(2,"0")).join("");
@@ -65,16 +86,23 @@ export async function handleInspectorGatewayRequest(
   if(request.headers.has("Origin"))return empty(403);
   const version=request.headers.get("X-Folio-Document-Version")??"";
   const expectedHash=request.headers.get("X-Folio-Source-Sha256")??"";
+  const requestNonce=request.headers.get("X-Folio-Inspection-Nonce")??"";
   if(!/^[A-Za-z0-9_-]{1,64}$/.test(version) || !/^[a-f0-9]{64}$/.test(expectedHash)
+    || !/^[a-f0-9]{32}$/.test(requestNonce)
     || request.headers.get("Content-Type")!=="application/pdf")return empty(400);
   const declared=request.headers.get("Content-Length");
   if(declared && (!/^\d+$/.test(declared)||Number(declared)>MAX_PDF_BYTES))return empty(413);
   let original:Uint8Array;
   try{original=await readBounded(request.body,MAX_PDF_BYTES);}
   catch{return empty(413);}
-  if(original.length<12)return empty(400);
-  if(new TextDecoder().decode(original.slice(0,5))!=="%PDF-")return empty(422);
-  if(await sha256(original)!==expectedHash)return empty(422);
+  // Verify the actual object before classifying its content, including a
+  // previously admitted short PDF. Transport corruption is not a finding.
+  if(await sha256(original)!==expectedHash)return empty(400);
+  // Historical quarantined 8–11-byte PDF headers must not loop forever on
+  // HTTP 400. Sign a terminal malformed-document verdict for these records.
+  if(original.length<12 || new TextDecoder().decode(original.slice(0,5))!=="%PDF-") {
+    return signedUnsafeResponse(version,expectedHash,requestNonce,secrets.INSPECTOR_HMAC_KEY);
+  }
   const headers=new Headers({
     "X-Folio-Inspector-Token":token,
     "X-Folio-Document-Version":version,
@@ -86,7 +114,12 @@ export async function handleInspectorGatewayRequest(
     const inspection=await forward(new Request("http://container/inspect",{
       method:"POST",headers,body:original as BodyInit
     }));
-    if(inspection.status===422)return empty(422);
+    if(inspection.status===422){
+      // Only this privileged gateway may attest an unsafe result. The parser
+      // never receives the HMAC key, and its private error details are dropped.
+      await inspection.body?.cancel();
+      return signedUnsafeResponse(version,expectedHash,requestNonce,secrets.INSPECTOR_HMAC_KEY);
+    }
     if(inspection.status!==200)return empty(503);
     if(!inspection.headers.get("Content-Type")?.toLowerCase().startsWith("application/json"))
       return empty(502);
@@ -106,13 +139,7 @@ export async function handleInspectorGatewayRequest(
       canonical=serializeInspectionManifest(manifest);
     }catch{return empty(502);}
     if(manifest.documentVersionId!==version || manifest.sourceSha256!==expectedHash)return empty(502);
-    const signingKey=await crypto.subtle.importKey(
-      "raw",new TextEncoder().encode(secrets.INSPECTOR_HMAC_KEY),
-      {name:"HMAC",hash:"SHA-256"},false,["sign"]
-    );
-    const mac=new Uint8Array(await crypto.subtle.sign("HMAC",signingKey,
-      new Uint8Array(canonical).buffer));
-    const signature=Array.from(mac,n=>n.toString(16).padStart(2,"0")).join("");
+    const signature=await signCanonical(canonical,secrets.INSPECTOR_HMAC_KEY);
     const signed=new TextEncoder().encode(JSON.stringify({manifest,signature}));
     if(signed.byteLength>MAX_REPORT_BYTES)return empty(502);
     return new Response(new Uint8Array(signed).buffer,{status:200,headers:{

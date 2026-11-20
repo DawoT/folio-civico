@@ -1,4 +1,4 @@
-import {publishInspectedText,type InspectedTextManifest,type ProcessingQueueMessage} from "@folio/data";
+import {publishInspectedText,isProcessingRedriveAuthorized,verifyUnsafeInspectionVerdict,type UnsafeInspectionVerdict,type InspectedTextManifest,type ProcessingQueueMessage} from "@folio/data";
 
 export interface ProcessorEnv {
   DB:D1Database;
@@ -23,13 +23,17 @@ const textEncoder=new TextEncoder();
 export function parseProcessingMessage(raw:unknown):ProcessingQueueMessage|null {
   if(!raw || typeof raw!=="object" || Array.isArray(raw))return null;
   const obj=raw as Record<string,unknown>;
-  if(Object.keys(obj).length!==3
+  const hasManual=Object.hasOwn(obj,"manualRedriveId");
+  if(Object.keys(obj).length!==(hasManual?4:3)
+    || (hasManual && (typeof obj.manualRedriveId!=="string"
+      || !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(obj.manualRedriveId)))
     || obj.kind!=="folio.process.pdf"
     || typeof obj.versionId!=="string"
     || !/^[A-Za-z0-9_-]{1,64}$/.test(obj.versionId)
     || typeof obj.sourceSha256!=="string"
     || !/^[a-f0-9]{64}$/.test(obj.sourceSha256)) return null;
-  return {kind:"folio.process.pdf",versionId:obj.versionId,sourceSha256:obj.sourceSha256};
+  return {kind:"folio.process.pdf",versionId:obj.versionId,sourceSha256:obj.sourceSha256,
+    ...(hasManual?{manualRedriveId:obj.manualRedriveId as string}:{})};
 }
 async function digest(original:Uint8Array):Promise<string> {
   const hash=await crypto.subtle.digest("SHA-256",new Uint8Array(original).buffer);
@@ -73,18 +77,45 @@ function reportResponse(raw:unknown):{manifest:InspectedTextManifest;signature:s
   }
   return {manifest:obj.manifest as InspectedTextManifest,signature:obj.signature};
 }
+/**
+ * Cross-request commission closure can occur while reading private R2 or
+ * awaiting the inspector. Recheck before disclosing bytes and before writes.
+ * SQL triggers independently protect the final D1 transaction.
+ */
+async function isActivePendingVersion(
+ db:D1Database,versionId:string,sourceSha256:string
+):Promise<boolean>{
+ const row=await db.prepare(`
+  SELECT 1 AS allowed FROM document_versions v
+  JOIN documents d ON d.id=v.document_id
+  JOIN commissions c ON c.id=d.commission_id
+  WHERE v.id=? AND v.sha256=? AND v.extraction_status='pending'
+    AND c.status='active'
+ `).bind(versionId,sourceSha256).first<{allowed:number}>();
+ return row!==null;
+}
 async function recordUnsafeInspection(db:D1Database,versionId:string,commissionId:string):Promise<void>{
   const result=await db.batch([
     db.prepare(`
       UPDATE document_versions SET extraction_status='needs_review'
       WHERE id=? AND extraction_status='pending'
-    `).bind(versionId),
+        AND EXISTS (
+          SELECT 1 FROM documents d
+          JOIN commissions c ON c.id=d.commission_id
+          WHERE d.id=document_versions.document_id
+            AND c.id=? AND c.status='active'
+        )
+    `).bind(versionId,commissionId),
     db.prepare(`
       INSERT INTO audit_events(id,commission_id,actor_subject,action,resource_type,resource_id,metadata_json)
-      SELECT ?,?,'inspector:isolated','document.inspection_rejected','document_version',v.id,
+      SELECT ?,d.commission_id,'inspector:isolated','document.inspection_rejected','document_version',v.id,
         json_object('result','needs_review')
-      FROM document_versions v WHERE v.id=? AND v.extraction_status='needs_review'
-    `).bind(crypto.randomUUID(),commissionId,versionId)
+      FROM document_versions v
+      JOIN documents d ON d.id=v.document_id
+      JOIN commissions c ON c.id=d.commission_id
+      WHERE v.id=? AND v.extraction_status='needs_review'
+        AND c.id=? AND c.status='active'
+    `).bind(crypto.randomUUID(),versionId,commissionId)
   ]);
   if(result.some(item=>!item.success || item.meta.changes!==1)){
     throw new Error("Unsafe inspection state update rejected");
@@ -95,6 +126,11 @@ export async function processProcessingMessage(
 ):Promise<ProcessingResult>{
   const message=parseProcessingMessage(raw);
   if(!message)throw new Error("Invalid queue message");
+  // A manual one-shot must be bound to its immutable D1 reservation. The
+  // check is also needed for ordinary messages to prevent stripping the tag.
+  if(!await isProcessingRedriveAuthorized(
+    env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
+  ))return "stale";
   const version=await env.DB.prepare(`
     SELECT v.sha256,v.r2_object_key AS r2Key,v.extraction_status AS status,
       d.commission_id AS commissionId,c.status AS commissionStatus
@@ -118,20 +154,62 @@ export async function processProcessingMessage(
     || await digest(originalBytes)!==message.sourceSha256) {
     throw new Error("Original PDF failed integrity");
   }
+  // Avoid handing the original to the scanner if the authorization was
+  // invalidated during the potentially slow private R2 read and digest.
+  if(!await isProcessingRedriveAuthorized(
+    env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
+  ))return "stale";
+  if(!await isActivePendingVersion(env.DB,message.versionId,message.sourceSha256))return "stale";
   // Service binding only: an operator-deployed and isolated inspection service.
   // No arbitrary URL from messages, credentials, hostnames or D1 records.
+  const requestNonce=crypto.randomUUID().replaceAll("-","");
   const response=await env.INSPECTOR.fetch(new Request("https://inspector.internal/inspect",{
     method:"POST",
     headers:{
       "Content-Type":"application/pdf",
       "X-Folio-Document-Version":message.versionId,
       "X-Folio-Source-Sha256":message.sourceSha256,
+      "X-Folio-Inspection-Nonce":requestNonce,
       "X-Folio-Inspector-Token":env.INSPECTOR_SERVICE_TOKEN
     },
     body:originalBytes as BodyInit
   }));
   if(response.status===422){
-    await recordUnsafeInspection(env.DB,message.versionId,version.commissionId);
+    // 422 alone is not a terminal document verdict: require gateway HMAC,
+    // version, original SHA and a fresh challenge bound to THIS request.
+    // Unsigned, replayed or mismatched responses are retried, not persisted.
+    if(!response.headers.get("Content-Type")?.toLowerCase().startsWith("application/json")){
+      throw new Error("Unsigned unsafe inspection verdict");
+    }
+    const raw=await boundedJson(response);
+    if(!raw || typeof raw!=="object" || Array.isArray(raw)
+      || Object.keys(raw).length!==2 || !("verdict" in raw)
+      || !("signature" in raw) || typeof raw.signature!=="string"){
+      throw new Error("Invalid unsafe inspection verdict");
+    }
+    const verdict=raw.verdict as UnsafeInspectionVerdict;
+    if(!verdict || typeof verdict!=="object" || Array.isArray(verdict)
+      || verdict.documentVersionId!==message.versionId
+      || verdict.sourceSha256!==message.sourceSha256
+      || verdict.requestNonce!==requestNonce
+      || !await verifyUnsafeInspectionVerdict(
+        verdict,raw.signature,env.INSPECTOR_HMAC_KEY
+      )){
+      throw new Error("Invalid signed unsafe inspection verdict");
+    }
+    if(!await isProcessingRedriveAuthorized(
+      env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
+    ))return "stale";
+    if(!await isActivePendingVersion(env.DB,message.versionId,message.sourceSha256))return "stale";
+    try {
+      await recordUnsafeInspection(env.DB,message.versionId,version.commissionId);
+    }catch(error){
+      if(!await isProcessingRedriveAuthorized(
+        env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
+      ))return "stale";
+      if(!await isActivePendingVersion(env.DB,message.versionId,message.sourceSha256))return "stale";
+      throw error;
+    }
     return "needs_review";
   }
   if(!response.ok)throw new Error("Inspector unavailable or failed");
@@ -139,10 +217,24 @@ export async function processProcessingMessage(
   if(manifest.documentVersionId!==message.versionId || manifest.sourceSha256!==message.sourceSha256){
     throw new Error("Inspector report refers to another original");
   }
-  const result=await publishInspectedText(
-    env.DB,env.DOCUMENTS,manifest,signature,env.INSPECTOR_HMAC_KEY
-  );
-  return result.repeated?"already_done":"completed";
+  // The external inspection may be slow: revalidate immediately before
+  // publishing. D1 triggers still defend the subsequent check/write race.
+  if(!await isProcessingRedriveAuthorized(
+    env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
+  ))return "stale";
+  if(!await isActivePendingVersion(env.DB,message.versionId,message.sourceSha256))return "stale";
+  try {
+    const result=await publishInspectedText(
+      env.DB,env.DOCUMENTS,manifest,signature,env.INSPECTOR_HMAC_KEY
+    );
+    return result.repeated?"already_done":"completed";
+  }catch(error){
+    if(!await isProcessingRedriveAuthorized(
+      env.DB,message.versionId,message.sourceSha256,message.manualRedriveId
+    ))return "stale";
+    if(!await isActivePendingVersion(env.DB,message.versionId,message.sourceSha256))return "stale";
+    throw error;
+  }
 }
 
 export async function processBatch(

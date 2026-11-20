@@ -66,6 +66,14 @@ class NativeAdvisoryLedgerTests(unittest.TestCase):
                 self.assertEqual(item["reference"], "https://security-tracker.debian.org/tracker/" + item["id"])
         self.assertIn("CVE-2026-119338", [c["id"] for c in rows[0]["cves"]])
         self.assertIn("CVE-2026-107705", [c["id"] for c in rows[1]["cves"]])
+        self.assertEqual(rows[1]["cve_count"],10)
+        for item in rows[1]["cves"]:
+            self.assertEqual(item["debian_trixie_source_status"],"vulnerable")
+            self.assertTrue(item["source_path"].endswith(".cc"))
+            self.assertEqual(item["source_binary_applicability"],"unassessed")
+        splash=next(x for x in rows[1]["cves"] if x["id"]=="CVE-2026-93653")
+        self.assertEqual(splash["source_path"],"poppler/SplashOutputDev.cc")
+        self.assertEqual(splash["disposition"],"individual_review_required")
         self.assertFalse(report["declares_not_affected"])
         self.assertTrue(all(
             item["disposition"] != "not_affected"

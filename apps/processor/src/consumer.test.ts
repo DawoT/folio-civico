@@ -3,6 +3,7 @@ import {makeD1} from "../../../tests/helpers/d1";
 import {persistDocumentUpload} from "../../../packages/data/src/documents";
 import {serializeInspectionManifest,type InspectedTextManifest} from "../../../packages/data/src/inspected-text";
 import {processProcessingMessage,processBatch} from "./consumer";
+import {syntheticSignedUnsafeResponse} from "../../../tests/helpers/unsafe-inspection";
 
 const original=new TextEncoder().encode("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF");
 const scannerSecret="test-processing-key-".repeat(3);
@@ -52,6 +53,129 @@ async function fixture(){
 }
 const message=(sha:string)=>({kind:"folio.process.pdf" as const,versionId:"ver_a",sourceSha256:sha});
 describe("Cloudflare Queue inspection consumer",()=>{
+ it("does not send original to inspector when commission closes during R2 retrieval",async()=>{
+  const f=await fixture();
+  try{
+   f.get.mockImplementationOnce(async()=>{
+    f.sqlite.prepare("UPDATE commissions SET status='closed' WHERE id='c_a'").run();
+    return {size:original.byteLength,arrayBuffer:async()=>
+      original.buffer.slice(original.byteOffset,original.byteOffset+original.byteLength)};
+   });
+   expect(await processProcessingMessage(message(f.sha),f.env)).toBe("stale");
+   expect(f.inspectorFetch).not.toHaveBeenCalled();
+   expect(f.sqlite.prepare("SELECT extraction_status FROM document_versions WHERE id='ver_a'").get())
+    .toMatchObject({extraction_status:"pending"});
+  }finally{f.close();}
+ });
+ it("does not persist 422 unsafe status or audit when commission closes during inspection",async()=>{
+  const f=await fixture();
+  try{
+   f.inspectorFetch.mockImplementationOnce(async(request)=>{
+    f.sqlite.prepare("UPDATE commissions SET status='closed' WHERE id='c_a'").run();
+    return syntheticSignedUnsafeResponse(request as Request,scannerSecret);
+   });
+   expect(await processProcessingMessage(message(f.sha),f.env)).toBe("stale");
+   expect(f.sqlite.prepare("SELECT extraction_status FROM document_versions WHERE id='ver_a'").get())
+    .toMatchObject({extraction_status:"pending"});
+   expect(f.sqlite.prepare(
+    "SELECT count(*) AS n FROM audit_events WHERE action='document.inspection_rejected'"
+   ).get()).toMatchObject({n:0});
+  }finally{f.close();}
+ });
+ it("does not admit clean signed report when commission closes during inspection",async()=>{
+  const f=await fixture();
+  try{
+   f.inspectorFetch.mockImplementationOnce(async()=>{
+    f.sqlite.prepare("UPDATE commissions SET status='closed' WHERE id='c_a'").run();
+    return Response.json({manifest:f.manifest,signature:await signed(f.manifest)});
+   });
+   expect(await processProcessingMessage(message(f.sha),f.env)).toBe("stale");
+   expect(f.sqlite.prepare("SELECT extraction_status FROM document_versions WHERE id='ver_a'").get())
+    .toMatchObject({extraction_status:"pending"});
+   expect(f.sqlite.prepare("SELECT count(*) AS n FROM document_processing_reports").get())
+    .toMatchObject({n:0});
+   expect(f.sqlite.prepare("SELECT count(*) AS n FROM document_pages").get())
+    .toMatchObject({n:0});
+  }finally{f.close();}
+ });
+ it("rejects SQL report and 422 status writes after the commission closes",async()=>{
+  const f=await fixture();
+  try{
+   f.sqlite.prepare("UPDATE commissions SET status='closed' WHERE id='c_a'").run();
+   expect(()=>f.sqlite.prepare(`
+    INSERT INTO document_processing_reports(
+      document_version_id,scanner_name,scanner_report_id,scanned_at,
+      source_sha256,manifest_sha256,page_count
+    ) VALUES('ver_a','scanner','report_closed_commission_001',
+      '2026-11-19T16:00:00.000Z',?,?,1)
+   `).run(f.sha,f.sha)).toThrow(/PROCESSING_COMMISSION_CLOSED/);
+   expect(()=>f.sqlite.prepare(`
+    UPDATE document_versions SET extraction_status='needs_review'
+    WHERE id='ver_a'
+   `).run()).toThrow(/PROCESSING_COMMISSION_CLOSED/);
+  }finally{f.close();}
+ });
+ it("cannot create a late 422 audit for a closed commission if status already changed",async()=>{
+  const f=await fixture();
+  try{
+   f.inspectorFetch.mockImplementationOnce(async(request)=>
+    syntheticSignedUnsafeResponse(request as Request,scannerSecret));
+   let raced=false;
+   const db={
+    prepare:f.db.prepare.bind(f.db),
+    batch:async(statements:Parameters<D1Database["batch"]>[0])=>{
+     if(!raced){
+      raced=true;
+      f.sqlite.prepare(
+       "UPDATE document_versions SET extraction_status='needs_review' WHERE id='ver_a'"
+      ).run();
+      f.sqlite.prepare("UPDATE commissions SET status='closed' WHERE id='c_a'").run();
+     }
+     return f.db.batch(statements);
+    }
+   } as unknown as D1Database;
+   expect(await processProcessingMessage(message(f.sha),{...f.env,DB:db})).toBe("stale");
+   expect(raced).toBe(true);
+   expect(f.sqlite.prepare(
+     "SELECT count(*) AS n FROM audit_events WHERE action='document.inspection_rejected'"
+   ).get()).toMatchObject({n:0});
+  }finally{f.close();}
+ });
+ it.each(["unsafe","clean"] as const)(
+  "blocks a %s result if commission closes between preflight and atomic DB batch",
+  async(verdict)=>{
+   const f=await fixture();
+   try{
+    if(verdict==="unsafe"){
+     f.inspectorFetch.mockImplementationOnce(async(request)=>
+      syntheticSignedUnsafeResponse(request as Request,scannerSecret));
+    }
+    let raced=false;
+    const db={
+      prepare:f.db.prepare.bind(f.db),
+      batch:async(statements:Parameters<D1Database["batch"]>[0])=>{
+       if(!raced){
+        raced=true;
+        f.sqlite.prepare("UPDATE commissions SET status='closed' WHERE id='c_a'").run();
+       }
+       return f.db.batch(statements);
+      }
+    } as unknown as D1Database;
+    expect(await processProcessingMessage(message(f.sha),{...f.env,DB:db})).toBe("stale");
+    expect(raced).toBe(true);
+    expect(f.sqlite.prepare("SELECT extraction_status FROM document_versions WHERE id='ver_a'").get())
+     .toMatchObject({extraction_status:"pending"});
+    expect(f.sqlite.prepare("SELECT count(*) AS n FROM document_processing_reports").get())
+     .toMatchObject({n:0});
+    expect(f.sqlite.prepare("SELECT count(*) AS n FROM document_pages").get())
+     .toMatchObject({n:0});
+    expect(f.sqlite.prepare(
+     "SELECT count(*) AS n FROM audit_events WHERE action IN ('document.inspection_rejected','document.inspected_text_admitted')"
+    ).get()).toMatchObject({n:0});
+   }finally{f.close();}
+  }
+ );
+
  it("verifies the Python inspector HMAC protocol with non-ASCII page text",async()=>{
    const vector:InspectedTextManifest={
      documentVersionId:"test_ver_1",
@@ -129,10 +253,54 @@ describe("Cloudflare Queue inspection consumer",()=>{
    expect(f.sqlite.prepare("SELECT count(*) AS n FROM document_pages").get()).toMatchObject({n:0});
   }finally{f.close();}
  });
+ it("never persists an unsigned or forged HTTP 422 as a document finding",async()=>{
+  const f=await fixture();
+  try{
+    for(const response of [
+      new Response(null,{status:422}),
+      Response.json({verdict:{kind:"folio.inspection.unsafe.v1",
+        documentVersionId:"ver_a",sourceSha256:f.sha,
+        nonce:"a".repeat(32)},signature:"0".repeat(64)},{status:422})
+    ]){
+      f.inspectorFetch.mockResolvedValueOnce(response);
+      await expect(processProcessingMessage(message(f.sha),f.env))
+        .rejects.toThrow(/inspection|verdict|signature/i);
+    }
+    expect(f.sqlite.prepare(
+      "SELECT extraction_status FROM document_versions WHERE id='ver_a'"
+    ).get()).toMatchObject({extraction_status:"pending"});
+    expect(f.sqlite.prepare(
+      "SELECT count(*) AS n FROM audit_events WHERE action='document.inspection_rejected'"
+    ).get()).toMatchObject({n:0});
+  }finally{f.close();}
+ });
+ it("rejects signed 422 replays from a different request, version or SHA",async()=>{
+  const f=await fixture();
+  try{
+    const forged=[
+      {requestNonce:"f".repeat(32)},
+      {documentVersionId:"other_version"},
+      {sourceSha256:"e".repeat(64)}
+    ];
+    for(const mismatch of forged){
+      f.inspectorFetch.mockImplementationOnce(async(request)=>
+        syntheticSignedUnsafeResponse(request as Request,scannerSecret,mismatch));
+      await expect(processProcessingMessage(message(f.sha),f.env))
+        .rejects.toThrow(/unsafe inspection verdict/);
+    }
+    expect(f.sqlite.prepare(
+      "SELECT extraction_status FROM document_versions WHERE id='ver_a'"
+    ).get()).toMatchObject({extraction_status:"pending"});
+    expect(f.sqlite.prepare(
+      "SELECT count(*) AS n FROM audit_events WHERE action='document.inspection_rejected'"
+    ).get()).toMatchObject({n:0});
+  }finally{f.close();}
+ });
  it("routes explicit malware/unsafe verdict to needs_review without ready pages",async()=>{
   const f=await fixture();
   try{
-   f.inspectorFetch.mockResolvedValueOnce(new Response(null,{status:422}));
+   f.inspectorFetch.mockImplementationOnce(async(request)=>
+    syntheticSignedUnsafeResponse(request as Request,scannerSecret));
    expect(await processProcessingMessage(message(f.sha),f.env)).toBe("needs_review");
    expect(f.sqlite.prepare("SELECT extraction_status FROM document_versions").get())
     .toMatchObject({extraction_status:"needs_review"});

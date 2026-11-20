@@ -1,0 +1,18 @@
+--- a/splash/SplashClip.cc
++++ b/splash/SplashClip.cc
+@@ -213,9 +213,14 @@
+         if (antialias) {
+             if (unlikely(checkedMultiply(yMinI, splashAASize, &yMinAA))) {
+                 return splashErrGeneric;
+             }
+-            yMaxAA = (yMaxI + 1) * splashAASize - 1;
++            int yMaxIPlusOne, yMaxAAPadded;
++            if (unlikely(checkedAdd(yMaxI, 1, &yMaxIPlusOne)
++                         || checkedMultiply(yMaxIPlusOne, splashAASize, &yMaxAAPadded)
++                         || checkedSubtraction(yMaxAAPadded, 1, &yMaxAA))) {
++                return splashErrGeneric;
++            }
+         } else {
+             yMinAA = yMinI;
+             yMaxAA = yMaxI;
+         }

@@ -6,6 +6,7 @@ dist/
 .env*
 coverage/
 /test-results/
+/.ux5-study/
 /playwright-report/
 /blob-report/
 .pi/

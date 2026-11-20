@@ -25,6 +25,16 @@ export function makeD1(): { db: D1Database; sqlite: DatabaseSync; close(): void 
   sqlite.exec(readFileSync(new URL("../../migrations/0018_recovery_review_attestations.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../../migrations/0019_manual_redrive_one_shot.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../../migrations/0020_redrive_signed_attestation_digest.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../../migrations/0021_redrive_revocation_ledger.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../../migrations/0022_revocation_registration_journal.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../../migrations/0023_async_revocation_approvals.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../../migrations/0024_async_manual_redrive_approvals.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../../migrations/0025_async_operator_authority_revocation.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../../migrations/0026_institutional_approval_evidence.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../../migrations/0027_institutional_approval_invalidations.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../../migrations/0028_institutional_redrive_consumer_fence.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../../migrations/0029_redrive_consumer_authority_atomic_fence.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../../migrations/0030_processing_commission_closure_guard.sql", import.meta.url), "utf8"));
 
   class SqlStatement {
     constructor(readonly sql: string, readonly params: Arg[] = []) {}

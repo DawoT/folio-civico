@@ -1,11 +1,14 @@
 /** Durable outbox dispatch to Cloudflare Queues. The original PDF stays in private R2.
- * Queue messages carry only version ID and expected SHA-256; never filenames,
- * object keys, PDF bytes, reviewer identity or extracted text.
+ * Ordinary messages carry only version ID and SHA-256. An isolated manual
+ * redrive adds one opaque D1 reservation ID. Neither carries filenames,
+ * object keys, JWTs, PDF bytes, reviewer identity or extracted text.
  */
 export interface ProcessingQueueMessage {
   kind:"folio.process.pdf";
   versionId:string;
   sourceSha256:string;
+  /** Only one-shot manual redrive messages carry this opaque D1 claim ID. */
+  manualRedriveId?:string;
 }
 export interface OutboxDispatchSummary { selected:number; sent:number; failed:number }
 interface OutboxRow {

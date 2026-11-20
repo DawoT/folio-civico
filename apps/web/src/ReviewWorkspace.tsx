@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {InspectedTextViewer} from "./InspectedTextViewer";
+import { Field, SelectField, TextareaField } from "./ui/Fields";
+import { EmptyState } from "./ui/FeedbackStates";
+import { StatusBadge } from "./ui/StatusBadge";
+import { ReviewExportPanel, type ReportExportStatus } from "./ui/ReviewExportPanel";
+import { ReviewEvidenceContext, canPrepareReviewDecision } from "./ui/ReviewEvidenceContext";
+import { ReviewDecisionGuidance, REVIEW_NOTE_MAX_LENGTH } from "./ui/ReviewDecisionGuidance";
+import { ChecklistFilters, countChecklistByStatus, filterChecklistRows, isInternallyValidated, type ChecklistAreaFilter, type ChecklistStatusFilter } from "./ui/ChecklistFilters";
+import { ObservationInboxFilters, countLoadedObservations, filterLoadedObservations, inboxEmptyText, type InboxFilter } from "./ui/ObservationInbox";
+import { makeReviewSummary, type ReviewSummary } from "./layout/CommissionOverview";
 import {
   loadChecklist, loadObservationHistory, loadObservationDetail, loadVerifiedReviewReport, createCommissionChecklistItem, submitSearchScopeDraft,
   transitionObservation as requestTransition,
@@ -12,13 +21,12 @@ const labels: Record<ChecklistRow["status"], string> = {
 };
 
 export function ChecklistStatus({item,onOpenValidation}: {item: ChecklistRow; onOpenValidation?: (id:string)=>void}) {
-  const internallyValidated = item.statusSource === "validated_search"
-    && item.validatedSearchObservationId !== null;
+  const internallyValidated = isInternallyValidated(item);
   return (
     <>
-      <span className="checklist-status">
+      <StatusBadge className="checklist-status" status={internallyValidated ? "validated" : item.status==="pending" ? "warning" : item.status==="located" ? "ready" : "reviewing"}>
         {labels[item.status]}{internallyValidated ? " · validación interna" : ""}
-      </span>
+      </StatusBadge>
       {internallyValidated && (
         <>
           <small className="checklist-proof">
@@ -72,9 +80,15 @@ export function DocumentEvidenceAction({proof,onOpen}:{
   </button>;
 }
 
-export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scope; canDraft: boolean; canManage?:boolean}) {
+export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChange}: {
+  scope: Scope; canDraft: boolean; canManage?: boolean;
+  onSummaryChange?: (summary: ReviewSummary | null) => void;
+}) {
   const [checklist,setChecklist] = useState<ChecklistRow[]>([]);
+  const [checklistFilterStatus,setChecklistFilterStatus] = useState<ChecklistStatusFilter>("all");
+  const [checklistFilterArea,setChecklistFilterArea] = useState<ChecklistAreaFilter>("all");
   const [observations,setObservations] = useState<ObservationRow[]>([]);
+  const [observationFilter,setObservationFilter] = useState<InboxFilter>("all");
   const [historyCursor,setHistoryCursor] = useState<string|null>(null);
   const [historyBusy,setHistoryBusy] = useState(false);
   const [historyError,setHistoryError] = useState("");
@@ -98,9 +112,9 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
   const [focusedPage,setFocusedPage]=useState<InspectedEvidenceReference|null>(null);
   const [linkedLoading,setLinkedLoading]=useState(false);
   const [linkedError,setLinkedError]=useState("");
-  const [exportBusy,setExportBusy]=useState(false);
-  const [exportError,setExportError]=useState("");
-  const [exportHash,setExportHash]=useState("");
+  const [exportStatus,setExportStatus]=useState<ReportExportStatus>({phase:"idle"});
+  const exportSequence=useRef(0);
+  const exportInFlight=useRef<number|null>(null);
   const [checklistArea,setChecklistArea]=useState<"works"|"procurement">("works");
   const [expectedDocument,setExpectedDocument]=useState("");
   const [checklistCreating,setChecklistCreating]=useState(false);
@@ -108,11 +122,18 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
   const linkedRequest=useRef(0);
 
   useEffect(() => {
+    setExportStatus({phase:"idle"});
+    exportInFlight.current=null;
+    return () => {exportSequence.current+=1;exportInFlight.current=null;};
+  }, [scope.commissionId,scope.batchId]);
+
+  useEffect(() => {
     let active = true;
     historyEpoch.current+=1;
     ++linkedRequest.current;
     setLinkedRecord(null);setFocusedPage(null);setLinkedLoading(false);setLinkedError("");
     setLoading(true); setError("");
+    onSummaryChange?.(null);
     setHistoryCursor(null);setHistoryBusy(false);setHistoryError("");
     setChecklist([]); setObservations([]); setItemId("");
     Promise.all([
@@ -123,13 +144,14 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
       setChecklist(items);
       setObservations(page.items);
       setHistoryCursor(page.nextCursor);
+      onSummaryChange?.(makeReviewSummary(scope, items, page.items, page.nextCursor !== null));
       const eligible = items.filter((item) => item.status === "pending" || item.status === "not_located");
       setItemId((current) => eligible.some((item) => item.id === current) ? current : (eligible[0]?.id ?? ""));
     }).catch((problem: unknown) => {
       if (active) setError(problem instanceof Error ? problem.message : "No se pudo cargar la revisión.");
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [scope.commissionId,reload]);
+  }, [scope.commissionId, scope.batchId, reload, onSummaryChange]);
 
   async function loadOlderObservations() {
     if(!historyCursor || historyBusy || loading) return;
@@ -200,7 +222,9 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
   }
 
   async function changeStatus(record:ObservationRow,action:"submit"|"validate"|"dismiss") {
-    if(transitionBusy || (action!=="submit" && (!reviewConfirmed || reviewNote.trim().length<15))) return;
+    if(action==="submit") {
+      if(transitionBusy || record.status!=="draft" || record.canSubmit!==true) return;
+    } else if(!canPrepareReviewDecision(record, activeReviewId, reviewNote, reviewConfirmed, transitionBusy)) return;
     setTransitionBusy(true);setError("");setNotice("");
     try {
       const note=action==="submit"?undefined:reviewNote.trim();
@@ -225,27 +249,39 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
   }
 
   async function exportReviewReport() {
-    if (exportBusy) return;
-    setExportBusy(true);setExportError("");setExportHash("");
+    // A ref is synchronous even when React has not committed the disabled state.
+    if (exportInFlight.current !== null) return;
+    const attempt=++exportSequence.current;
+    exportInFlight.current=attempt;
+    setExportStatus({phase:"verifying"});
     try {
+      // The API validates schema, commission scope, completeness and SHA-256
+      // BEFORE any browser download is requested.
       const report=await loadVerifiedReviewReport(scope.commissionId);
+      if(attempt!==exportSequence.current) return;
+      const filename=`folio-civico-${scope.commissionId}-revision-interna.json`;
       const url=URL.createObjectURL(new Blob([report.file],{type:"application/json;charset=utf-8"}));
       try {
         const link=document.createElement("a");
         link.href=url;
-        link.download=`folio-civico-${scope.commissionId}-revision-interna.json`;
+        link.download=filename;
         document.body.appendChild(link);
-        link.click();
-        link.remove();
+        try { link.click(); }
+        finally { link.remove(); }
       } finally {
         // Allow the browser to begin handling the download before releasing it.
         window.setTimeout(()=>URL.revokeObjectURL(url),1000);
       }
-      setExportHash(report.sha256);
+      if(attempt===exportSequence.current) {
+        setExportStatus({phase:"verified",sha256:report.sha256,count:report.count,filename});
+      }
     } catch(problem) {
-      setExportError(problem instanceof Error ? problem.message : "No se pudo exportar el informe.");
+      if(attempt===exportSequence.current) {
+        setExportStatus({phase:"error",
+          message:problem instanceof Error ? problem.message : "No se pudo exportar el informe."});
+      }
     } finally {
-      setExportBusy(false);
+      if(exportInFlight.current===attempt) exportInFlight.current=null;
     }
   }
 
@@ -264,32 +300,23 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
     }
   }
 
+  const visibleChecklist = filterChecklistRows(checklist, checklistFilterStatus, checklistFilterArea);
+  const checklistCounts = countChecklistByStatus(checklist, checklistFilterArea);
+  const visibleObservations = filterLoadedObservations(observations, observationFilter);
+  const inboxCounts = countLoadedObservations(observations);
+
   return (
     <section className="review-area" aria-labelledby="review-title">
       <div className="review-heading">
         <p className="eyebrow">03 · CONTROL Y OBSERVACIONES</p>
         <h2 id="review-title">Constatación documental</h2>
         <p>Registro de búsquedas realizadas por personas autorizadas. No equivale a declarar una irregularidad.</p>
-        <div className="review-export">
-          <button type="button" className="button secondary" disabled={exportBusy}
-            onClick={()=>void exportReviewReport()}>
-            {exportBusy ? "Preparando informe…" : "Exportar revisión interna (JSON)"}
-          </button>
-          <p className="review-note">
-            Incluye decisiones internas validadas y descartadas, sus evidencias, autores y revisores.
-            No incluye borradores ni archivos PDF. No constituye un acta oficial.
-          </p>
-          {exportError && <p role="alert" className="message error">{exportError}</p>}
-          {exportHash && <p role="status" className="review-note">
-            Integridad verificada. SHA-256: <code className="report-digest">{exportHash}</code>.
-            Conserva esta huella por separado; no es una firma digital.
-          </p>}
-        </div>
+        <ReviewExportPanel status={exportStatus} onExport={()=>void exportReviewReport()}/>
       </div>
       {error && <p role="alert" className="message error">{error}</p>}
       {notice && <p role="status" className="message success">{notice}</p>}
       <div className="review-grid">
-        <div className="review-card">
+        <div className="review-card" id="checklist">
           <h3>Checklist de constatación</h3>
           {canManage && (
             <form className="manage-form" onSubmit={addChecklistItem}
@@ -312,10 +339,16 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
               </button>
             </form>
           )}
+          {!loading && checklist.length > 0 && (
+            <ChecklistFilters selectedStatus={checklistFilterStatus} selectedArea={checklistFilterArea}
+              counts={checklistCounts} onStatusChange={setChecklistFilterStatus}
+              onAreaChange={setChecklistFilterArea}/>
+          )}
           {loading ? <p>Consultando ítems…</p> :
             checklist.length === 0 ? <p>No hay ítems configurados para esta comisión.</p> :
+            visibleChecklist.length === 0 ? <EmptyState>No hay ítems que coincidan con los filtros actuales. Cambia el área o el estado.</EmptyState> :
             <ul className="checklist-items">
-              {checklist.map((item) => (
+              {visibleChecklist.map((item) => (
                 <li key={item.id}>
                   <span className="checklist-area">{item.area === "works" ? "Obras" : "Contrataciones"}</span>
                   <strong>{item.expectedDocument}</strong>
@@ -325,22 +358,22 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
             </ul>}
           <p className="review-note">Un ítem pasa a «No ubicado · validación interna» solo cuando otro revisor valida la búsqueda documentada. El checklist institucional original no se altera.</p>
         </div>
-        <div className="review-card">
+        <div className="review-card" id="registrar-busqueda">
           <h3>Registrar búsqueda</h3>
           <p className="review-note">Documenta que se revisó un lote y no se ubicó un ítem esperado. La autoría y la fecha las fija el servidor.</p>
           <form className="review-form" onSubmit={saveDraft}>
-            <label htmlFor="review-item">Ítem esperado</label>
-            <select id="review-item" value={itemId} onChange={(event) => setItemId(event.target.value)}
+            <SelectField id="review-item" label="Ítem esperado" value={itemId}
+              onChange={(event) => setItemId(event.target.value)}
               disabled={!canDraft || busy || loading || checklist.length === 0} required>
               <option value="">Selecciona un ítem</option>
               {checklist.filter((item) => item.status === "pending" || item.status === "not_located")
                 .map((item) => <option key={item.id} value={item.id}>{item.expectedDocument}</option>)}
-            </select>
-            <label htmlFor="review-title-input">Título del registro</label>
-            <input id="review-title-input" value={title} onChange={(event) => setTitle(event.target.value)}
-              maxLength={160} placeholder="Expediente no ubicado durante la revisión" disabled={!canDraft || busy} required/>
-            <label htmlFor="review-description">Alcance de la búsqueda</label>
-            <textarea id="review-description" value={description}
+            </SelectField>
+            <Field id="review-title-input" label="Título del registro" value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              maxLength={160} placeholder="Expediente no ubicado durante la revisión"
+              disabled={!canDraft || busy} required/>
+            <TextareaField id="review-description" label="Alcance de la búsqueda" value={description}
               onChange={(event) => setDescription(event.target.value)} maxLength={4000}
               placeholder="Indica qué archivos, fechas o registros se revisaron."
               rows={4} disabled={!canDraft || busy} required/>
@@ -364,7 +397,7 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
               ++linkedRequest.current;setLinkedRecord(null);setFocusedPage(null);setLinkedError("");setLinkedLoading(false);
             }}>Cerrar detalle</button>
           </div>
-          {linkedLoading && <p role="status">Consultando evidencia original…</p>}
+          {linkedLoading && <p role="status">Consultando el detalle autorizado de la observación…</p>}
           {linkedError && <p role="alert" className="message error">{linkedError}</p>}
           {linkedRecord && (
             <div>
@@ -406,18 +439,35 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
           )}
         </section>
       )}
-      <div className="review-card observations-card">
+      <div className="review-card observations-card" id="observaciones">
         <h3>Historial de observaciones</h3>
         <p className="review-note">Se muestran primero 25 registros. Puedes consultar el historial anterior sin perder las observaciones ya cargadas.</p>
+        {!loading && observations.length > 0 && (
+          <ObservationInboxFilters counts={inboxCounts} selected={observationFilter}
+            canDraft={canDraft} hasOlderRecords={historyCursor !== null}
+            disabled={transitionBusy || historyBusy}
+            onSelect={next => {
+              if (next === observationFilter) return;
+              setObservationFilter(next);
+              setActiveReviewId(null);setReviewNote("");setReviewConfirmed(false);
+            }}/>
+        )}
         {loading ? <p>Consultando observaciones…</p> :
           observations.length === 0 ? <p>La comisión todavía no tiene observaciones registradas.</p> :
+          visibleObservations.length === 0 ? <EmptyState>{inboxEmptyText(observationFilter)}{historyCursor !== null ? " Pueden existir registros coincidentes en páginas anteriores." : ""}</EmptyState> :
           <ul className="observation-items">
-            {observations.map((record) => <li key={record.id}>
-              <div className="observation-heading"><strong>{record.title}</strong><span>{
-                record.status==="draft"?"Borrador":
-                record.status==="in_review"?"En revisión":
-                record.status==="validated"?"Validación interna":"Descartada"
-              }</span></div>
+            {visibleObservations.map((record) => <li key={record.id}>
+              <div className="observation-heading"><strong>{record.title}</strong>
+                <StatusBadge status={
+                  record.status==="draft"?"neutral":
+                  record.status==="in_review"?"reviewing":
+                  record.status==="validated"?"validated":"dismissed"
+                }>{
+                  record.status==="draft"?"Borrador":
+                  record.status==="in_review"?"En revisión":
+                  record.status==="validated"?"Validación interna":"Descartada"
+                }</StatusBadge>
+              </div>
               <p>{record.description}</p>
               <button type="button" className="button secondary"
                 onClick={()=>void openValidation(record.id)}>
@@ -425,7 +475,7 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
               </button>
               {record.evidence.map((proof,index) =>
                 <p className="proof-reference" key={index}>
-                  {proof.type === "SEARCH_SCOPE" ? "Búsqueda documentada" : proof.type === "DOCUMENT_PAGE" ? "Página verificada" : "Fuente oficial"}
+                  {proof.type === "SEARCH_SCOPE" ? "Búsqueda documentada" : proof.type === "DOCUMENT_PAGE" ? "Referencia a página documental" : "Fuente registrada"}
                   {" · "}
                   {proof.type === "SEARCH_SCOPE" ? `Lote ${String(proof.batchId)} · ${String(proof.searchedAt)}` :
                     proof.type === "DOCUMENT_PAGE" ? `Versión ${String(proof.documentVersionId)} · Página ${String(proof.page)}` :
@@ -447,11 +497,15 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
               )}
               {record.canReview && activeReviewId===record.id && (
                 <div className="decision-panel">
-                  <label htmlFor={`review-note-${record.id}`}>Justificación de la decisión humana</label>
-                  <textarea id={`review-note-${record.id}`} rows={3} maxLength={1000}
-                    value={reviewNote} disabled={transitionBusy}
+                  <ReviewEvidenceContext record={record}/>
+                  <TextareaField id={`review-note-${record.id}`} label="Justificación de la decisión humana"
+                    rows={3} maxLength={REVIEW_NOTE_MAX_LENGTH} value={reviewNote} disabled={transitionBusy}
                     onChange={event=>setReviewNote(event.target.value)}
+                    aria-describedby={`review-decision-guidance-${record.id}`}
+                    hint="La revisión debe ser independiente; describe lo comprobado."
                     placeholder="Describe la comprobación independiente realizada (mínimo 15 caracteres)."/>
+                  <ReviewDecisionGuidance id={`review-decision-guidance-${record.id}`}
+                    note={reviewNote} confirmed={reviewConfirmed}/>
                   <label className="attestation">
                     <input type="checkbox" checked={reviewConfirmed} disabled={transitionBusy}
                       onChange={event=>setReviewConfirmed(event.target.checked)}/>
@@ -459,10 +513,10 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
                   </label>
                   <div className="decision-actions">
                     <button type="button" className="button primary"
-                      disabled={transitionBusy || !reviewConfirmed || reviewNote.trim().length<15}
+                      disabled={!canPrepareReviewDecision(record, activeReviewId, reviewNote, reviewConfirmed, transitionBusy)}
                       onClick={()=>void changeStatus(record,"validate")}>Validar internamente</button>
                     <button type="button" className="button secondary"
-                      disabled={transitionBusy || !reviewConfirmed || reviewNote.trim().length<15}
+                      disabled={!canPrepareReviewDecision(record, activeReviewId, reviewNote, reviewConfirmed, transitionBusy)}
                       onClick={()=>void changeStatus(record,"dismiss")}>Descartar</button>
                   </div>
                 </div>
