@@ -31,4 +31,6 @@ pnpm typecheck
 FOLIO_E2E_PORT=42938 sh scripts/ci.sh
 ```
 
+**CI ejecutado:** `FOLIO_E2E_PORT=42939 sh scripts/ci.sh` terminó con **exit 0** sobre `origin/main` `03a87d9`: **479 Vitest + 210 Python inspector + 8 contratos CI + 33 UX5 + 5 workerd + 129 Chromium + 1 demo local con API y JWT real = 865/865**, typecheck, builds/dry-runs y **30 migraciones D1 solo locales**. El CI previo sobre `e0fc8b1` también pasó, 863/863, antes de rebasar el trabajo concurrente. No se usó GitHub Actions como gate ni se ejecutó auditoría CVE del inspector.
+
 La activación institucional y el gate CVE/Preview permanecen bloqueados.
