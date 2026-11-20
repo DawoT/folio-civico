@@ -35,6 +35,40 @@ La recuperación posterior del CI no prueba eliminación de la intermitencia.
 - Ninguna de estas ejecuciones representa una repetición determinista de la
   carga, hardware o versión exactos del runner fallido de GitHub.
 
+## Regresión de captura ante clic fallido (continuación TDD)
+
+Se identificó que el smoke de geometría aprobado anteriormente solo recorría
+el camino exitoso: no ejercitaba el bloque `catch` encargado de escribir y
+adjuntar `task-anchor-diagnostics.json` cuando Playwright fallara.
+
+Se extrajo sin cambiar comportamiento el bloque del recorrido de autor a
+`navigateTaskWithDiagnostics`, usado por la misma prueba E2E. Un segundo
+smoke provoca una obstrucción **real** del clic nativo en Chromium sobre una
+página sintética (`pointer-events:none`) con timeout acotado **solo para el
+fixture**, y verifica:
+
+- El timeout original se propaga; no hay `force`, `skip` ni conversión a éxito
+  del recorrido productivo.
+- El archivo JSON existe, conserva `schemaVersion`, viewport, rectángulo,
+  paso, muestras y estado previo/posterior; se adjunta a Playwright.
+- El texto privado sintético de la página no aparece en el JSON.
+- **TDD RED:** import del helper ausente impide la carga del test (exit 1).
+  **GREEN:** prueba de error y smoke previo aprobados con Chromium real;
+  **45/45** casos en escritorio, móvil y 320 px con tres repeticiones.
+  Typecheck aprobado.
+- Primera CI local: 138/138 Chromium, pero demo falló por colisión temporal
+  `EADDRINUSE` en puerto `50282`. Puerto liberado al inspeccionarlo; demo
+  verificada separadamente (1/1) sobre puerto distinto, sin detener procesos
+  de otros worktrees.
+- Segunda CI integral local con puertos nuevos: **exit 0, 1203/1203** pruebas
+  contabilizadas (575 Vitest, 430 inspector, 18 contratos CI, 33 UX5,
+  2 PERF, 5 workerd, 138 Chromium, 1 demo y 1 demo PERF); Lighthouse
+  **3/3** reportes reales, typecheck, builds/dry-runs, budget y D1 local.
+
+Esto demuestra la captura en laboratorio local, **no** una descarga real desde
+un run rojo de GitHub ni la causa del timeout original. No se cambia el
+timeout de 8 segundos del recorrido normal.
+
 ## Instrumentación no invasiva
 
 El caso `tests/browser/task-navigation.spec.ts` conserva los seis anchors
