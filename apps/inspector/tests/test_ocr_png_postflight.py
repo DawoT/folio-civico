@@ -93,7 +93,9 @@ class RasterEnvelopeTests(unittest.TestCase):
     def test_missing_symlink_hardlink_directory_and_oversized_file_are_rejected(self):
         with self.assertRaises(inspector.ReviewRequired):
             inspector.require_ocr_png_envelope(self.image, BOUND)
-        self.image.symlink_to(self.root / "untrusted")
+        target = self.root / "valid-target.png"
+        target.write_bytes(rgb_png(2, 2))
+        self.image.symlink_to(target)
         with self.assertRaises(inspector.ReviewRequired):
             inspector.require_ocr_png_envelope(self.image, BOUND)
         self.image.unlink()
