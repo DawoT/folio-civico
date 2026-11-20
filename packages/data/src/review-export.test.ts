@@ -73,6 +73,43 @@ describe("complete, tenant-scoped export of finalized human reviews",()=>{
     } finally {f.close();}
   });
 
+  it.each([false,true])(
+    "rejects an export when the member is revoked during the rows query (hasRecords=%s)",
+    async(hasRecords)=>{
+      const f=fixture();
+      try {
+        if(hasRecords){
+          const record=await makeDraft(f.db,"Sensitive reviewed finding");
+          await decide(f.db,record.id,"validate","race");
+        }
+        let queried=false;
+        const db={
+          prepare:(sql:string)=>{
+            const statement=f.db.prepare(sql);
+            if(!sql.includes("WITH picked AS"))return statement;
+            return {
+              bind:(...args:Parameters<typeof statement.bind>)=>{
+                const bound=statement.bind(...args);
+                return {
+                  all:async()=>{
+                    const result=await bound.all();
+                    f.sqlite.prepare(
+                      "UPDATE commission_members SET active=0 WHERE commission_id='c_a' AND subject='viewer'"
+                    ).run();
+                    queried=true;
+                    return result;
+                  }
+                };
+              }
+            };
+          }
+        } as unknown as D1Database;
+        await expect(collectFinalizedReviews(db,"viewer","c_a")).resolves.toBeNull();
+        expect(queried).toBe(true);
+      }finally{f.close();}
+    }
+  );
+
   it("does not silently truncate beyond the exact per-export maximum",async()=>{
     const f=fixture();
     try {
