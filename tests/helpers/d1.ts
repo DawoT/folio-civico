@@ -34,6 +34,7 @@ export function makeD1(): { db: D1Database; sqlite: DatabaseSync; close(): void 
   sqlite.exec(readFileSync(new URL("../../migrations/0027_institutional_approval_invalidations.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../../migrations/0028_institutional_redrive_consumer_fence.sql", import.meta.url), "utf8"));
   sqlite.exec(readFileSync(new URL("../../migrations/0029_redrive_consumer_authority_atomic_fence.sql", import.meta.url), "utf8"));
+  sqlite.exec(readFileSync(new URL("../../migrations/0030_processing_commission_closure_guard.sql", import.meta.url), "utf8"));
 
   class SqlStatement {
     constructor(readonly sql: string, readonly params: Arg[] = []) {}
