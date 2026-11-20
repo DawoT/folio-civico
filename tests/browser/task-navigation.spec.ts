@@ -35,6 +35,7 @@ test("author navigates by tasks using real anchors and preserves commission/batc
   await expect(nav.getByRole("link", { name: "Registrar búsqueda" })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Administración" })).toHaveCount(0);
   for (const [label, id] of [
+    ["Resumen", "resumen"],
     ["Expedientes", "expedientes"],
     ["Checklist", "checklist"],
     ["Registrar búsqueda", "registrar-busqueda"],

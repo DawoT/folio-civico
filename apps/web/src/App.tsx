@@ -11,6 +11,7 @@ import { SelectField } from "./ui/Fields";
 import { Card } from "./ui/Card";
 import { EmptyState, LoadingState } from "./ui/FeedbackStates";
 import { TaskNavigation } from "./layout/TaskNavigation";
+import { CommissionOverview, summaryScopeKey, type ReviewSummary } from "./layout/CommissionOverview";
 
 const statusText: Record<DocumentRow["extractionStatus"], string> = {
   pending: "En cuarentena", processing: "Procesando", ready: "Texto disponible",
@@ -44,6 +45,9 @@ export function App() {
   const [batchesLoading, setBatchesLoading] = useState(false);
   const [catalogError, setCatalogError] = useState("");
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
+  const [loadedDocumentScopeKey, setLoadedDocumentScopeKey] = useState<string | null>(null);
+  const [documentsFailed, setDocumentsFailed] = useState(false);
+  const [reviewSummary, setReviewSummary] = useState<ReviewSummary | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [reviewRefresh,setReviewRefresh]=useState(0);
@@ -109,14 +113,19 @@ export function App() {
     let alive = true;
     setLoading(true);
     setError("");
+    setDocumentsFailed(false);
+    setLoadedDocumentScopeKey(null);
     loadDocuments(scope).then((rows) => {
       if (alive) {
         setDocuments(rows);
+        setLoadedDocumentScopeKey(summaryScopeKey(scope));
         setSelectedId((id) => id && rows.some((row) => row.id === id) ? id : (rows[0]?.id ?? null));
       }
     }).catch((problem: unknown) => {
       if (alive) {
         setDocuments([]);
+        setLoadedDocumentScopeKey(null);
+        setDocumentsFailed(true);
         setSelectedId(null);
         setError(problem instanceof Error ? problem.message : "No se pudo cargar el lote.");
       }
@@ -126,7 +135,13 @@ export function App() {
 
   const selected = documents.find((document) => document.id === selectedId) ?? null;
   const selectedCommission = commissions.find((item) => item.id === commissionId);
-  const selectedBatch = batches.find((item) => item.id === batchId);
+  // The opened scope may differ from an unsubmitted dropdown selection.
+  const activeCommission = scope
+    ? commissions.find((item) => item.id === scope.commissionId)
+    : undefined;
+  const activeBatch = scope
+    ? batches.find((item) => item.id === scope.batchId)
+    : undefined;
   const canUpload = selectedCommission?.status === "active" && selectedCommission.role !== "observer";
   const canManage = selectedCommission?.status === "active" && selectedCommission.role === "president";
 
@@ -140,6 +155,9 @@ export function App() {
       }
       const nextScope = { commissionId: commissionId.trim(), batchId: batchId.trim() };
       setScope(nextScope);
+      setReviewSummary(null);
+      setLoadedDocumentScopeKey(null);
+      setDocumentsFailed(false);
       setNotice("");
       setError("");
       if (typeof window !== "undefined") {
@@ -230,6 +248,9 @@ export function App() {
             onChange={(event) => {
               setCommissionId(event.target.value);
               setAdministrationOpen(false);
+              setReviewSummary(null);
+              setLoadedDocumentScopeKey(null);
+              setDocumentsFailed(false);
               setBatchId("");
               setBatches([]);
               setScope(null);
@@ -253,8 +274,17 @@ export function App() {
 
         <TaskNavigation hasScope={Boolean(scope)} canDraft={Boolean(canUpload)}
           canAdmin={Boolean(canManage || session?.canBootstrap)}
-          commissionName={selectedCommission?.name} batchLabel={selectedBatch?.label}
+          commissionName={activeCommission?.name ?? selectedCommission?.name}
+          batchLabel={activeBatch?.label}
           onOpenAdministration={()=>setAdministrationOpen(true)}/>
+        {scope && (
+          <CommissionOverview scope={scope}
+            commissionName={activeCommission?.name} batchLabel={activeBatch?.label}
+            documents={!loading && loadedDocumentScopeKey === summaryScopeKey(scope) ? documents : null}
+            documentsFailed={documentsFailed}
+            review={reviewSummary}
+            canDraft={Boolean(canUpload)}/>
+        )}
 
         {(canManage || session?.canBootstrap) && (
           <details id="administracion" className="administration-drawer"
@@ -374,7 +404,9 @@ export function App() {
             )}
           </Card>
         </div>
-        {scope && <ReviewWorkspace key={scope.commissionId+":"+scope.batchId+":"+reviewRefresh} scope={scope} canDraft={Boolean(canUpload)} canManage={Boolean(canManage)}/>}
+        {scope && <ReviewWorkspace key={scope.commissionId+":"+scope.batchId+":"+reviewRefresh}
+          scope={scope} canDraft={Boolean(canUpload)} canManage={Boolean(canManage)}
+          onSummaryChange={setReviewSummary}/>} 
         <footer className="page-footer">Folio Cívico · Herramienta de apoyo técnico-administrativo · Las decisiones corresponden a la comisión.</footer>
       </main>
     </div>

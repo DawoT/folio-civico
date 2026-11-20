@@ -108,6 +108,115 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
 .decision-panel .fc-field-label { margin-bottom: 0; }
 .scope-form .fc-field select { width: 100%; }
 
+/* IA-001.2 — Commission overview based exclusively on authorized API data. */
+.commission-overview {
+  display: grid;
+  gap: var(--fc-space-4);
+  margin: 0 0 var(--fc-space-6);
+  padding: clamp(18px, 2.6vw, 28px);
+  border: 1px solid var(--fc-color-border-default);
+  border-radius: var(--fc-radius-card);
+  background: var(--fc-color-surface-base);
+}
+.overview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--fc-space-4);
+}
+.overview-heading h2 {
+  margin: 0;
+  color: var(--fc-color-text-primary);
+  font-size: clamp(21px, 2vw, 27px);
+  letter-spacing: -.035em;
+}
+.overview-heading .eyebrow { margin: 0 0 var(--fc-space-2); }
+.overview-context {
+  margin: var(--fc-space-2) 0 0;
+  color: var(--fc-color-text-secondary);
+  font-size: var(--fc-type-body);
+  overflow-wrap: anywhere;
+}
+.overview-primary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  max-width: 100%;
+  padding: 11px 17px;
+  border-radius: var(--fc-radius-control);
+  border: 1px solid var(--fc-color-brand-primary);
+  background: var(--fc-color-brand-primary);
+  color: var(--fc-color-brand-on-primary);
+  font-size: var(--fc-type-label);
+  font-weight: 700;
+  text-decoration: none;
+  text-align: center;
+}
+.overview-primary-action:hover { background: var(--fc-color-brand-primary-hover); }
+.overview-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--fc-space-3);
+  margin: 0;
+}
+.overview-metric {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-2);
+  padding: var(--fc-space-4);
+  border: 1px solid var(--fc-color-border-default);
+  border-radius: var(--fc-radius-control);
+  background: var(--fc-color-surface-subtle);
+}
+.overview-metric dt {
+  color: var(--fc-color-text-secondary);
+  font-size: var(--fc-type-label);
+  font-weight: 650;
+}
+.overview-metric dd {
+  margin: 0;
+  color: var(--fc-color-text-primary);
+  font-size: clamp(23px, 2.4vw, 31px);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  font-weight: 780;
+  letter-spacing: -.04em;
+  overflow-wrap: anywhere;
+}
+.overview-metric dd:not(:first-child) { min-height: 32px; }
+.overview-metric small {
+  display: block;
+  margin-top: var(--fc-space-2);
+  color: var(--fc-color-text-secondary);
+  font-size: var(--fc-type-caption);
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.overview-disclaimer, .overview-unavailable {
+  margin: 0;
+  color: var(--fc-color-text-secondary);
+  font-size: var(--fc-type-caption);
+  line-height: 1.6;
+}
+.overview-unavailable {
+  border-left: 3px solid var(--fc-color-status-warning-fg);
+  padding: var(--fc-space-2) var(--fc-space-3);
+  background: var(--fc-color-status-warning-bg);
+  color: var(--fc-color-status-warning-fg);
+}
+@media (max-width: 900px) {
+  .overview-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 440px) {
+  .overview-metrics { grid-template-columns: minmax(0, 1fr); }
+  .overview-primary-action { width: 100%; }
+}
+
 /* IA-001.1: task-led, accessible navigation over existing document sections. */
 .task-navigation {
   display: grid;
@@ -186,7 +295,7 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
 .administration-drawer[open] > .review-note {
   margin-top: var(--fc-space-2);
 }
-#expedientes, #checklist, #registrar-busqueda, #observaciones, #informes, #administracion {
+#resumen, #expedientes, #checklist, #registrar-busqueda, #observaciones, #informes, #administracion {
   scroll-margin-top: var(--fc-space-4);
 }
 

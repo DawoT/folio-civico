@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {InspectedTextViewer} from "./InspectedTextViewer";
 import { Field, SelectField, TextareaField } from "./ui/Fields";
+import { makeReviewSummary, type ReviewSummary } from "./layout/CommissionOverview";
 import {
   loadChecklist, loadObservationHistory, loadObservationDetail, loadVerifiedReviewReport, createCommissionChecklistItem, submitSearchScopeDraft,
   transitionObservation as requestTransition,
@@ -73,7 +74,10 @@ export function DocumentEvidenceAction({proof,onOpen}:{
   </button>;
 }
 
-export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scope; canDraft: boolean; canManage?:boolean}) {
+export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChange}: {
+  scope: Scope; canDraft: boolean; canManage?: boolean;
+  onSummaryChange?: (summary: ReviewSummary | null) => void;
+}) {
   const [checklist,setChecklist] = useState<ChecklistRow[]>([]);
   const [observations,setObservations] = useState<ObservationRow[]>([]);
   const [historyCursor,setHistoryCursor] = useState<string|null>(null);
@@ -114,6 +118,7 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
     ++linkedRequest.current;
     setLinkedRecord(null);setFocusedPage(null);setLinkedLoading(false);setLinkedError("");
     setLoading(true); setError("");
+    onSummaryChange?.(null);
     setHistoryCursor(null);setHistoryBusy(false);setHistoryError("");
     setChecklist([]); setObservations([]); setItemId("");
     Promise.all([
@@ -124,13 +129,14 @@ export function ReviewWorkspace({scope, canDraft, canManage=false}: {scope: Scop
       setChecklist(items);
       setObservations(page.items);
       setHistoryCursor(page.nextCursor);
+      onSummaryChange?.(makeReviewSummary(scope, items, page.items, page.nextCursor !== null));
       const eligible = items.filter((item) => item.status === "pending" || item.status === "not_located");
       setItemId((current) => eligible.some((item) => item.id === current) ? current : (eligible[0]?.id ?? ""));
     }).catch((problem: unknown) => {
       if (active) setError(problem instanceof Error ? problem.message : "No se pudo cargar la revisión.");
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [scope.commissionId,reload]);
+  }, [scope.commissionId, scope.batchId, reload, onSummaryChange]);
 
   async function loadOlderObservations() {
     if(!historyCursor || historyBusy || loading) return;

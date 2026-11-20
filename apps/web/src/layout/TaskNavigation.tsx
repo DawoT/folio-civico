@@ -26,6 +26,7 @@ export function TaskNavigation({
       <div className="task-navigation-links">
         {hasScope && (
           <>
+            <a href="#resumen">Resumen</a>
             <a href="#expedientes">Expedientes</a>
             <a href="#checklist">Checklist</a>
             {canDraft && <a href="#registrar-busqueda">Registrar búsqueda</a>}
