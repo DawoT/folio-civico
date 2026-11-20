@@ -207,6 +207,13 @@ export async function persistDraftObservation(
   if (result.some((item) => !item.success || item.meta.changes !== 1)) {
     throw new ReviewEvidenceError("Review write was not permitted");
   }
+  // The D1 batch is already committed. Revalidate the author's authority
+  // before acknowledging a successful draft; do not attempt to undo the
+  // durable observation, evidence or audit on a post-commit revocation.
+  const current = await getCommissionSummary(db, draft.authorSubject, draft.commissionId);
+  if (!current || current.status !== "active" || current.role === "observer") {
+    throw new ReviewAccessError("No permission to submit observation");
+  }
   return {
     id, commissionId: draft.commissionId, authorSubject: draft.authorSubject,
     title: draft.title, description: draft.description, status: "draft",
