@@ -27,7 +27,165 @@ async function createDraft(db:D1Database) {
       batchId:"b_a",reviewerId:"author",searchedAt:"2026-11-18T13:00:00.000Z"}]
   });
 }
+/** Test-only: return genuine D1 rows before changing authority at a chosen boundary. */
+function afterAuthorityRead(db:D1Database, nth:number, change:()=>void):D1Database {
+  let reads=0;
+  return {
+    prepare(sql:string) {
+      const statement=db.prepare(sql);
+      if(!sql.includes("SELECT c.id, c.name, c.status, m.role")) return statement;
+      return {
+        bind(...params:unknown[]) {
+          const bound=statement.bind(...params);
+          return {
+            async first<T>() {
+              const result=await bound.first<T>();
+              reads++;
+              if(reads===nth) change();
+              return result;
+            }
+          };
+        }
+      } as unknown as D1PreparedStatement;
+    }
+  } as D1Database;
+}
+
+/** Test-only: change live SQLite authority after the real guarded UPDATE commits. */
+function afterTransitionCommit(db:D1Database, change:()=>void):D1Database {
+  let fired=false;
+  return {
+    prepare(sql:string) {
+      const statement=db.prepare(sql);
+      if(!sql.includes("UPDATE observations")) return statement;
+      return {
+        bind(...params:unknown[]) {
+          const bound=statement.bind(...params);
+          return {
+            async run(){
+              const result=await bound.run();
+              if(!fired){fired=true;change();}
+              return result;
+            }
+          };
+        }
+      } as unknown as D1PreparedStatement;
+    }
+  } as D1Database;
+}
+
+/** Test-only: another request wins the same transition before this attempt recovers. */
+function concurrentTransitionWinner(
+  db:D1Database, commitWinner:()=>Promise<void>, change:()=>void
+):D1Database {
+  return {
+    prepare(sql:string) {
+      const statement=db.prepare(sql);
+      if(!sql.includes("UPDATE observations")) return statement;
+      return {
+        bind(..._params:unknown[]) {
+          return {
+            async run() {
+              await commitWinner();
+              change();
+              throw new Error("SYNTHETIC_CONCURRENT_TRANSITION");
+            }
+          };
+        }
+      } as unknown as D1PreparedStatement;
+    }
+  } as D1Database;
+}
+
 describe("manual observation transitions",()=>{
+  it.each(["submit","validate","dismiss"] as const)(
+    "does not acknowledge a committed %s after action role is lost during UPDATE completion",
+    async(action)=>{
+      const f=fixture();
+      try{
+        const observation=await createDraft(f.db);
+        if(action!=="submit") await transitionObservation(f.db,{
+          commissionId:"c_a",subject:"author",observationId:observation.id,action:"submit",requestKey
+        });
+        const subject=action==="submit"?"author":"reviewer";
+        const key=`fence_${action}_12345`;
+        const input={commissionId:"c_a",subject,observationId:observation.id,
+          action,requestKey:key,note:action==="submit"?undefined:"Decisión basada en revisión independiente y trazable."};
+        const raced=afterTransitionCommit(f.db,()=>{
+          f.sqlite.prepare("UPDATE commission_members SET role=? WHERE commission_id='c_a' AND subject=?")
+            .run(action==="submit"?"observer":"advisor",subject);
+        });
+        await expect(transitionObservation(raced,input)).rejects.toThrow();
+        const expected=action==="submit"?"in_review":action==="validate"?"validated":"dismissed";
+        expect(f.sqlite.prepare("SELECT status FROM observations WHERE id=?").get(observation.id))
+          .toMatchObject({status:expected});
+        expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get())
+          .toMatchObject({n:action==="submit"?2:3});
+      }finally{f.close();}
+    }
+  );
+
+  it.each(["submit","validate","dismiss"] as const)(
+    "does not reveal an idempotent %s replay if membership is revoked after the last scoped row",
+    async(action)=>{
+      const f=fixture();
+      try{
+        const observation=await createDraft(f.db);
+        const subject=action==="submit"?"author":"reviewer";
+        if(action!=="submit") await transitionObservation(f.db,{
+          commissionId:"c_a",subject:"author",observationId:observation.id,action:"submit",requestKey
+        });
+        const input={commissionId:"c_a",subject,observationId:observation.id,
+          action,requestKey:`idempotent_${action}_23456`,
+          note:action==="submit"?undefined:"Revisión independiente con fundamento suficiente."};
+        await transitionObservation(f.db,input);
+        const before=f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get();
+        const raced=afterAuthorityRead(f.db,2,()=>{
+          f.sqlite.prepare("UPDATE commission_members SET active=0 WHERE commission_id='c_a' AND subject=?")
+            .run(subject);
+        });
+        await expect(transitionObservation(raced,input)).rejects.toThrow();
+        expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual(before);
+      }finally{f.close();}
+    }
+  );
+
+  it("does not acknowledge a concurrent winning review after reviewer loses review role",async()=>{
+    const f=fixture();
+    try{
+      const observation=await createDraft(f.db);
+      await transitionObservation(f.db,{commissionId:"c_a",subject:"author",
+        observationId:observation.id,action:"submit",requestKey});
+      const input={commissionId:"c_a",subject:"reviewer",observationId:observation.id,
+        action:"validate" as const,requestKey:"competing_validation_123",
+        note:"Evidencia revisada por persona independiente y autorizada."};
+      const raced=concurrentTransitionWinner(f.db,
+        async()=>{await transitionObservation(f.db,input);},
+        ()=>{f.sqlite.exec("UPDATE commission_members SET role='advisor' WHERE commission_id='c_a' AND subject='reviewer'");}
+      );
+      await expect(transitionObservation(raced,input)).rejects.toThrow();
+      expect(f.sqlite.prepare("SELECT status FROM observations WHERE id=?").get(observation.id))
+        .toMatchObject({status:"validated"});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:3});
+    }finally{f.close();}
+  });
+
+  it("does not acknowledge a committed submit after commission closure",async()=>{
+    const f=fixture();
+    try{
+      const observation=await createDraft(f.db);
+      const raced=afterTransitionCommit(f.db,()=>{
+        f.sqlite.exec("UPDATE commissions SET status='closed' WHERE id='c_a'");
+      });
+      await expect(transitionObservation(raced,{commissionId:"c_a",subject:"author",
+        observationId:observation.id,action:"submit",requestKey})).rejects.toThrow();
+      expect(f.sqlite.prepare("SELECT status FROM observations WHERE id=?").get(observation.id))
+        .toMatchObject({status:"in_review"});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:2});
+    }finally{f.close();}
+  });
+
+
   it("requires submit and a separate authorized reviewer, with exactly two audited transitions",async()=>{
     const f=fixture();
     try {
