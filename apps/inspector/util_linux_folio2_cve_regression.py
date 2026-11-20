@@ -1,8 +1,9 @@
-"""R1.38: four CVE-specific source guard checks for unsigned util-linux folio2.
+"""R1.38/R1.39: CVE guards AND affected-code applicability for util-linux folio2.
 
-No mount/namespace operations, exploitation, package installations, VEX or
-release. A missing protection means exit 3, never a security exception.
-Present source guards do NOT prove runtime CVE remediation.
+R1.39 distinguishes pre-2.42 legacy X-mount.subdir (restricted users
+refused before any mount) from the vulnerable 2.42 detached fast path.
+Unknown/unguarded paths fail closed. No installations, VEX or release.
+Source-only evidence never proves dynamic CVE remediation.
 """
 from __future__ import annotations
 
@@ -35,6 +36,82 @@ SOURCE_NAMES = (
 
 def _matches(source: str, expression: str) -> bool:
     return re.search(expression, source, flags=re.MULTILINE | re.DOTALL) is not None
+
+
+def _function_body(source: str, name: str) -> str:
+    """Bound the evidence to one actual C function, not a nearby comment."""
+    source = re.sub(
+        r"/\*[\s\S]*?\*/|//[^\n]*",
+        lambda match: "\n" * match.group(0).count("\n"), source,
+    )
+    match = re.search(
+        r"^[ \t]*(?:static[ \t]+)?(?:inline[ \t]+)?int[ \t]+" +
+        re.escape(name) + r"[ \t]*\(", source, re.MULTILINE
+    )
+    if not match:
+        return ""
+    start = source.find("{", match.end())
+    if start < 0 or start - match.end() > 1200:
+        return ""
+    # The matching function terminator is unindented and on its own line.
+    # Reject ambiguous source structures rather than extrapolating.
+    ending = re.search(r"^}\s*$", source[start + 1:], re.MULTILINE)
+    if not ending or ending.start() > 8500:
+        return ""
+    return source[start + 1:start + 1 + ending.start()]
+
+
+def _legacy_subdir_restricted_path_proof(sources: dict[str, str]) -> bool:
+    """Confirm vulnerable detached API path absent AND legacy path denies SUID user.
+
+    The legacy path uses a temporary namespace and hook_mount_pre; the
+    upstream CVE concerns a different fast path introduced in util-linux
+    v2.42. The raw open_tree call alone is not an applicability proof.
+    """
+    subdir = sources["libmount/src/hook_subdir.c"]
+    mount = sources["libmount/src/hook_mount.c"]
+    ctx = sources["libmount/src/context.c"]
+    if ("api->subdir" in mount or "api->subdir" in subdir
+            or re.search(r"\bsubdir\b", mount)):
+        return False
+    required = _function_body(ctx, "mnt_context_target_fd_required")
+    pre = _function_body(subdir, "hook_mount_pre")
+    prepare = _function_body(subdir, "hook_prepare_target")
+    post = _function_body(subdir, "hook_mount_post")
+    legacy = _function_body(subdir, "do_mount_subdir")
+    if not all((required, pre, prepare, post, legacy)):
+        return False
+    if not re.fullmatch(
+            r"\s*return\s+mnt_context_is_restricted\s*\(\s*cxt\s*\)\s*;\s*",
+            required):
+        return False
+    denial = re.search(
+        r"if\s*\(\s*mnt_context_target_fd_required\s*\(\s*cxt\s*\)\s*\)"
+        r"\s*\{[^}]{0,450}\breturn\s+-ENOTSUP\s*;", pre, re.DOTALL
+    )
+    if not denial or "tmptgt_unshare(hsd)" not in pre:
+        return False
+    if denial.end() >= pre.index("tmptgt_unshare(hsd)"):
+        return False
+    if not re.search(
+            r"mnt_context_append_hook\s*\(\s*cxt\s*,\s*hs\s*,\s*"
+            r"MNT_STAGE_MOUNT_PRE\s*,\s*NULL\s*,\s*hook_mount_pre\s*\)",
+            prepare, re.DOTALL):
+        return False
+    if not re.search(
+            r"mnt_context_append_hook\s*\(\s*cxt\s*,\s*hs\s*,\s*"
+            r"MNT_STAGE_MOUNT_POST\s*,\s*NULL\s*,\s*hook_mount_post\s*\)",
+            pre, re.DOTALL):
+        return False
+    if not re.search(
+            r"\bdo_mount_subdir\s*\(\s*cxt\s*,", post):
+        return False
+    if len(re.findall(r"\bdo_mount_subdir\s*\(", subdir)) != 2:
+        return False
+    if not re.search(
+            r"\bopen_tree\s*\(\s*api->fd_tree\s*,\s*subdir\s*,", legacy):
+        return False
+    return True
 
 
 def _protected_subdir_call(sources: dict[str, str]) -> bool:
@@ -110,6 +187,13 @@ def check_cve_source_guards(sources: dict[str, str]) -> dict[str, dict]:
                              r"dir\+\+\s*;")
         and not direct_subdir
     )
+    legacy_scope = _legacy_subdir_restricted_path_proof(sources)
+    if c78409:
+        applicability = "hardened_detached_fast_path"
+    elif legacy_scope:
+        applicability = "not_affected_detached_fast_path_absent"
+    else:
+        applicability = "unresolved"
     values = (c76642, c78408, c78409, c78410)
     descriptions = (
         "failed mount helpers cannot trigger MOUNT_POST hooks",
@@ -117,7 +201,7 @@ def check_cve_source_guards(sources: dict[str, str]) -> dict[str, dict]:
         "X-mount.subdir must resolve beneath detached tree without symlinks",
         "restricted bind source requires no-symlink fd resolution",
     )
-    return {
+    report = {
         cve: {
             "source_guard_present": bool(present),
             "expected_guard": description,
@@ -127,6 +211,14 @@ def check_cve_source_guards(sources: dict[str, str]) -> dict[str, dict]:
             REQUIRED_CVES, values, descriptions, strict=True
         )
     }
+    report["CVE-2026-78409"].update({
+        "applicability": applicability,
+        "legacy_restricted_user_path_rejected": legacy_scope,
+        "affected_detached_fast_path_present": "api->subdir" in mount,
+        "security_vendor_version_range": ">=2.42",
+        "static_scope_only_not_exploit_verified": True,
+    })
+    return report
 
 
 def inspect_versioned_source(root: Path) -> dict:
@@ -141,13 +233,32 @@ def inspect_versioned_source(root: Path) -> dict:
     guards = check_cve_source_guards(sources)
     missing = [key for key, value in guards.items()
                if not value["source_guard_present"]]
+    # A source version predating introduction of the vulnerable fast path
+    # cannot be required to carry its fix. Retain all other CVE failures.
+    scoped_out = [
+        key for key in missing
+        if guards[key].get("applicability") ==
+        "not_affected_detached_fast_path_absent"
+    ]
+    unresolved = [key for key in missing if key not in scoped_out]
+    all_guards = not missing
+    accounted = not unresolved
     return {
-        "status": ("source_guards_incomplete_release_blocked" if missing
-                   else "all_source_guards_present_runtime_unverified"),
+        "status": (
+            "source_cve_paths_unresolved_release_blocked"
+            if unresolved else
+            "pre_2_42_cve_78409_not_applicable_static_scope_release_blocked"
+            if scoped_out else
+            "all_source_guards_present_runtime_unverified"
+        ),
         "source_version": SOURCE_VERSION,
         "cve_guard_results": guards,
         "missing_source_guards": missing,
-        "all_source_guards_present": not missing,
+        "source_scope_not_applicable": scoped_out,
+        "unresolved_cve_paths": unresolved,
+        "all_source_guards_present": all_guards,
+        "source_cve_paths_accounted_for": accounted,
+        "upstream_scope_conflicts_debian_tracker": bool(scoped_out),
         "runtime_cve_regressions_passed": False,
         "cve_remediated": False,
         "debian_trixie_abi_validated": False,
@@ -196,7 +307,7 @@ def main() -> int:
         }, sort_keys=True))
         return 3
     print(json.dumps(report, sort_keys=True))
-    return 2 if report["all_source_guards_present"] else 3
+    return 2 if report["source_cve_paths_accounted_for"] else 3
 
 
 if __name__ == "__main__":
