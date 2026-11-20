@@ -27,7 +27,7 @@ Esta lectura **no inicia acciones**, no confirma entrega, no consulta Queue, no 
 ## Límites y riesgos residuales
 
 1. La invalidación puede ocurrir **después de la última consulta**, incluso después de `finalize`. Un ledger `sent` puede verse marcado con invalidación posteriormente; la lectura de conciliación muestra ese caso sin alterar el histórico. No hay linealizabilidad D1/Queue.
-2. Un mensaje enviado no puede retirarse mediante esta API. Harían falta controles de consumo y respuestas institucionales firmadas, tras autorización de infraestructura y custodia.
+2. Un mensaje enviado no puede retirarse mediante esta API. [R2.12b/P5](R2_INSTITUTIONAL_CONSUMER_FENCE.md) añade al consumidor una consulta D1 de la procedencia del redrive, revalidaciones antes de la inspección y triggers de rechazo tras invalidación. **No** revierte efectos ya admitidos ni sustituye respuestas institucionales firmadas o la autorización de infraestructura y custodia.
 3. Si D1 se vuelve inaccesible tras `Queue.send`, se intenta persistir `uncertain`; si falla también la escritura final, permanece la reserva `reserved` para conciliación manual. No se permite reenvío automático.
 4. La clasificación de los estados está restringida a datos **sintéticos**. No existe proveedor institucional real, IdP/MFA auditado, proceso humano acreditado, permisos D1 de mínimo privilegio, monitor externo ni aprobación Preview.
 
