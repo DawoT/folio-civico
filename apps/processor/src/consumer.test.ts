@@ -296,6 +296,33 @@ describe("Cloudflare Queue inspection consumer",()=>{
     ).get()).toMatchObject({n:0});
   }finally{f.close();}
  });
+ it("does not duplicate a 422 rejection audit when another consumer wins before D1 batch",async()=>{
+  const f=await fixture();
+  try{
+   f.inspectorFetch.mockImplementation(async(request)=>
+     syntheticSignedUnsafeResponse(request as Request,scannerSecret));
+   let competingResult:Awaited<ReturnType<typeof processProcessingMessage>>|undefined;
+   const racedDb={
+    prepare:f.db.prepare.bind(f.db),
+    batch:async(statements:Parameters<D1Database["batch"]>[0])=>{
+      competingResult=await processProcessingMessage(message(f.sha),f.env);
+      return f.db.batch(statements);
+    }
+   } as D1Database;
+   const result=await processProcessingMessage(message(f.sha),{
+     ...f.env,DB:racedDb
+   });
+   expect(competingResult).toBe("needs_review");
+   expect(result).toBe("stale");
+   expect(f.sqlite.prepare(
+     "SELECT count(*) AS n FROM audit_events WHERE action='document.inspection_rejected'"
+   ).get()).toMatchObject({n:1});
+   expect(f.sqlite.prepare(
+     "SELECT extraction_status FROM document_versions WHERE id='ver_a'"
+   ).get()).toMatchObject({extraction_status:"needs_review"});
+  }finally{f.close();}
+ });
+
  it("routes explicit malware/unsafe verdict to needs_review without ready pages",async()=>{
   const f=await fixture();
   try{
