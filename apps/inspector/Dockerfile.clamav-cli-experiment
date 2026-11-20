@@ -1,0 +1,35 @@
+# R1.27 NON-DEPLOYABLE: physically remove ten unused ClamAV commands.
+# chmod 0644 was bypassable through ELF loader / script interpreter.
+# Retained clamscan+libraries must keep exact Talos-signed native bytes.
+FROM folio-civico-inspector:nonprivileged-experiment AS hardener
+USER root
+COPY clamav_cli_surface.py /tmp/clamav_cli_surface.py
+RUN set -eux; \
+  python3 -I /tmp/clamav_cli_surface.py --apply; \
+  python3 -I /tmp/clamav_cli_surface.py; \
+  rm /tmp/clamav_cli_surface.py; \
+  test -x /usr/local/bin/clamscan; \
+  test ! -e /usr/local/bin/freshclam; \
+  test ! -e /usr/local/sbin/clamd; \
+  test ! -e /usr/local/sbin/clamonacc; \
+  test -x /opt/folio-poppler/bin/pdfinfo; \
+  test -x /opt/folio-ocr/bin/tesseract; \
+  clamscan --version | grep -F 'ClamAV 1.5.5'
+
+# Reflatten: no inherited historical layer containing runnable old CLIs.
+# The fixed empty WORKDIR layer is content-free and audited by the gate.
+FROM scratch
+COPY --from=hardener / /
+ENV PATH=/opt/folio-poppler/bin:/opt/folio-ocr/bin:/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    LANG=C.UTF-8 \
+    PYTHON_VERSION=3.12.16 \
+    PYTHON_SHA256=b5796915dc45ff745cfb4e990a7e7c93d6f546328a102ce31448d69ebc37575c \
+    TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    CLAMAV_DB_DIR=/opt/clamdb \
+    FOLIO_INSPECTOR_BIND=0.0.0.0
+WORKDIR /srv/folio-inspector
+USER 65534:65534
+EXPOSE 8789
+CMD ["python3", "-I", "/srv/folio-inspector/inspector.py"]
