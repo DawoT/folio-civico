@@ -114,8 +114,12 @@ y `status=source_method_reachability_research_only` en una reconstrucción
   `bash -n` de ambos scripts de laboratorio: `exit 0`.
 - **CI general local:** `sh scripts/ci.sh` **exit 0**,
   con typecheck, Vitest/workerd, builds Workers `--dry-run`,
-  Chromium E2E/accesibilidad y migraciones D1 `0026` **solo locales**.
-  No incluye el gate pesado Trivy.
+  Chromium E2E/accesibilidad y migraciones D1 `0027` **solo locales**.
+  No incluye el gate pesado Trivy. La primera ejecución tras
+  actualizar `main` encontró el puerto local `4175` ocupado por otro
+  Playwright y terminó `exit 1` antes de iniciar las E2E. Se repitió
+  el contrato completo con `FOLIO_E2E_PORT=42963`, **exit 0**,
+  sin detener procesos ajenos ni editar la configuración compartida.
 - **Smoke de motores existentes:** `bash apps/inspector/verify_raster_guard.sh` **exit 0, 8/8**, incluyendo antivirus, OCR, PDF nativo y rechazos de documentos cifrados/adjuntos. Se ejecutó sobre la imagen experimental existente **sin instalar los prototipos**, por lo que no certifica los binarios de investigación.
 - **Auditoría experimental:** `bash apps/inspector/audit_image.sh
   --experiment --advisories` **exit 2 BLOQUEADO**:
