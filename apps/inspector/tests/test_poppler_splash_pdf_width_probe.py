@@ -32,7 +32,7 @@ def evidence(root: Path, *, overflow: bool) -> None:
     record(root, "scaled_wide_aa", 0)
     (root / "normal_aa.pbm").write_bytes(b"P4\n8 1\n\x00")
     (root / "normal_noaa.pbm").write_bytes(b"P4\n8 1\n\x00")
-    (root / "scaled_wide_aa.pbm").write_bytes(b"P4\n32 1\n\x00" * 4)
+    (root / "scaled_wide_aa.pbm").write_bytes(b"P4\n32 1\n" + b"\x00" * 4)
     record(root, "wide_noaa", 0)
     record(root, "wide_aa", 0)  # Mono1 explicitly disables vector AA.
     record(root, "wide_gray_aa", 1 if overflow else 0,
@@ -134,6 +134,32 @@ class SplashPdfWidthProbeTests(unittest.TestCase):
             record(root, "wide_metadata", 0, stdout="Pages: 1\n")
             with self.assertRaises(ValueError):
                 verify_results(root)
+
+    def test_wide_noaa_failure_cannot_support_pdf_reachability(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence(root, overflow=True)
+            record(root, "wide_noaa", 124)  # Timed out before a valid control.
+            with self.assertRaises(ValueError):
+                verify_results(root)
+
+    def test_scaled_renderer_failure_cannot_support_pdf_reachability(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence(root, overflow=True)
+            record(root, "scaled_wide_aa", 1)
+            with self.assertRaises(ValueError):
+                verify_results(root)
+
+    def test_truncated_or_trailing_pbm_pixels_are_not_valid_controls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence(root, overflow=True)
+            path = root / "normal_aa.pbm"
+            for payload in (b"P4\n8 1\n", b"P4\n8 1\n\x00\x00"):
+                path.write_bytes(payload)
+                with self.assertRaises(ValueError):
+                    verify_results(root)
 
     def test_inspect_rejects_runner_error_before_observed_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
