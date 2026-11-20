@@ -38,4 +38,6 @@ pnpm typecheck
 FOLIO_E2E_PORT=42930 sh scripts/ci.sh
 ```
 
+**Verificación local realizada:** `FOLIO_E2E_PORT=42930 sh scripts/ci.sh` finalizó con **exit 0**, 453 Vitest + 181 Python + 7 contratos CI + 5 workerd + 120 Chromium = **766/766** pruebas; typecheck, builds, dry-runs y 29 migraciones **solo locales** en API/MCP/Processor. No se usó GitHub Actions como gate.
+
 **Cierre externo:** [issue #19](https://github.com/DawoT/folio-civico/issues/19) solo puede cerrarse con la fuente institucional y sesiones IdP/MFA realmente verificadas, roles D1 segregados, eventos auditados, conciliación de efectos y autorización explícita Preview/CVE.
