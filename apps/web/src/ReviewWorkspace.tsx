@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {InspectedTextViewer} from "./InspectedTextViewer";
 import { Field, SelectField, TextareaField } from "./ui/Fields";
+import { EmptyState } from "./ui/FeedbackStates";
+import { StatusBadge } from "./ui/StatusBadge";
+import { ObservationInboxFilters, countLoadedObservations, filterLoadedObservations, inboxEmptyText, type InboxFilter } from "./ui/ObservationInbox";
 import { makeReviewSummary, type ReviewSummary } from "./layout/CommissionOverview";
 import {
   loadChecklist, loadObservationHistory, loadObservationDetail, loadVerifiedReviewReport, createCommissionChecklistItem, submitSearchScopeDraft,
@@ -80,6 +83,7 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
 }) {
   const [checklist,setChecklist] = useState<ChecklistRow[]>([]);
   const [observations,setObservations] = useState<ObservationRow[]>([]);
+  const [observationFilter,setObservationFilter] = useState<InboxFilter>("all");
   const [historyCursor,setHistoryCursor] = useState<string|null>(null);
   const [historyBusy,setHistoryBusy] = useState(false);
   const [historyError,setHistoryError] = useState("");
@@ -271,6 +275,9 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
     }
   }
 
+  const visibleObservations = filterLoadedObservations(observations, observationFilter);
+  const inboxCounts = countLoadedObservations(observations);
+
   return (
     <section className="review-area" aria-labelledby="review-title">
       <div className="review-heading">
@@ -416,15 +423,32 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
       <div className="review-card observations-card" id="observaciones">
         <h3>Historial de observaciones</h3>
         <p className="review-note">Se muestran primero 25 registros. Puedes consultar el historial anterior sin perder las observaciones ya cargadas.</p>
+        {!loading && observations.length > 0 && (
+          <ObservationInboxFilters counts={inboxCounts} selected={observationFilter}
+            canDraft={canDraft} hasOlderRecords={historyCursor !== null}
+            disabled={transitionBusy || historyBusy}
+            onSelect={next => {
+              if (next === observationFilter) return;
+              setObservationFilter(next);
+              setActiveReviewId(null);setReviewNote("");setReviewConfirmed(false);
+            }}/>
+        )}
         {loading ? <p>Consultando observaciones…</p> :
           observations.length === 0 ? <p>La comisión todavía no tiene observaciones registradas.</p> :
+          visibleObservations.length === 0 ? <EmptyState>{inboxEmptyText(observationFilter)}{historyCursor !== null ? " Pueden existir registros coincidentes en páginas anteriores." : ""}</EmptyState> :
           <ul className="observation-items">
-            {observations.map((record) => <li key={record.id}>
-              <div className="observation-heading"><strong>{record.title}</strong><span>{
-                record.status==="draft"?"Borrador":
-                record.status==="in_review"?"En revisión":
-                record.status==="validated"?"Validación interna":"Descartada"
-              }</span></div>
+            {visibleObservations.map((record) => <li key={record.id}>
+              <div className="observation-heading"><strong>{record.title}</strong>
+                <StatusBadge status={
+                  record.status==="draft"?"neutral":
+                  record.status==="in_review"?"reviewing":
+                  record.status==="validated"?"validated":"dismissed"
+                }>{
+                  record.status==="draft"?"Borrador":
+                  record.status==="in_review"?"En revisión":
+                  record.status==="validated"?"Validación interna":"Descartada"
+                }</StatusBadge>
+              </div>
               <p>{record.description}</p>
               <button type="button" className="button secondary"
                 onClick={()=>void openValidation(record.id)}>
