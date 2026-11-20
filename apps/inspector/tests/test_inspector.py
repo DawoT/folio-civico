@@ -39,6 +39,26 @@ class ScannerTests(unittest.TestCase):
             return "ClamAV 1.5.5/28187/2026-11-18"
         if command == "qpdf" and argv[1] == "--is-encrypted":
             return "not_encrypted"
+        if command == "qpdf" and argv[1] == "--json":
+            if "--json-key=pages" in argv:
+                return json.dumps({
+                    "version": 2,
+                    "pages": [
+                        {"object": "3 0 R", "pageposfrom1": 1},
+                        {"object": "4 0 R", "pageposfrom1": 2},
+                    ],
+                })
+            number = int(next(
+                arg.split("=", 1)[1].split(",")[0]
+                for arg in argv if arg.startswith("--json-object=")
+            ))
+            return json.dumps({
+                "version": 2,
+                "qpdf": [
+                    {"jsonversion": 2},
+                    {f"obj:{number} 0 R": {"value": {"/Type": "/Page"}}},
+                ],
+            })
         if command == "pdfdetach":
             return "0 embedded files\n"
         if command == "pdfinfo":
