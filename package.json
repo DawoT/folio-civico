@@ -13,6 +13,7 @@
     "test:lighthouse": "node scripts/run-lighthouse.mjs",
     "demo:local": "pnpm --dir apps/web exec node demo-local.mjs",
     "test:demo": "playwright test --config=playwright.demo.config.ts",
+    "test:demo:performance": "playwright test --config=playwright.demo.performance.config.ts",
     "test:inspector": "python3 -m unittest discover -s apps/inspector/tests",
     "test:local-ci": "python3 -m unittest discover -s tests -p test_local_ci.py",
     "check:frontend-budget": "node scripts/check-frontend-budget.mjs",
