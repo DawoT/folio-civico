@@ -4,6 +4,7 @@ import {
   type VerifiedAsyncActor,type VerifiedAsyncDecision,type StoredRevocationScope
 } from "@folio/auth";
 import {areOperatorSubjectsRevoked} from "./async-authority-guards";
+import {matchesInstitutionalEvidence,type InstitutionalEvidenceReceipt} from "./institutional-approval-journal";
 
 /** An isolated two-session workflow. No network bindings or endpoint here. */
 export class AsyncRevocationDenied extends Error {}
@@ -17,6 +18,7 @@ export interface PendingRevocation extends StoredRevocationScope {
   approverSubject:string|null;
   approvalDigest:string|null;
   approvalKeyThumbprint:string|null;
+  institutionalGateRequired:number;
 }
 const ID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const TTL_SECONDS=86400;
@@ -31,13 +33,15 @@ export async function findAsyncRevocation(
       incident_ref AS incidentRef,request_key AS requestKey,
       expires_at AS expiresAt,status,payload_sha256 AS payloadHash,
       approver_subject AS approverSubject,approval_sha256 AS approvalDigest,
-      approval_key_thumbprint AS approvalKeyThumbprint
+      approval_key_thumbprint AS approvalKeyThumbprint,
+      institutional_gate_required AS institutionalGateRequired
     FROM processing_async_revocation_requests WHERE id=?
   `).bind(id).first<PendingRevocation>();
 }
 
 export async function proposeAsyncRevocation(
-  db:D1Database,scope:RevocationScope,actorProof:VerifiedAsyncActor
+  db:D1Database,scope:RevocationScope,actorProof:VerifiedAsyncActor,
+  institutionalGateRequired=false
 ):Promise<AsyncRevocationResult>{
   if(!validRevocationScope(scope)||!isVerifiedAsyncIncidentActor(actorProof)){
     throw new AsyncRevocationDenied("A configured actor and valid scope are required");
@@ -55,15 +59,18 @@ export async function proposeAsyncRevocation(
   ]);
   const previous=async()=>{
     return db.prepare(`
-      SELECT id,status,payload_sha256 AS payloadHash
+      SELECT id,status,payload_sha256 AS payloadHash,
+        institutional_gate_required AS institutionalGateRequired
       FROM processing_async_revocation_requests
       WHERE actor_subject=? AND request_key=?
     `).bind(actorProof.subject,scope.requestKey)
-      .first<{id:string;status:"pending"|"approved";payloadHash:string}>();
+      .first<{id:string;status:"pending"|"approved";payloadHash:string;institutionalGateRequired:number}>();
   };
   const old=await previous();
   if(old){
-    if(old.payloadHash!==payloadHash)throw new AsyncRevocationConflict("Request key already bound");
+    if(old.payloadHash!==payloadHash
+      || Boolean(old.institutionalGateRequired)!==institutionalGateRequired)
+      throw new AsyncRevocationConflict("Request key already bound");
     return {id:old.id,status:old.status,replayed:true};
   }
   if(!isVerifiedAsyncIncidentActor(actorProof))
@@ -73,15 +80,18 @@ export async function proposeAsyncRevocation(
     const result=await db.prepare(`
       INSERT INTO processing_async_revocation_requests(
         id,actor_subject,request_key,kind,target,incident_ref,
-        target_sha256,reason_sha256,payload_sha256,expires_at
-      ) VALUES(?,?,?,?,?,?,?,?,?,unixepoch()+?)
+        target_sha256,reason_sha256,payload_sha256,expires_at,
+        institutional_gate_required
+      ) VALUES(?,?,?,?,?,?,?,?,?,unixepoch()+?,?)
     `).bind(id,actorProof.subject,scope.requestKey,scope.kind,scope.target,
-      scope.incidentRef,targetHash,reasonHash,payloadHash,TTL_SECONDS).run();
+      scope.incidentRef,targetHash,reasonHash,payloadHash,TTL_SECONDS,
+      institutionalGateRequired?1:0).run();
     if(!result.success||result.meta.changes!==1)throw new Error("Missing proposal");
     return {id,status:"pending",replayed:false};
   }catch{
     const concurrent=await previous();
-    if(concurrent?.payloadHash===payloadHash){
+    if(concurrent?.payloadHash===payloadHash
+      && Boolean(concurrent.institutionalGateRequired)===institutionalGateRequired){
       return {id:concurrent.id,status:concurrent.status,replayed:true};
     }
     throw new AsyncRevocationConflict("Incident already proposed or unavailable");
@@ -90,10 +100,13 @@ export async function proposeAsyncRevocation(
 
 export async function approveAsyncRevocation(
   db:D1Database,stored:PendingRevocation,
-  decision:VerifiedAsyncDecision
+  decision:VerifiedAsyncDecision,evidence?:InstitutionalEvidenceReceipt
 ):Promise<Pick<AsyncRevocationResult,"status"|"replayed">>{
   if(!isVerifiedAsyncIncidentDecision(decision,stored)){
     throw new AsyncRevocationDenied("Independent signed approval required");
+  }
+  if(stored.institutionalGateRequired && !evidence){
+    throw new AsyncRevocationDenied("Institutional receipt required");
   }
   if(await areOperatorSubjectsRevoked(db,stored.actorSubject,decision.approverSubject)){
     throw new AsyncRevocationDenied("Incident authority withdrawn");
@@ -111,7 +124,10 @@ export async function approveAsyncRevocation(
     `).bind(stored.actorSubject,stored.requestKey,stored.kind,
       stored.target,stored.incidentRef,decision.approverSubject,
       decision.approvalDigest).first<{found:number}>();
-    if(!existing)throw new AsyncRevocationConflict("Incomplete approval journal");
+    if(!existing || (evidence && !await matchesInstitutionalEvidence(
+      db,"revocation",stored.id,stored.actorSubject,
+      decision.approverSubject,decision.approvalDigest,stored.expiresAt,evidence
+    )))throw new AsyncRevocationConflict("Incomplete approval journal");
     return {status:"approved",replayed:true};
   }
   if(stored.expiresAt<=Math.floor(Date.now()/1000))
@@ -149,6 +165,15 @@ export async function approveAsyncRevocation(
         SELECT kind,target,incident_ref FROM processing_async_revocation_requests
         WHERE id=? AND changes()=1
       `).bind(stored.id),
+      ...(evidence?[db.prepare(`
+        INSERT INTO processing_institutional_approval_evidence(
+          purpose,request_id,actor_subject,approver_subject,scope_sha256,
+          approval_sha256,case_revision,checked_at,expires_at
+        ) SELECT 'revocation',id,actor_subject,?,?,?,?,?,expires_at
+        FROM processing_async_revocation_requests
+        WHERE id=? AND status='pending'
+      `).bind(decision.approverSubject,evidence.scopeDigest,
+        decision.approvalDigest,evidence.caseRevision,evidence.checkedAt,stored.id)]:[]),
       db.prepare(`
         UPDATE processing_async_revocation_requests
         SET status='approved',approver_subject=?,approval_sha256=?,
@@ -157,7 +182,8 @@ export async function approveAsyncRevocation(
       `).bind(decision.approverSubject,decision.approvalDigest,
         decision.approvalKeyThumbprint,stored.id)
     ]);
-    if(result.length!==3||result.some(x=>!x.success||x.meta.changes!==1))
+    if(result.length!==(evidence?4:3)
+      || result.some(x=>!x.success||x.meta.changes!==1))
       throw new Error("Incomplete atomic incident decision");
     return {status:"approved",replayed:false};
   }catch{
@@ -173,7 +199,10 @@ export async function approveAsyncRevocation(
         WHERE a.actor_subject=? AND a.request_key=? AND a.approval_sha256=?
       `).bind(stored.actorSubject,stored.requestKey,
         decision.approvalDigest).first<{found:number}>();
-      if(row)return {status:"approved",replayed:true};
+      if(row && (!evidence || await matchesInstitutionalEvidence(
+        db,"revocation",stored.id,stored.actorSubject,
+        decision.approverSubject,decision.approvalDigest,stored.expiresAt,evidence
+      )))return {status:"approved",replayed:true};
     }
     throw new AsyncRevocationConflict("Incident already decided or unavailable");
   }

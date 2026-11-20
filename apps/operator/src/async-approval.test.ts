@@ -39,6 +39,93 @@ function revokeOperator(db:ReturnType<typeof makeD1>,subject:string):void {
 }
 
 describe("R2.10: independent, asynchronous incident revocation approval",()=>{
+  it("persists a gated institutional version atomically and cannot downgrade or replay against a newer version",async()=>{
+    const d=makeD1();
+    try{
+      const f=await revocationFixture();
+      const conf=cfg(f,d.db);
+      let revision=12;
+      const reader={readCurrentEvidence:async(query:Record<string,unknown>)=>{
+        const now=Math.floor(Date.now()/1000);
+        return {...query,revision,status:"open",decision:"approved",
+          reviewerSubject:query.approverSubject,
+          checkedAt:now,reviewedAt:now-5,mfaVerifiedAt:now-10,validUntil:now+60};
+      }};
+      conf.institutionalGate={reader};
+      const req=call("revocation-proposals",f.scope,actorJwt(f));
+      const proposal=await handleIsolatedOperatorRequest(req,conf);
+      expect(proposal.status).toBe(202);
+      const id=(await proposal.json() as {id:string}).id;
+      expect(d.sqlite.prepare(`
+        SELECT institutional_gate_required AS required
+        FROM processing_async_revocation_requests WHERE id=?
+      `).get(id)).toMatchObject({required:1});
+      conf.institutionalGate=undefined;
+      const approve=()=>handleIsolatedOperatorRequest(call(
+        "revocation-approvals",{requestId:id},approverJwt(f),f.evidence.approvalJwt
+      ),conf);
+      expect((await approve()).status).toBe(503);
+      expect(d.sqlite.prepare("SELECT count(*) AS n FROM processing_redrive_revocations").get())
+        .toMatchObject({n:0});
+      conf.institutionalGate={reader};
+      expect((await approve()).status).toBe(200);
+      const evidence=d.sqlite.prepare(`
+        SELECT purpose,case_revision AS revision,scope_sha256 AS scope,
+          approval_sha256 AS digest,checked_at AS checked
+        FROM processing_institutional_approval_evidence WHERE request_id=?
+      `).get(id) as {purpose:string;revision:number;scope:string;digest:string;checked:number};
+      expect(evidence).toMatchObject({
+        purpose:"revocation",revision:12,scope:expect.stringMatching(/^[0-9a-f]{64}$/),
+        digest:expect.stringMatching(/^[0-9a-f]{64}$/)
+      });
+      expect(JSON.stringify(evidence)).not.toContain(f.evidence.approvalJwt);
+      conf.institutionalGate=undefined;
+      expect((await approve()).status).toBe(503);
+      revision=13;
+      conf.institutionalGate={reader};
+      expect((await approve()).status).toBe(403);
+      revision=12;
+      expect((await approve()).status).toBe(200);
+      expect(d.sqlite.prepare("SELECT count(*) AS n FROM processing_institutional_approval_evidence").get())
+        .toMatchObject({n:1});
+    }finally{d.close();}
+  });
+
+  it("rolls back the institutional receipt with the entire failed decision batch",async()=>{
+    const d=makeD1();
+    try{
+      const f=await revocationFixture();
+      const conf=cfg(f,d.db);
+      conf.institutionalGate={reader:{readCurrentEvidence:async(query:Record<string,unknown>)=>{
+        const now=Math.floor(Date.now()/1000);
+        return {...query,revision:4,status:"open",decision:"approved",
+          reviewerSubject:query.approverSubject,
+          checkedAt:now,reviewedAt:now-3,mfaVerifiedAt:now-6,validUntil:now+60};
+      }}};
+      const id=(await (await handleIsolatedOperatorRequest(call(
+        "revocation-proposals",f.scope,actorJwt(f)),conf)).json() as {id:string}).id;
+      const failing={
+        prepare:d.db.prepare.bind(d.db),
+        batch:async(statements:Parameters<D1Database["batch"]>[0])=>
+          d.db.batch([...statements,d.db.prepare("INSERT INTO missing_table VALUES(1)")])
+      } as unknown as D1Database;
+      const result=await handleIsolatedOperatorRequest(call(
+        "revocation-approvals",{requestId:id},approverJwt(f),f.evidence.approvalJwt
+      ),{...conf,db:failing});
+      expect(result.status).toBe(409);
+      for(const table of [
+        "processing_institutional_approval_evidence",
+        "processing_redrive_revocations",
+        "processing_redrive_revocation_actions"
+      ]){
+        expect(d.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get())
+          .toMatchObject({n:0});
+      }
+      expect(d.sqlite.prepare("SELECT status FROM processing_async_revocation_requests").get())
+        .toMatchObject({status:"pending"});
+    }finally{d.close();}
+  });
+
   it("can require fresh independent institutional evidence before approval and on replay",async()=>{
     const d=makeD1();
     try{

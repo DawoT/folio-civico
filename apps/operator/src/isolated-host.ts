@@ -17,6 +17,7 @@ import {
   ManualRedriveConflictError,ManualRedriveInputError
 } from "../../../packages/data/src/manual-redrive";
 import type {ProcessingQueueMessage} from "../../../packages/data/src/processing-outbox";
+import {findInstitutionalEvidence,type InstitutionalEvidenceReceipt} from "../../../packages/data/src/institutional-approval-journal";
 import {
   checkCurrentInstitutionalEvidence,
   InstitutionalEvidenceDenied,InstitutionalEvidenceUnavailable,
@@ -76,13 +77,35 @@ const SECURITY_HEADERS={
 class BadInput extends Error {}
 class TooLarge extends Error {}
 async function requireInstitutionalGate(
-  config:IsolatedOperatorConfig,query:InstitutionalEvidenceQuery
-):Promise<void>{
-  // The ONLY runnable mode is synthetic-offline-only. Existing fixture flows
-  // remain cryptographic test cases, never a route authorized for production.
-  if(config.institutionalGate){
-    await checkCurrentInstitutionalEvidence(config.institutionalGate.reader,query);
+  config:IsolatedOperatorConfig,query:InstitutionalEvidenceQuery,
+  required:boolean,alreadyApproved=false
+):Promise<InstitutionalEvidenceReceipt|undefined>{
+  // D1 remembers the opt-in independently of current host configuration.
+  // A replay or execution cannot drop its read by removing the config field.
+  const existing=await findInstitutionalEvidence(
+    config.db!,query.purpose,query.requestId
+  );
+  if(alreadyApproved && (required || existing) && !existing){
+    throw new InstitutionalEvidenceDenied("Institutional approval receipt missing");
   }
+  if(!required && !config.institutionalGate && !existing)return undefined;
+  const evidence=await checkCurrentInstitutionalEvidence(
+    config.institutionalGate?.reader,query
+  );
+  if(existing && (
+    existing.caseRevision!==evidence.revision
+    || existing.scopeDigest!==query.scopeDigest
+    || existing.approvalDigest!==query.approvalDigest
+    || existing.actorSubject!==query.actorSubject
+    || existing.approverSubject!==query.approverSubject
+    || existing.expiresAt*1000!==query.expiresAt
+  )){
+    throw new InstitutionalEvidenceDenied("Institutional case revision changed");
+  }
+  return Object.freeze({
+    caseRevision:evidence.revision,
+    checkedAt:evidence.checkedAt,scopeDigest:query.scopeDigest
+  });
 }
 async function redriveScopeDigest(stored:{
   commissionId:string;reviewId:string;requestKey:string;approvalRef:string
@@ -178,7 +201,8 @@ export async function handleIsolatedOperatorRequest(
         "kind","target","incidentRef","requestKey","reason"
       ]) as unknown as RevocationScope;
       const actorProof=await verifyAsyncIncidentActor(config.revocationTrust,request);
-      const result=await proposeAsyncRevocation(config.db,scope,actorProof);
+      const result=await proposeAsyncRevocation(config.db,scope,actorProof,
+        Boolean(config.institutionalGate));
       return response(202,result);
     }
     // R2.10: stage 2 receives only the approver's independent Access JWT,
@@ -195,7 +219,7 @@ export async function handleIsolatedOperatorRequest(
         config.revocationTrust,approverProof,
         token(request,"X-Folio-Incident-Approval-Jws"),stored
       );
-      await requireInstitutionalGate(config,{
+      const evidence=await requireInstitutionalGate(config,{
         purpose:"revocation",caseRef:stored.incidentRef,
         requestId:stored.id,actorSubject:stored.actorSubject,
         approverSubject:decision.approverSubject,
@@ -205,8 +229,8 @@ export async function handleIsolatedOperatorRequest(
         ]),
         approvalDigest:decision.approvalDigest,
         expiresAt:stored.expiresAt*1000
-      });
-      const result=await approveAsyncRevocation(config.db,stored,decision);
+      },Boolean(stored.institutionalGateRequired),stored.status==="approved");
+      const result=await approveAsyncRevocation(config.db,stored,decision,evidence);
       return response(200,result);
     }
     // Legacy R2.9 combined two-token route remains testable but is OFF by
@@ -239,7 +263,7 @@ export async function handleIsolatedOperatorRequest(
       const result=await proposeAsyncRedrive(config.db,{
         commissionId:scope.commissionId!,reviewId:scope.reviewId!,
         requestKey:scope.requestKey!,approvalRef:scope.approvalRef!
-      },operator);
+      },operator,Boolean(config.institutionalGate));
       return response(202,result);
     }
     if(url.pathname===PATH+"redrive-approvals"){
@@ -253,15 +277,15 @@ export async function handleIsolatedOperatorRequest(
         config.redriveTrust,request,token(request,"X-Folio-Redrive-Approval-Jws"),
         stored
       );
-      await requireInstitutionalGate(config,{
+      const evidence=await requireInstitutionalGate(config,{
         purpose:"redrive",caseRef:stored.approvalRef,
         requestId:stored.id,actorSubject:stored.operatorSubject,
         approverSubject:proof.approverSubject,
         scopeDigest:await redriveScopeDigest(stored),
         approvalDigest:proof.approvalDigest,
         expiresAt:stored.expiresAt*1000
-      });
-      return response(200,await approveAsyncRedrive(config.db,stored,proof));
+      },Boolean(stored.institutionalGateRequired),stored.status==="approved");
+      return response(200,await approveAsyncRedrive(config.db,stored,proof,evidence));
     }
     if(url.pathname===PATH+"redrive-executions"){
       if(request.headers.has("X-Folio-Approver-Access-Jwt"))return failed(403);
@@ -292,7 +316,7 @@ export async function handleIsolatedOperatorRequest(
         scopeDigest:await redriveScopeDigest(stored),
         approvalDigest:stored.approvalDigest!,
         expiresAt:stored.expiresAt*1000
-      });
+      },Boolean(stored.institutionalGateRequired),true);
       const outcome=await executeOneShotManualRedrive({
         DB:config.db,QUEUE:config.queue,authorization:proof,
         requiredInspectorImageDigest:config.runtimeInspectorImageDigest,

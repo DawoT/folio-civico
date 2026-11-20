@@ -102,6 +102,70 @@ function insertSyntheticAuditedRevocation(
 }
 
 describe("R2.11 · independent asynchronous redrive authority",()=>{
+  it("D1 prevents downgrading a protected redrive and direct status approval with no receipt",async()=>{
+    const f=await fixture();
+    try{
+      f.env.institutionalGate={};
+      const id=(await (await f.propose()).json() as {id:string}).id;
+      expect(()=>f.sqlite.prepare(`
+        UPDATE processing_async_redrive_requests
+        SET institutional_gate_required=0 WHERE id=?
+      `).run(id)).toThrow(/INSTITUTIONAL_GATE_IMMUTABLE/);
+      expect(()=>f.sqlite.prepare(`
+        UPDATE processing_async_redrive_requests
+        SET status='approved',approver_subject=?,approval_sha256=?,
+          approval_key_thumbprint=?,approved_at=unixepoch() WHERE id=?
+      `).run(APPROVER,"b".repeat(64),"A".repeat(43),id))
+        .toThrow(/INSTITUTIONAL_EVIDENCE_REQUIRED/);
+      expect(f.counts()).toEqual({proposals:{n:1},approvals:{n:0},sends:{n:0}});
+      expect(f.send).not.toHaveBeenCalled();
+    }finally{f.close();}
+  });
+
+
+  it("binds a gated redrive approval to an immutable D1 version and requires the same version before Queue",async()=>{
+    const f=await fixture();
+    try{
+      let revision=22;
+      const reader={readCurrentEvidence:async(query:Record<string,unknown>)=>{
+        const t=Math.floor(Date.now()/1000);
+        return {...query,revision,status:"open",decision:"approved",
+          reviewerSubject:query.approverSubject,
+          checkedAt:t,reviewedAt:t-4,mfaVerifiedAt:t-9,validUntil:t+60};
+      }};
+      f.env.institutionalGate={reader};
+      const proposed=await f.propose();
+      expect(proposed.status).toBe(202);
+      const id=(await proposed.json() as {id:string}).id;
+      expect(f.sqlite.prepare(`
+        SELECT institutional_gate_required AS required
+        FROM processing_async_redrive_requests WHERE id=?
+      `).get(id)).toMatchObject({required:1});
+      const jwt=await f.approvalJwt(id);
+      f.env.institutionalGate=undefined;
+      expect((await f.approve(id,jwt)).status).toBe(503);
+      f.env.institutionalGate={reader};
+      expect((await f.approve(id,jwt)).status).toBe(200);
+      const receipt=f.sqlite.prepare(`
+        SELECT purpose,case_revision AS revision,approval_sha256 AS digest
+        FROM processing_institutional_approval_evidence WHERE request_id=?
+      `).get(id);
+      expect(receipt).toMatchObject({
+        purpose:"redrive",revision:22,digest:expect.stringMatching(/^[a-f0-9]{64}$/)
+      });
+      expect(JSON.stringify(receipt)).not.toContain(jwt);
+      f.env.institutionalGate=undefined;
+      expect((await f.execute(id,jwt)).status).toBe(503);
+      revision=23;
+      f.env.institutionalGate={reader};
+      expect((await f.execute(id,jwt)).status).toBe(403);
+      expect(f.send).not.toHaveBeenCalled();
+      revision=22;
+      expect((await f.execute(id,jwt)).status).toBe(200);
+      expect(f.send).toHaveBeenCalledOnce();
+    }finally{f.close();}
+  });
+
   it("institutional evidence gate checks approval AND latest status before Queue execution",async()=>{
     const f=await fixture();
     try{
