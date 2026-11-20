@@ -263,6 +263,19 @@ export async function executeOneShotManualRedrive(
     // automatically here would violate the one-shot operational limit.
     outcome="uncertain";
   }
+  if(outcome==="sent" && env.asyncRequest){
+    // Queue has ALREADY been called: an institutional cancellation during
+    // send cannot retract its message. Never attest "sent" as a clean
+    // outcome if D1 now reports an invalidation or cannot be consulted.
+    // Persist "uncertain" for manual reconciliation; never enqueue again.
+    try {
+      if(await isInstitutionalApprovalInvalidated(
+        env.DB,"redrive",env.asyncRequest.id
+      ))outcome="uncertain";
+    }catch{
+      outcome="uncertain";
+    }
+  }
   await finalize(env,id,input.commissionId,input.operatorSubject,outcome);
   return {id,state:outcome,replayed:false};
 }

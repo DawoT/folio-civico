@@ -4,6 +4,7 @@ import {syntheticOperatorAuthorization} from "../../../packages/auth/src/signed-
 import {persistDocumentUpload} from "../../../packages/data/src/documents";
 import {openRecoveryReview,decideRecoveryReview} from "../../../packages/data/src/recovery-review";
 import {handleIsolatedOperatorRequest,type IsolatedOperatorConfig} from "./isolated-host";
+import {listInstitutionalRedriveReconciliation} from "../../../packages/data/src/institutional-redrive-reconciliation";
 
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();});
 const ENDPOINT="https://operator.local/internal/operations/";
@@ -102,6 +103,174 @@ function insertSyntheticAuditedRevocation(
 }
 
 describe("R2.11 · independent asynchronous redrive authority",()=>{
+  it("reports invalidated redrive outcomes without mutating state or exposing credentials",async()=>{
+    const f=await fixture();
+    try{
+      f.env.institutionalGate={reader:{readCurrentEvidence:async(query:Record<string,unknown>)=>{
+        const t=Math.floor(Date.now()/1000);
+        return {...query,revision:12,status:"open",decision:"approved",
+          reviewerSubject:query.approverSubject,
+          checkedAt:t,reviewedAt:t-3,mfaVerifiedAt:t-6,validUntil:t+70};
+      }}};
+      const id=(await (await f.propose()).json() as {id:string}).id;
+      const jwt=await f.approvalJwt(id);
+      expect((await f.approve(id,jwt)).status).toBe(200);
+      expect((await f.execute(id,jwt)).status).toBe(200);
+      f.sqlite.prepare(`
+        INSERT INTO processing_institutional_approval_invalidations(
+          purpose,request_id,case_revision,reason,evidence_sha256
+        ) VALUES('redrive',?,12,'case_closed',?)
+      `).run(id,"c".repeat(64));
+      // A different protected proposal was invalidated before any reservation.
+      const otherId="00000000-0000-4000-8000-000000000009";
+      f.sqlite.prepare(`
+        INSERT INTO processing_async_redrive_requests(
+          id,commission_id,recovery_review_id,operator_subject,request_key,
+          approval_ref,expires_at,institutional_gate_required
+        )
+        SELECT ?,commission_id,recovery_review_id,operator_subject,
+          'institutional_reconciliation_009',approval_ref,unixepoch()+300,1
+        FROM processing_async_redrive_requests WHERE id=?
+      `).run(otherId,id);
+      f.sqlite.prepare(`
+        INSERT INTO processing_institutional_approval_invalidations(
+          purpose,request_id,case_revision,reason,evidence_sha256
+        ) VALUES('redrive',?,1,'case_superseded',?)
+      `).run(otherId,"d".repeat(64));
+      const full=await listInstitutionalRedriveReconciliation(f.db,{limit:10});
+      expect(full.nextCursor).toBeNull();
+      expect(full.items).toHaveLength(2);
+      expect(full.items).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          requestId:id,state:"sent",invalidationRevision:12,reason:"case_closed",
+          redriveId:expect.stringMatching(/^[a-f0-9-]{36}$/)
+        }),
+        expect.objectContaining({
+          requestId:otherId,state:"not_reserved",invalidationRevision:1,
+          reason:"case_superseded",redriveId:null
+        })
+      ]));
+      const first=await listInstitutionalRedriveReconciliation(f.db,{limit:1});
+      expect(first.items).toHaveLength(1);
+      expect(first.nextCursor).toBe(first.items[0]!.requestId);
+      const second=await listInstitutionalRedriveReconciliation(f.db,{
+        limit:1,afterRequestId:first.nextCursor!
+      });
+      expect(second.items).toHaveLength(1);
+      expect(second.nextCursor).toBeNull();
+      expect(second.items[0]!.requestId).not.toBe(first.items[0]!.requestId);
+      const exposed=JSON.stringify({full,first,second});
+      expect(exposed).not.toContain(jwt);
+      expect(exposed).not.toContain(f.input.approvalRef);
+      expect(exposed).not.toContain(f.signed.evidence.releaseJwt);
+      expect(exposed).not.toContain("quarantine/");
+      expect(f.send).toHaveBeenCalledOnce();
+      expect(f.sqlite.prepare(
+        "SELECT state FROM processing_manual_redrives WHERE async_request_id=?"
+      ).get(id)).toMatchObject({state:"sent"});
+    }finally{f.close();}
+  });
+
+  it("fail-closes reconciliation on invalid pagination or D1 read failure",async()=>{
+    const f=await fixture();
+    try{
+      for(const limit of [0,-1,101,1.5,NaN]){
+        await expect(listInstitutionalRedriveReconciliation(f.db,{limit}))
+          .rejects.toThrow();
+      }
+      await expect(listInstitutionalRedriveReconciliation(f.db,{
+        afterRequestId:"not-a-uuid"
+      })).rejects.toThrow();
+      const outage={
+        prepare:()=>{throw new Error("synthetic D1 offline");}
+      } as unknown as D1Database;
+      await expect(listInstitutionalRedriveReconciliation(outage))
+        .rejects.toThrow();
+      expect(f.send).not.toHaveBeenCalled();
+    }finally{f.close();}
+  });
+
+
+  it("persists uncertain instead of sent if D1 cannot be read after Queue acknowledgement",async()=>{
+    const f=await fixture();
+    try{
+      f.env.institutionalGate={reader:{readCurrentEvidence:async(query:Record<string,unknown>)=>{
+        const t=Math.floor(Date.now()/1000);
+        return {...query,revision:17,status:"open",decision:"approved",
+          reviewerSubject:query.approverSubject,
+          checkedAt:t,reviewedAt:t-3,mfaVerifiedAt:t-8,validUntil:t+70};
+      }}};
+      const id=(await (await f.propose()).json() as {id:string}).id;
+      const jwt=await f.approvalJwt(id);
+      expect((await f.approve(id,jwt)).status).toBe(200);
+      let accepted=false;
+      const send=vi.fn(async()=>{accepted=true;});
+      f.env.queue={send};
+      const db={
+        prepare:(sql:string)=>{
+          if(accepted && sql.includes("FROM processing_institutional_approval_invalidations"))
+            throw new Error("synthetic D1 read outage after Queue");
+          return f.db.prepare(sql);
+        },
+        batch:f.db.batch.bind(f.db)
+      } as unknown as D1Database;
+      const res=await f.execute(id,jwt,{
+        config:{...f.env,db},headers:f.operatorHeader,
+        releaseJwt:f.signed.evidence.releaseJwt
+      });
+      expect(accepted).toBe(true);
+      expect(res.status).toBe(202);
+      expect(await res.json()).toMatchObject({state:"uncertain",replayed:false});
+      expect(f.sqlite.prepare(
+        "SELECT state FROM processing_manual_redrives WHERE async_request_id=?"
+      ).get(id)).toMatchObject({state:"uncertain"});
+      expect(send).toHaveBeenCalledOnce();
+      expect((await f.execute(id,jwt)).status).toBe(202);
+      expect(send).toHaveBeenCalledOnce();
+    }finally{f.close();}
+  });
+
+
+  it("treats a successful Queue send as uncertain if the institutional case was invalidated during send",async()=>{
+    const f=await fixture();
+    try{
+      f.env.institutionalGate={reader:{readCurrentEvidence:async(query:Record<string,unknown>)=>{
+        const t=Math.floor(Date.now()/1000);
+        return {...query,revision:16,status:"open",decision:"approved",
+          reviewerSubject:query.approverSubject,
+          checkedAt:t,reviewedAt:t-3,mfaVerifiedAt:t-8,validUntil:t+70};
+      }}};
+      const id=(await (await f.propose()).json() as {id:string}).id;
+      const jwt=await f.approvalJwt(id);
+      expect((await f.approve(id,jwt)).status).toBe(200);
+      const send=vi.fn(async ()=>{
+        // Queue may have accepted the message; closure occurs while awaiting.
+        f.sqlite.prepare(`
+          INSERT INTO processing_institutional_approval_invalidations(
+            purpose,request_id,case_revision,reason,evidence_sha256
+          ) VALUES('redrive',?,16,'case_closed',?)
+        `).run(id,"c".repeat(64));
+      });
+      f.env.queue={send};
+      const result=await f.execute(id,jwt);
+      expect(result.status).toBe(202);
+      expect(await result.json()).toMatchObject({state:"uncertain",replayed:false});
+      expect(send).toHaveBeenCalledOnce();
+      expect(f.sqlite.prepare(
+        "SELECT state FROM processing_manual_redrives WHERE async_request_id=?"
+      ).get(id)).toMatchObject({state:"uncertain"});
+      expect((await listInstitutionalRedriveReconciliation(f.db)).items)
+        .toEqual([expect.objectContaining({requestId:id,state:"uncertain"})]);
+      expect(f.sqlite.prepare(`
+        SELECT count(*) AS n FROM audit_events
+        WHERE action='processing.manual_redrive_outcome'
+      `).get()).toMatchObject({n:1});
+      expect((await f.execute(id,jwt)).status).toBe(403);
+      expect(send).toHaveBeenCalledOnce();
+    }finally{f.close();}
+  });
+
+
   it("SQL denies a reservation if institutional invalidation arrives after preflight but before atomic insert",async()=>{
     const f=await fixture();
     try{
@@ -208,6 +377,8 @@ describe("R2.11 · independent asynchronous redrive authority",()=>{
       expect(f.send).not.toHaveBeenCalled();
       expect(f.sqlite.prepare("SELECT state FROM processing_manual_redrives").get())
         .toMatchObject({state:"halted"});
+      expect((await listInstitutionalRedriveReconciliation(f.db)).items)
+        .toEqual([expect.objectContaining({requestId:id,state:"halted"})]);
       expect((await f.execute(id,jwt)).status).toBe(403);
       expect(f.send).not.toHaveBeenCalled();
     }finally{f.close();}
