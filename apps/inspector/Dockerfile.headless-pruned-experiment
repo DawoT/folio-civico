@@ -1,0 +1,38 @@
+# NON-DEPLOYABLE R1.22: remove unused X11/Cairo runtime chain, NOT a VEX.
+# This derivative never changes experimental parent or any release image.
+FROM folio-civico-inspector:runtime-pruned-experiment
+USER root
+
+# Exact APT result prevalidated on the parent image. The removed set may not
+# include ncurses-bin (essential), OCR TIFF/Leptonica, security or PDF engines.
+ARG X11_RUNTIME_PACKAGES="libx11-6 libx11-data libxrender1"
+RUN set -eux; \
+  apt-get -s purge $X11_RUNTIME_PACKAGES > /tmp/folio-headless-plan; \
+  python3 -c 'import pathlib; p=pathlib.Path("/tmp/folio-headless-plan").read_text(); expected={"libcairo2","libxext6","libxrender1","libx11-6","libx11-data"}; removed={line.split()[1] for line in p.splitlines() if line.startswith("Purg ")}; assert removed==expected and len(removed)==5 and "WARNING:" not in p, (expected,removed)'; \
+  apt-get purge -y --no-install-recommends $X11_RUNTIME_PACKAGES; \
+  rm /tmp/folio-headless-plan; \
+  for package in libcairo2 libxext6 libxrender1 libx11-6 libx11-data; do \
+    status="$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null)" || status=""; \
+    test "$status" != "install ok installed"; \
+  done; \
+  for package in ncurses-bin libtiff6 libleptonica6 qpdf libexpat1 ca-certificates; do \
+    test "$(dpkg-query -W -f='${Status}' "$package")" = "install ok installed"; \
+  done; \
+  test -x /opt/folio-poppler/bin/pdfinfo; \
+  test -x /opt/folio-poppler/bin/pdftotext; \
+  test -x /opt/folio-poppler/bin/pdftoppm; \
+  test -x /opt/folio-poppler/bin/pdfdetach; \
+  test -x /opt/folio-poppler/bin/pdfattach; \
+  test -x /opt/folio-ocr/bin/tesseract; \
+  test -r /etc/fonts/fonts.conf; \
+  test -s /usr/share/tesseract-ocr/5/tessdata/spa.traineddata; \
+  test -s /usr/share/tesseract-ocr/5/tessdata/eng.traineddata; \
+  for tool in pdfinfo pdftotext pdftoppm pdfdetach pdfattach; do \
+    ! ldd "/opt/folio-poppler/bin/$tool" | grep -F "not found"; \
+  done; \
+  ! ldd /opt/folio-poppler/lib/libpoppler.so.147 | grep -F 'not found'; \
+  ! ldd /opt/folio-ocr/lib/libtesseract.so.5.5.4 | grep -F 'not found'; \
+  command -v clamscan; \
+  clamscan --version | grep -F 'ClamAV 1.5.5'
+USER 65534:65534
+CMD ["python3", "-I", "/srv/folio-inspector/inspector.py"]

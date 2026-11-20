@@ -50,6 +50,9 @@ function fixture() {
       documentId:"doc_a",versionId:"v_a",sha256:hash,r2Key:key,
       filename:"obra.pdf",idempotencyKey:"upload_unique_101"
     });
+    // SQLite CURRENT_TIMESTAMP follows the host clock; the simulated audit
+    // time is pinned to 2026-11-22. Fix the fixture event time as well.
+    f.sqlite.exec("UPDATE document_versions SET created_at='2026-11-15 09:00:00' WHERE id='v_a'");
   }
   return {...f, objects,calls,bucket,list,head,del,addDocument};
 }
@@ -174,8 +177,8 @@ describe("non-destructive quarantine reconciliation",()=>{
       await f.addDocument();
       f.sqlite.exec(`
         INSERT INTO documents(id,commission_id,batch_id,filename) VALUES ('doc_b','c_a','b_a','b.pdf');
-        INSERT INTO document_versions(id,document_id,version_number,sha256,r2_object_key)
-          VALUES('v_b','doc_b',1,'${CHECKSUM}','${ORPHAN_KEY}');
+        INSERT INTO document_versions(id,document_id,version_number,sha256,r2_object_key,created_at)
+          VALUES('v_b','doc_b',1,'${CHECKSUM}','${ORPHAN_KEY}','2026-11-15 09:00:00');
       `);
       f.objects.set(DOC_KEY,{uploaded:old,sha256:CHECKSUM});
       f.objects.set(ORPHAN_KEY,{uploaded:old,sha256:CHECKSUM});
