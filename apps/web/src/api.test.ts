@@ -36,6 +36,20 @@ describe("document API client", () => {
     });
   });
 
+  it("retains the updated processing status in an idempotent upload response",async()=>{
+    const fetcher=vi.fn(async()=>Response.json({
+      documentId:"doc_1",versionId:"ver_1",sha256:"a".repeat(64),
+      ingestStatus:"quarantined",processingStatus:"ready",repeated:true
+    },{status:200}));
+    const file=new File([new TextEncoder().encode("%PDF-1.7\n1 0 obj\n%%EOF")],
+      "Contrato.pdf",{type:"application/pdf"});
+    expect(await uploadPdf({
+      commissionId:"com_1",batchId:"batch_2"
+    },file,fetcher,()=> "upload_req_123")).toMatchObject({
+      documentId:"doc_1",processingStatus:"ready",repeated:true
+    });
+  });
+
   it("blocks non-PDF or oversized uploads before sending", async () => {
     const fetcher=vi.fn();
     const text=new File(["text"],"note.txt",{type:"text/plain"});

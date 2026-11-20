@@ -44,6 +44,20 @@ describe("D1 document intake security and idempotency", () => {
     } finally { f.close(); }
   });
 
+  it("returns extraction status only within an active member's authorized commission", async () => {
+    const f=fixture();
+    try {
+      await persistDocumentUpload(f.db,upload);
+      f.sqlite.exec("UPDATE document_versions SET extraction_status='needs_review' WHERE id='ver_1'");
+      expect(await getExistingUpload(f.db,"alice","c_a",upload.idempotencyKey)).toMatchObject({
+        documentId:"doc_1",versionId:"ver_1",processingStatus:"needs_review"
+      });
+      expect(await getExistingUpload(f.db,"bob","c_a",upload.idempotencyKey)).toBeNull();
+      expect(await getExistingUpload(f.db,"revoked","c_a",upload.idempotencyKey)).toBeNull();
+      expect(await getExistingUpload(f.db,"alice","c_b",upload.idempotencyKey)).toBeNull();
+    }finally{f.close();}
+  });
+
   it("refuses a write from an observer and never creates a document", async () => {
     const f = fixture();
     try {
