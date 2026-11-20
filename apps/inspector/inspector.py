@@ -196,14 +196,116 @@ def _ocr_decimal(token: str) -> Decimal:
     return value
 
 
-def require_ocr_raster_geometry(raw: str, *, page: int, count: int) -> tuple[int, int]:
+OCR_QPDF_JSON_MAX_BYTES = 1024 * 1024
+OCR_MAX_USER_UNIT = Decimal("75000")
+_OCR_PAGE_REF = re.compile(r"([1-9][0-9]{0,8}) ([0-9]{1,5}) R\Z")
+
+
+def _parse_qpdf_json(raw: str) -> dict:
+    """Read bounded QPDF v2 JSON with duplicate-key rejection."""
+    if (not isinstance(raw, str) or not raw
+            or len(raw.encode("utf-8")) > OCR_QPDF_JSON_MAX_BYTES
+            or CONTROL.search(raw)):
+        raise ReviewRequired("QPDF page structure report unavailable")
+
+    def unique_keys(pairs: list[tuple[str, object]]) -> dict:
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ReviewRequired("Ambiguous QPDF JSON object keys")
+            result[key] = value
+        return result
+
+    def reject_non_finite(_value: str) -> None:
+        raise ReviewRequired("Invalid QPDF JSON numeric constant")
+
+    try:
+        document = json.loads(
+            raw, parse_int=Decimal, parse_float=Decimal,
+            object_pairs_hook=unique_keys,
+            parse_constant=reject_non_finite,
+        )
+    except (ValueError, TypeError, OverflowError) as error:
+        raise ReviewRequired("Malformed QPDF JSON document") from error
+    if (not isinstance(document, dict)
+            or document.get("version") != Decimal(2)):
+        raise ReviewRequired("Unknown QPDF JSON contract")
+    return document
+
+
+def parse_qpdf_page_inventory(raw: str, *, count: int) -> tuple[tuple[int, int], ...]:
+    """Resolve QPDF's ordered page object IDs, not PDF-byte string searches."""
+    if type(count) is not int or not 1 <= count <= MAX_PAGES:
+        raise ReviewRequired("Unsupported page inventory length")
+    document = _parse_qpdf_json(raw)
+    pages = document.get("pages")
+    if not isinstance(pages, list) or len(pages) != count:
+        raise ReviewRequired("Incomplete QPDF ordered page inventory")
+    objects = []
+    for i, record in enumerate(pages, 1):
+        if (not isinstance(record, dict)
+                or type(record.get("pageposfrom1")) is not Decimal
+                or record["pageposfrom1"] != Decimal(i)
+                or not isinstance(record.get("object"), str)):
+            raise ReviewRequired("Ambiguous QPDF page reference")
+        match = _OCR_PAGE_REF.fullmatch(record["object"])
+        if not match:
+            raise ReviewRequired("Unsupported QPDF page reference")
+        object_number, generation = map(int, match.groups())
+        if object_number > 1_000_000 or generation > 65535:
+            raise ReviewRequired("Out-of-range QPDF page reference")
+        objects.append((object_number, generation))
+    if len(set(objects)) != count:
+        raise ReviewRequired("Duplicate QPDF page references")
+    return tuple(objects)
+
+
+def parse_qpdf_user_unit(
+    raw: str, *, object_number: int, generation: int,
+) -> Decimal:
+    """Fail closed if page /UserUnit is nonnumeric, indirect, or out of range.
+
+    QPDF's JSON decoding resolves object streams and names, but an indirect
+    numeric /UserUnit reference must be handled in a future reviewed parser.
+    Rejecting it avoids silently assuming the default unit.
+    """
+    if (type(object_number) is not int or not 1 <= object_number <= 1_000_000
+            or type(generation) is not int or not 0 <= generation <= 65535):
+        raise ReviewRequired("Invalid QPDF page object identity")
+    doc = _parse_qpdf_json(raw)
+    objects = doc.get("qpdf")
+    key = f"obj:{object_number} {generation} R"
+    if (not isinstance(objects, list) or len(objects) != 2
+            or not isinstance(objects[0], dict)
+            or objects[0].get("jsonversion") != Decimal(2)
+            or not isinstance(objects[1], dict)
+            or set(objects[1]) != {key}):
+        raise ReviewRequired("Unexpected QPDF page dictionary identity")
+    entry = objects[1][key]
+    if (not isinstance(entry, dict) or not isinstance(entry.get("value"), dict)
+            or entry["value"].get("/Type") != "/Page"):
+        raise ReviewRequired("Unexpected QPDF page dictionary shape")
+    value = entry["value"].get("/UserUnit", Decimal(1))
+    if (type(value) is not Decimal or not value.is_finite()
+            or not Decimal(1) <= value <= OCR_MAX_USER_UNIT):
+        raise ReviewRequired("Unsupported PDF UserUnit for OCR")
+    return value
+
+
+def require_ocr_raster_geometry(
+    raw: str, *, page: int, count: int,
+    user_unit: Decimal,
+) -> tuple[int, int]:
     """Fail closed on per-page MediaBox before pdftoppm -r 180 -png.
 
     Conservative OCR budget from pdfinfo's rounded MediaBox, not its CropBox
-    page-size line. Not a validator for UserUnit, internal Poppler rendering,
-    source/ELF identity, or all possible PDF content stream allocations.
+    page-size line. When QPDF identifies a nondefault UserUnit, scale the
+    estimated pixel budget pessimistically even if pdftoppm ignores UserUnit.
+    This does not verify internal Poppler memory or source/ELF identity.
     """
     if (type(page) is not int or type(count) is not int
+            or type(user_unit) is not Decimal or not user_unit.is_finite()
+            or not Decimal(1) <= user_unit <= OCR_MAX_USER_UNIT
             or not 1 <= page <= count <= MAX_PAGES or not isinstance(raw, str)
             or not raw or CONTROL.search(raw)
             or len(raw.encode("utf-8")) > OCR_MAX_METADATA_BYTES):
@@ -249,9 +351,11 @@ def require_ocr_raster_geometry(raw: str, *, page: int, count: int) -> tuple[int
     # two-coordinate rounding margin rather than assuming the printed box is
     # exact. Decimal avoids binary float and signed-overflow arithmetic here.
     width_px = int(((width_pt + OCR_GEOMETRY_ROUNDING_MARGIN_PT)
-                    * OCR_DPI / 72).to_integral_value(rounding=ROUND_CEILING))
+                    * user_unit * OCR_DPI / 72).to_integral_value(
+                        rounding=ROUND_CEILING))
     height_px = int(((height_pt + OCR_GEOMETRY_ROUNDING_MARGIN_PT)
-                     * OCR_DPI / 72).to_integral_value(rounding=ROUND_CEILING))
+                     * user_unit * OCR_DPI / 72).to_integral_value(
+                         rounding=ROUND_CEILING))
     if (width_px < 1 or height_px < 1
             or max(width_px, height_px) > OCR_MAX_SIDE_PX
             or width_px * height_px > OCR_MAX_PIXELS):
@@ -300,6 +404,7 @@ def inspect_pdf(
             if count < 1 or count > MAX_PAGES:
                 raise ReviewRequired("Unsupported number of pages")
             pages: list[dict] = []
+            qpdf_page_objects: tuple[tuple[int, int], ...] | None = None
             for page in range(1, count + 1):
                 if time.monotonic() - started > MAX_TOTAL_SECONDS:
                     raise ScannerUnavailable("PDF processing exceeded total time budget")
@@ -309,6 +414,24 @@ def inspect_pdf(
                 ], directory)
                 text = raw.strip()
                 if not text:
+                    # QPDF resolves page dictionaries including object streams.
+                    # pdfinfo -box does NOT expose UserUnit. Obtain page IDs
+                    # once, then read only this exact page's dictionary JSON.
+                    if qpdf_page_objects is None:
+                        qpdf_page_objects = parse_qpdf_page_inventory(
+                            run(["qpdf", "--json", "--json-key=pages",
+                                 str(source)], directory),
+                            count=count,
+                        )
+                    object_number, generation = qpdf_page_objects[page - 1]
+                    user_unit = parse_qpdf_user_unit(
+                        run([
+                            "qpdf", "--json", "--json-key=qpdf",
+                            f"--json-object={object_number},{generation}",
+                            str(source),
+                        ], directory),
+                        object_number=object_number, generation=generation,
+                    )
                     # Check the effective MediaBox of *this* OCR page before
                     # Poppler allocates the 180 DPI raster. Page size/CropBox
                     # would understate the area for pdftoppm without -cropbox.
@@ -316,7 +439,9 @@ def inspect_pdf(
                         "pdfinfo", "-f", str(page), "-l", str(page),
                         "-box", str(source),
                     ], directory)
-                    require_ocr_raster_geometry(box_info, page=page, count=count)
+                    require_ocr_raster_geometry(
+                        box_info, page=page, count=count, user_unit=user_unit,
+                    )
                     # Rasterize ONLY in the isolated sandbox; never serve these
                     # derived images until a separate sanitization gate exists.
                     output_prefix = directory / "ocr-page"
