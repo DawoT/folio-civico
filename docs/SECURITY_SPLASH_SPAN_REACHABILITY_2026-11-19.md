@@ -98,6 +98,14 @@ bash apps/inspector/audit_image.sh --experiment --advisories
   BLOQUEADO**, 0 CRITICAL / 70 HIGH / 19 UNKNOWN, dos componentes
   de fuente sin cobertura CVE completa. La entrada anterior de 89
   bloqueos no significa 89 CVE independientes corregibles.
+- CI integral local `FOLIO_E2E_PORT=43079 sh scripts/ci.sh`: **exit 0**,
+  incluyendo **199/199 pruebas Python del inspector**, **21/21 pruebas de
+  estudio UX5**, Vitest/workerd, TypeScript, builds Workers `--dry-run`,
+  Chromium E2E y migraciones D1 **solo locales hasta `0030`**.
+- Smoke de motores existentes `bash apps/inspector/verify_raster_guard.sh`:
+  **exit 0, 8/8** (antivirus, OCR, PDF nativo, aislamiento, cifrados,
+  adjuntos y malformados). La imagen existente **no** incorpora el overlay
+  ni el ensayo R1.24; el smoke no prueba la remediación del overflow.
 - Este trabajo no modifica `Dockerfile.poppler-experiment`, etiquetas
   `validation`, `ocr-integrated` ni `poppler-experiment`.
   Tampoco realiza OCI push/retag, Cloudflare, D1 remoto o despliegues.
