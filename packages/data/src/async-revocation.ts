@@ -3,6 +3,7 @@ import {
   signedHash,isVerifiedAsyncIncidentActor,isVerifiedAsyncIncidentDecision,
   type VerifiedAsyncActor,type VerifiedAsyncDecision,type StoredRevocationScope
 } from "@folio/auth";
+import {areOperatorSubjectsRevoked} from "./async-authority-guards";
 
 /** An isolated two-session workflow. No network bindings or endpoint here. */
 export class AsyncRevocationDenied extends Error {}
@@ -40,6 +41,9 @@ export async function proposeAsyncRevocation(
 ):Promise<AsyncRevocationResult>{
   if(!validRevocationScope(scope)||!isVerifiedAsyncIncidentActor(actorProof)){
     throw new AsyncRevocationDenied("A configured actor and valid scope are required");
+  }
+  if(await areOperatorSubjectsRevoked(db,actorProof.subject)){
+    throw new AsyncRevocationDenied("Incident actor authority withdrawn");
   }
   const [targetHash,reasonHash]=await Promise.all([
     signedHash([scope.kind,scope.target]),
@@ -90,6 +94,9 @@ export async function approveAsyncRevocation(
 ):Promise<Pick<AsyncRevocationResult,"status"|"replayed">>{
   if(!isVerifiedAsyncIncidentDecision(decision,stored)){
     throw new AsyncRevocationDenied("Independent signed approval required");
+  }
+  if(await areOperatorSubjectsRevoked(db,stored.actorSubject,decision.approverSubject)){
+    throw new AsyncRevocationDenied("Incident authority withdrawn");
   }
   if(stored.status==="approved"){
     // A replay is legitimate only with the ORIGINAL approving JWS and identity
