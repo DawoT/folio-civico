@@ -81,4 +81,6 @@ bash apps/inspector/scan_libmount_prune_experiment.sh  # exit 2: bloqueado
 FOLIO_E2E_PORT=4177 sh scripts/ci.sh
 \`\`\`
 
-**CI funcional:** solo script local sh; no se requiere GitHub Actions. El estado de publicación permanece independiente del éxito de CI.
+**CI funcional local verificada:** `FOLIO_E2E_PORT=42991 sh scripts/ci.sh` terminó **exit 0**; incluyó 7 controles del contrato de CI local, **223/223 Python inspector**, Vitest, TypeScript `tsc --noEmit`, compilaciones de Web/API/MCP/Processor/Gateway, dry-runs de Workers, pruebas workerd locales, **81/81 Chromium Playwright** (desktop/móvil/reflow) y migraciones D1 **solo locales**. El puerto 42991 evita colisiones entre worktrees sin modificar el script de CI.
+
+No se requiere GitHub Actions. La aprobación de publicación es independiente del éxito de CI y sigue denegada por el gate de vulnerabilidades (exit 2).
