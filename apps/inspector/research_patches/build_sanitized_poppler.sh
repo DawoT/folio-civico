@@ -27,6 +27,16 @@ patch --batch --forward --fuzz=0 -p1 -i /prototypes/CVE-2026-93312-trixie-protot
 patch --batch --forward --fuzz=0 -p1 -i /prototypes/CVE-2026-93313-trixie-prototype.patch
 sha256sum --check /fixtures/patched.sha256
 
+# R1.15: typeinfo for AnnotLink has hidden visibility in Debian's libpoppler.
+# UBSan's vptr instrumentation in pdfinfo would require that non-exported RTTI.
+# Scope the exemption to pdfinfo's *compiler* target, not Poppler or other utils.
+# Only the isolated /work copy's CMakeLists.txt changes, after SHA validation.
+CMAKE_UTILS=/work/source/utils/CMakeLists.txt
+test "$(grep -Fxc 'add_executable(pdfinfo ${pdfinfo_SOURCES})' "$CMAKE_UTILS")" -eq 1
+! grep -Fq 'target_compile_options(pdfinfo PRIVATE -fno-sanitize=vptr)' "$CMAKE_UTILS"
+printf '\n# R1.15 isolated sanitizer test only: hidden AnnotLink RTTI.\ntarget_compile_options(pdfinfo PRIVATE -fno-sanitize=vptr)\n' >> "$CMAKE_UTILS"
+test "$(grep -Fxc 'target_compile_options(pdfinfo PRIVATE -fno-sanitize=vptr)' "$CMAKE_UTILS")" -eq 1
+
 export HOME=/work
 export XDG_CACHE_HOME=/work/.cache
 export ASAN_OPTIONS="detect_leaks=0:abort_on_error=1:allocator_may_return_null=1"
@@ -45,5 +55,5 @@ cmake -S /work/source -B /work/build -G Ninja \
   -DENABLE_CAIRO=OFF -DENABLE_LIBTIFF=OFF -DENABLE_BOOST=OFF \
   -DENABLE_UTILS=ON
 
-cmake --build /work/build --parallel 2 --target pdftotext pdftoppm
+cmake --build /work/build --parallel 2 --target pdftotext pdftoppm pdfinfo
 bash /prototypes/check_sanitized_poppler.sh

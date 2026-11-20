@@ -37,3 +37,21 @@ El verificador compara los cuatro rasters y dos salidas de texto contra el
 builder Debian original. La investigación mantiene `release_authorized=false`,
 sin VEX, CVE cerrados, recursos remotos ni autorización de procesamiento.
 Véase [dossier R1.14](../../../docs/SECURITY_POPPLER_ASAN_UBSAN_BUILD_2026-11-19.md).
+
+
+## R1.15 · Validación adicional de pdfinfo (SIN RELEASE)
+
+El fallo RTTI `undefined reference to typeinfo for AnnotLink` de R1.14
+fue causado por `-fvisibility=hidden` y la instrumentación `vptr` de
+UBSan en `pdfinfo`. R1.15 añade `target_compile_options(pdfinfo PRIVATE
+-fno-sanitize=vptr)` únicamente a la copia CMake dentro de `/work/source`
+**después** de validar los SHA-256. No cambia el árbol del repositorio ni la
+biblioteca/otros ejecutables. `pdfinfo` conserva ASan y los demás controles
+de UBSan, y se ensaya con LeakSanitizer activo para 5 informes de metadatos
+y 1 anotación URI sintética; los renderizadores conservan `detect_leaks=0`.
+
+La ejecución completa exigió **5/5 metadatos y 1/1 salida de URL idénticos**
+a la fuente Debian original, más los controles R1.14 de raster y texto.
+`test_poppler_rtti_sanitizer.py` añade seis pruebas fail-closed.
+Véase [R1.15](../../../docs/SECURITY_POPPLER_RTTI_SANITIZER_2026-11-19.md).
+**No habilita CVE, imagen, OCR remoto, Preview ni producción.**

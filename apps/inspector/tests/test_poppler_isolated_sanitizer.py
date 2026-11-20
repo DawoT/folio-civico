@@ -107,7 +107,7 @@ class PopplerIsolatedSanitizerTests(unittest.TestCase):
             path = Path(tmp)
             create_fixture_files(path, fake)
             self.assertEqual(sorted(p.name for p in path.glob("*.pdf")), [
-                "clipped.pdf", "native.pdf", "sampled32.pdf",
+                "clipped.pdf", "linked.pdf", "native.pdf", "sampled32.pdf",
                 "scanned.pdf", "truncated.pdf",
             ])
 
@@ -147,11 +147,20 @@ class PopplerIsolatedSanitizerTests(unittest.TestCase):
                     )
                 (folder / "native.txt").write_text("EXPEDIENTE OBRA 2026\n")
                 (folder / "scanned.txt").write_text("\f")
+                for pdf in ("native", "scanned", "clipped", "sampled32", "linked"):
+                    (folder / ("pdfinfo-" + pdf + ".txt")).write_text(
+                        "Pages: 1\nEncrypted: no\nPDF version: 1.4\n"
+                    )
+                (folder / "linked-urls.txt").write_text(
+                    "Page  Type URL\n1 Annotation https://example.invalid/folio-r115\n"
+                )
             fixtures(baseline)
             fixtures(patched)
             self.assertEqual(compare_synthetic_parity(baseline, patched), {
                 "four_rasters_pixel_identical": True,
                 "two_text_outputs_identical": True,
+                "five_pdfinfo_reports_identical": True,
+                "one_link_report_identical": True,
             })
             (patched / "clipped.pgm").write_bytes(
                 b"P5\n10 10\n255\n" + b"\x00" * 99 + b"\x11"
@@ -160,6 +169,19 @@ class PopplerIsolatedSanitizerTests(unittest.TestCase):
                 compare_synthetic_parity(baseline, patched)
             fixtures(patched)
             (patched / "native.txt").write_text("EXPEDIENTE OBRA 2026 altered\n")
+            with self.assertRaises(ValueError):
+                compare_synthetic_parity(baseline, patched)
+            fixtures(patched)
+            (patched / "pdfinfo-linked.txt").write_text(
+                "Pages: 1\nEncrypted: no\nPDF version: 1.4\nChanged: yes\n"
+            )
+            with self.assertRaises(ValueError):
+                compare_synthetic_parity(baseline, patched)
+            fixtures(patched)
+            (patched / "linked-urls.txt").write_text(
+                "Page Type URL\n1 Annotation https://example.invalid/folio-r115\n"
+                "Unexpected: extra\n"
+            )
             with self.assertRaises(ValueError):
                 compare_synthetic_parity(baseline, patched)
 

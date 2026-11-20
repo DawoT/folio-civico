@@ -68,6 +68,20 @@ def sampled_32bit_pdf() -> bytes:
     ])
 
 
+def linked_annotation_pdf() -> bytes:
+    """One synthetic URI annotation; no external navigation or network use."""
+    return _pdf([
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+         b"/Contents 4 0 R /Annots [5 0 R] >>"),
+        _stream(b"q\n0 0 0 rg\n20 50 10 10 re f\nQ\n"),
+        (b"<< /Type /Annot /Subtype /Link /Rect [50 500 200 600] "
+         b"/Border [0 0 0] /A << /S /URI "
+         b"/URI (https://example.invalid/folio-r115) >> >>"),
+    ])
+
+
 def read_artifacts(
     source_directory: Path, fix_directory: Path, prototype_directory: Path,
 ) -> tuple[dict[str, bytes], dict[str, bytes], dict[str, bytes]]:
@@ -113,6 +127,7 @@ def create_fixture_files(directory: Path, report: dict) -> None:
         "clipped.pdf": clipped_pdf(),
         "sampled32.pdf": sampled_32bit_pdf(),
         "truncated.pdf": malformed_pdf(),
+        "linked.pdf": linked_annotation_pdf(),
     }
     expected_baseline = report["baseline_sha256"]
     expected_modified = report["prototype_source_sha256"]
@@ -203,6 +218,40 @@ def inspect_results(output: Path) -> dict:
 
 
 
+
+PDFINFO_FIXTURES = ("native", "scanned", "clipped", "sampled32", "linked")
+TEST_ANNOTATION_URI = "https://example.invalid/folio-r115"
+
+
+def inspect_pdfinfo_reports(root: Path) -> dict[str, str]:
+    """Verify bounded actual metadata outputs; no external URIs are opened."""
+    result: dict[str, str] = {}
+    for name in PDFINFO_FIXTURES:
+        path = root / ("pdfinfo-" + name + ".txt")
+        if (not path.is_file() or path.is_symlink()
+                or not 0 < path.stat().st_size <= 16 * 1024):
+            raise ValueError("Missing or untrusted pdfinfo report")
+        payload = path.read_bytes()
+        text = payload.decode("utf-8", errors="strict")
+        for pattern in (
+            r"(?m)^Pages:[ \t]+1[ \t]*$",
+            r"(?m)^Encrypted:[ \t]+no[ \t]*$",
+            r"(?m)^PDF version:[ \t]+1\.4[ \t]*$",
+        ):
+            if len(re.findall(pattern, text)) != 1:
+                raise ValueError("Inconsistent synthetic pdfinfo metadata")
+        result[name] = hashlib.sha256(payload).hexdigest()
+    links = root / "linked-urls.txt"
+    if (not links.is_file() or links.is_symlink()
+            or not 0 < links.stat().st_size <= 4096):
+        raise ValueError("Link annotation report missing or untrusted")
+    text = links.read_text("utf-8", errors="strict")
+    if text.count(TEST_ANNOTATION_URI) != 1 or "Annotation" not in text:
+        raise ValueError("Expected synthetic URI annotation not recovered")
+    result["linked_uri_report"] = hashlib.sha256(links.read_bytes()).hexdigest()
+    return result
+
+
 def build_baseline_args(
     builder_id: str, fixtures: Path, baseline: Path, *, docker: str = "docker",
 ) -> list[str]:
@@ -225,6 +274,12 @@ def build_baseline_args(
         "/fixtures/native.pdf /baseline/native.txt\n"
         "/opt/folio-poppler/bin/pdftotext -enc UTF-8 "
         "/fixtures/scanned.pdf /baseline/scanned.txt\n"
+        "for sample in native scanned clipped sampled32 linked; do\n"
+        "  /opt/folio-poppler/bin/pdfinfo /fixtures/$sample.pdf "
+        "> /baseline/pdfinfo-$sample.txt\n"
+        "done\n"
+        "/opt/folio-poppler/bin/pdfinfo -url /fixtures/linked.pdf "
+        "> /baseline/linked-urls.txt\n"
     )
     return [
         docker, "run", "--rm", "--pull", "never", "--network", "none",
@@ -251,7 +306,14 @@ def compare_synthetic_parity(baseline: Path, patched: Path) -> dict[str, bool]:
             raise ValueError("Synthetic text comparison links are unsafe")
         if original_file.read_bytes() != patched_file.read_bytes():
             raise ValueError("Synthetic PDF text changed after research patches")
-    return {"four_rasters_pixel_identical": True, "two_text_outputs_identical": True}
+    if inspect_pdfinfo_reports(baseline) != inspect_pdfinfo_reports(patched):
+        raise ValueError("Sanitized pdfinfo differs from pinned Debian baseline")
+    return {
+        "four_rasters_pixel_identical": True,
+        "two_text_outputs_identical": True,
+        "five_pdfinfo_reports_identical": True,
+        "one_link_report_identical": True,
+    }
 
 
 def inspect_isolated_build(
@@ -298,12 +360,14 @@ def inspect_isolated_build(
                 or declared.get("scan_pdf") != "parsed"
                 or declared.get("clip_pdf") != "rendered"
                 or declared.get("sampled_function_32bit") != "rendered"
-                or declared.get("pdfinfo_sanitized_link_verified") is not False
+                or declared.get("pdfinfo_sanitized_link_verified") is not True
+                or declared.get("pdfinfo_leak_probe_passed") is not True
                 or declared.get("release_authorized") is not False
                 or type(declared.get("malformed_exit")) is not int
                 or not 0 <= declared["malformed_exit"] < 128):
             raise ValueError("Incomplete sanitizer declaration")
         results = inspect_results(outputs)
+        metadata = inspect_pdfinfo_reports(outputs)
         baseline = root / "baseline"
         baseline.mkdir(mode=0o777)
         baseline.chmod(0o777)
@@ -326,10 +390,13 @@ def inspect_isolated_build(
         "sanitizers": ["address", "undefined"],
         "asan_leak_detection_enabled": False,
         "synthetic_fixtures": results,
+        "pdfinfo_reports_sha256": metadata,
         "baseline_parity": parity,
         "malformed_exit": declared["malformed_exit"],
         "research_binary_compiled": True,
-        "pdfinfo_sanitized_link_verified": False,
+        "pdfinfo_sanitized_link_verified": True,
+        "pdfinfo_leak_probe_passed": True,
+        "ubsan_vptr_disabled_for": ["pdfinfo"],
         "source_binary_equivalence_to_runtime_verified": False,
         "cve_fixes_verified": False,
         "image_release_authorized": False,
