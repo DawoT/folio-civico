@@ -5,6 +5,7 @@ import { EmptyState } from "./ui/FeedbackStates";
 import { StatusBadge } from "./ui/StatusBadge";
 import { ReviewExportPanel, type ReportExportStatus } from "./ui/ReviewExportPanel";
 import { ReviewEvidenceContext, canPrepareReviewDecision } from "./ui/ReviewEvidenceContext";
+import { ReviewDecisionGuidance, REVIEW_NOTE_MAX_LENGTH } from "./ui/ReviewDecisionGuidance";
 import { ChecklistFilters, countChecklistByStatus, filterChecklistRows, isInternallyValidated, type ChecklistAreaFilter, type ChecklistStatusFilter } from "./ui/ChecklistFilters";
 import { ObservationInboxFilters, countLoadedObservations, filterLoadedObservations, inboxEmptyText, type InboxFilter } from "./ui/ObservationInbox";
 import { makeReviewSummary, type ReviewSummary } from "./layout/CommissionOverview";
@@ -498,10 +499,13 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
                 <div className="decision-panel">
                   <ReviewEvidenceContext record={record}/>
                   <TextareaField id={`review-note-${record.id}`} label="Justificación de la decisión humana"
-                    rows={3} maxLength={1000} value={reviewNote} disabled={transitionBusy}
+                    rows={3} maxLength={REVIEW_NOTE_MAX_LENGTH} value={reviewNote} disabled={transitionBusy}
                     onChange={event=>setReviewNote(event.target.value)}
-                    hint="Mínimo 15 caracteres. La revisión debe ser independiente."
+                    aria-describedby={`review-decision-guidance-${record.id}`}
+                    hint="La revisión debe ser independiente; describe lo comprobado."
                     placeholder="Describe la comprobación independiente realizada (mínimo 15 caracteres)."/>
+                  <ReviewDecisionGuidance id={`review-decision-guidance-${record.id}`}
+                    note={reviewNote} confirmed={reviewConfirmed}/>
                   <label className="attestation">
                     <input type="checkbox" checked={reviewConfirmed} disabled={transitionBusy}
                       onChange={event=>setReviewConfirmed(event.target.checked)}/>

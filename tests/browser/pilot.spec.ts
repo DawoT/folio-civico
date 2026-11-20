@@ -149,6 +149,8 @@ test("keyboard-only commission and batch opening, with visible focus",async({pag
   await page.goto("/");
   await expect(page.getByLabel("Identificador de comisión")).toBeEnabled();
   await page.keyboard.press("Tab");
+  await expect(page.getByRole("link",{name:"Saltar al contenido principal"})).toBeFocused();
+  await page.keyboard.press("Tab");
   await expect(page.getByLabel("Identificador de comisión")).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(page.getByLabel("Identificador de comisión")).toHaveValue("c_a");

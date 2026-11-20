@@ -1,4 +1,7 @@
-import {useEffect,useRef,useState,type FormEvent} from "react";
+import {useEffect,useId,useRef,useState,type FormEvent} from "react";
+import { Field, SelectField } from "./ui/Fields";
+import { Button } from "./ui/Button";
+import { InlineAlert } from "./ui/InlineAlert";
 import {
   loadCommissionMembers,grantCommissionMember,revokeCommissionMember,
   bootstrapPilotCommission,
@@ -18,6 +21,7 @@ function MemberLine({member,currentSubject,busy,onGrant,onRevoke}:{
   onRevoke:(member:CommissionMember)=>void;
 }) {
   const [role,setRole]=useState(member.role);
+  const roleFieldId=useId();
   const [confirmRevoke,setConfirmRevoke]=useState(false);
   useEffect(()=>{setRole(member.role);setConfirmRevoke(false);},[member.role,member.revision]);
   const self=member.subject===currentSubject;
@@ -31,13 +35,11 @@ function MemberLine({member,currentSubject,busy,onGrant,onRevoke}:{
       </div>
       {!self && (
         <div className="member-controls">
-          <label>
-            <span>Rol de {member.subject}</span>
-            <select value={role} disabled={!allowed}
-              onChange={event=>setRole(event.target.value as CommissionMemberRole)}>
-              {roleOptions.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
-          </label>
+          <SelectField id={roleFieldId} label={`Rol de ${member.subject}`}
+            value={role} disabled={!allowed}
+            onChange={event=>setRole(event.target.value as CommissionMemberRole)}>
+            {roleOptions.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}
+          </SelectField>
           <button type="button" className="button secondary"
             aria-label={member.active?`Actualizar rol de ${member.subject}`:`Reactivar ${member.subject}`}
             disabled={!allowed||(member.active&&role===member.role)}
@@ -141,23 +143,26 @@ export function CommissionAdminPanel({commissionId,currentSubject}:{
       <p className="review-note">Solo la presidencia activa administra accesos. Usa el identificador
         exacto <code>sub</code> de Cloudflare Access, no una dirección de correo supuesta.</p>
       <form className="manage-form" onSubmit={submitMember} aria-label="Incorporar miembro">
-        <label htmlFor="new-member-subject">Identificador de Access (sub)</label>
-        <input id="new-member-subject" value={newSubject} maxLength={200}
+        <Field id="new-member-subject" label="Identificador de Access (sub)"
+          hint="Identificador exacto de Access; conserva mayúsculas y caracteres del valor sub."
+          type="text" value={newSubject} maxLength={200}
+          spellCheck={false} autoComplete="off" autoCapitalize="none"
           onChange={event=>setNewSubject(event.target.value)}
           placeholder="Identidad Access verificada" required disabled={busy||loading}/>
-        <label htmlFor="new-member-role">Rol inicial</label>
-        <select id="new-member-role" value={newRole} disabled={busy||loading}
+        <SelectField id="new-member-role" label="Rol inicial"
+          hint="No uses una dirección de correo supuesta. El rol concede permisos sobre esta comisión."
+          value={newRole} disabled={busy||loading}
           onChange={event=>setNewRole(event.target.value as CommissionMemberRole)}>
           {roleOptions.map(option=><option value={option.value} key={option.value}>{option.label}</option>)}
-        </select>
-        <button className="button secondary" type="submit"
-          disabled={busy||loading||!newSubject||newSubject===currentSubject
+        </SelectField>
+        <Button variant="secondary" type="submit" busy={busy}
+          disabled={loading||!newSubject||newSubject===currentSubject
             ||members.some(member=>member.subject===newSubject)}>
           {busy?"Guardando…":"Incorporar miembro"}
-        </button>
+        </Button>
       </form>
-      {error && <p className="message error" role="alert">{error}</p>}
-      {notice && <p className="message success" role="status">{notice}</p>}
+      {error && <InlineAlert tone="error">{error}</InlineAlert>}
+      {notice && <InlineAlert tone="success">{notice}</InlineAlert>}
       {loading? <p role="status">Consultando miembros…</p> :
         <ul className="member-list">
           {members.map(member=><MemberLine key={member.subject} member={member}
@@ -209,24 +214,27 @@ export function BootstrapCommissionPanel({onCreated}:{
       <p className="review-note">Alta inicial reservada a una identidad operadora autorizada.
         La identidad designada como presidente debe estar verificada previamente en Access.</p>
       <form className="manage-form" onSubmit={create} aria-label="Crear comisión institucional de piloto">
-        <label htmlFor="bootstrap-name">Nombre de la comisión</label>
-        <input id="bootstrap-name" value={name} maxLength={160} required disabled={busy}
+        <Field id="bootstrap-name" label="Nombre de la comisión"
+          hint="Denominación para identificar la comisión en esta mesa de trabajo."
+          value={name} maxLength={160} required disabled={busy}
           onChange={event=>setName(event.target.value)} placeholder="Comisión distrital de transferencia"/>
-        <label htmlFor="bootstrap-president">Primer presidente — identidad Access (sub)</label>
-        <input id="bootstrap-president" value={president} maxLength={200} required disabled={busy}
+        <Field id="bootstrap-president" label="Primer presidente — identidad Access (sub)"
+          hint="Identidad Access previamente verificada por la entidad. Usa el sub exacto, no una dirección supuesta."
+          type="text" value={president} maxLength={200} required disabled={busy}
+          spellCheck={false} autoComplete="off" autoCapitalize="none"
           onChange={event=>setPresident(event.target.value)} placeholder="Identidad verificada"/>
         <label className="attestation">
           <input type="checkbox" checked={confirmed} disabled={busy}
             onChange={event=>setConfirmed(event.target.checked)}/>
           Confirmo que verifiqué la identidad del primer presidente y tengo autorización de la entidad
         </label>
-        <button className="button primary" type="submit"
-          disabled={busy||!confirmed||name.trim().length<6||!president}>
+        <Button variant="primary" type="submit" busy={busy}
+          disabled={!confirmed||name.trim().length<6||!president}>
           {busy?"Registrando comisión…":"Crear comisión"}
-        </button>
+        </Button>
       </form>
-      {error && <p className="message error" role="alert">{error}</p>}
-      {notice && <p className="message success" role="status">{notice}</p>}
+      {error && <InlineAlert tone="error">{error}</InlineAlert>}
+      {notice && <InlineAlert tone="success">{notice}</InlineAlert>}
     </section>
   );
 }

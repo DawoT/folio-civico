@@ -1,4 +1,5 @@
 import type { ObservationEvidence, ObservationRow } from "../api";
+import { reviewDecisionProgress } from "./ReviewDecisionGuidance";
 
 function declared(value: unknown): string {
   return typeof value === "string" && value.trim() ? value : "No declarado";
@@ -93,6 +94,5 @@ export function canPrepareReviewDecision(
     && record.canReview === true
     && activeReviewId === record.id
     && confirmed
-    && note.trim().length >= 15
-    && note.trim().length <= 1000;
+    && reviewDecisionProgress(note, confirmed).enough;
 }

@@ -2,6 +2,7 @@ import type {ProcessingQueueMessage} from "./processing-outbox";
 import {isVerifiedRedriveAuthorization,type VerifiedRedriveAuthorization} from "@folio/auth";
 import {isManualRedriveRevoked} from "./redrive-revocations";
 import {isAsyncRedriveApproverRevoked} from "./async-redrive";
+import {isInstitutionalApprovalInvalidated} from "./institutional-approval-journal";
 
 /**
  * Internal, isolated operator operation only. This function is deliberately
@@ -170,7 +171,10 @@ export async function executeOneShotManualRedrive(
   // before ANY replay or mutation; D1 outages deny access, never bypass it.
   try{
     if(await isManualRedriveRevoked(env.DB,env.authorization!)
-      || (env.asyncRequest && await isAsyncRedriveApproverRevoked(env.DB,env.asyncRequest.id))){
+      || (env.asyncRequest && await isAsyncRedriveApproverRevoked(env.DB,env.asyncRequest.id))
+      || (env.asyncRequest && await isInstitutionalApprovalInvalidated(
+        env.DB,"redrive",env.asyncRequest.id
+      ))){
       throw new Error("Revoked");
     }
   }catch{
@@ -232,7 +236,10 @@ export async function executeOneShotManualRedrive(
   // If the revocation lookup fails here, leave the durable reservation in
   // place without Queue.send; a subsequent replay cannot resend it.
   const revoked=await isManualRedriveRevoked(env.DB,env.authorization!)
-    || (env.asyncRequest && await isAsyncRedriveApproverRevoked(env.DB,env.asyncRequest.id));
+    || (env.asyncRequest && await isAsyncRedriveApproverRevoked(env.DB,env.asyncRequest.id))
+    || (env.asyncRequest && await isInstitutionalApprovalInvalidated(
+      env.DB,"redrive",env.asyncRequest.id
+    ));
   if(revoked || !verified || verified.versionId!==row.versionId
     || verified.sourceSha256!==row.sourceSha256
     || !isVerifiedRedriveAuthorization(env.authorization,{
