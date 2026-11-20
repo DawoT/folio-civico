@@ -10,10 +10,13 @@ import { handleMemberRequest } from "./member-routes";
 import { handleBootstrapRequest } from "./bootstrap-routes";
 import { runQuarantineAudit, runProcessingAudit } from "./maintenance";
 import { handleTextRequest } from "./text-routes";
+import { handleStorageReadiness } from "./readiness";
 
 export interface ApiEnv extends AccessConfig {
   /** Unset by default. Only the exact verified Access JWT sub may bootstrap. */
   COMMISSION_BOOTSTRAP_OPERATOR_SUBJECT?: string;
+  /** Separate operator identity for read-only storage readiness; unset by default. */
+  READINESS_OPERATOR_SUBJECT?: string;
   DB?: D1Database;
   DOCUMENTS?: R2Bucket;
   /** Optional until operator configures an isolated Folio Cívico Queue. */
@@ -34,6 +37,7 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
   }
 
   const bootstrapCapability = url.pathname === "/api/session";
+  const readiness = url.pathname === "/api/internal/readiness";
   const discovery = url.pathname === "/api/commissions";
   const batches = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/batches$/.exec(url.pathname);
   const memberRevoke = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/members\/revoke$/.exec(url.pathname);
@@ -46,13 +50,21 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
   const reviewExport = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/export$/.exec(url.pathname);
   const observationDetail = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
   const textPages = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/documents\/([A-Za-z0-9_-]{1,64})\/pages$/.exec(url.pathname);
-  if (!bootstrapCapability && !discovery && !batches && !members && !memberRevoke && !checklistProvision && !route && !documents && !review && !transition && !reviewExport && !observationDetail && !textPages) return json({ error: "Not found" }, 404);
-  if (((bootstrapCapability || route) && request.method !== "GET")
+  if (!bootstrapCapability && !readiness && !discovery && !batches && !members && !memberRevoke && !checklistProvision && !route && !documents && !review && !transition && !reviewExport && !observationDetail && !textPages) return json({ error: "Not found" }, 404);
+  if (((bootstrapCapability || route || readiness) && request.method !== "GET")
     || (discovery && request.method !== "GET" && request.method !== "POST")
     || (batches && request.method !== "GET" && request.method !== "POST")) return json({ error: "Method not allowed" }, 405);
 
   const subject = await authenticateAccess(request, env);
   if (!subject) return json({ error: "Unauthorized" }, 401);
+  if (readiness) {
+    if (!env.READINESS_OPERATOR_SUBJECT || env.READINESS_OPERATOR_SUBJECT !== subject) {
+      return json({ error: "Not found" }, 404);
+    }
+    const origin=request.headers.get("Origin");
+    if(origin && origin!==url.origin) return json({error:"Forbidden"},403);
+    return handleStorageReadiness(env);
+  }
   if (!env.DB) return json({ error: "Service not configured" }, 503);
   if (bootstrapCapability) return handleBootstrapRequest(request,{DB:env.DB,operatorSubject:env.COMMISSION_BOOTSTRAP_OPERATOR_SUBJECT},subject,"capability");
   if (discovery && request.method === "POST") return handleBootstrapRequest(request,{DB:env.DB,operatorSubject:env.COMMISSION_BOOTSTRAP_OPERATOR_SUBJECT},subject,"create");
