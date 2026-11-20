@@ -10,6 +10,7 @@
     "test:workers": "vitest run --config vitest.workers.config.ts",
     "test:browser": "playwright test --config=playwright.config.ts",
     "test:performance": "playwright test --config=playwright.performance.config.ts",
+    "test:lighthouse": "node scripts/run-lighthouse.mjs",
     "demo:local": "pnpm --dir apps/web exec node demo-local.mjs",
     "test:demo": "playwright test --config=playwright.demo.config.ts",
     "test:inspector": "python3 -m unittest discover -s apps/inspector/tests",
@@ -28,6 +29,7 @@
     "@cloudflare/workers-types": "^5.20261118.1",
     "@playwright/test": "1.65.1",
     "@types/node": "^24.0.0",
+    "lighthouse": "13.6.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.0",
     "wrangler": "^4.0.0"
