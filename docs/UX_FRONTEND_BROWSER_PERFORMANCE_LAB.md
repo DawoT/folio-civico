@@ -48,7 +48,7 @@ sh scripts/ci.sh
 
 ## Pendiente, no acreditado
 
-- **Lighthouse:** no se ha ejecutado una auditoría Lighthouse; su perfil de hardware, red y umbrales requieren un experimento adicional.
+- **Lighthouse:** [PERF-003](UX_FRONTEND_LIGHTHOUSE_LAB.md) ya ejecuta tres auditorías móviles sobre el shell inicial no autenticado con simulación de red/CPU. Aún no hay Lighthouse de un flujo autorizado ni perfil de hardware profesional o umbrales temporales validados.
 - **Core Web Vitals de campo:** no hay RUM, usuarios reales, percentiles de población ni INP medido. La medición inicial de LCP/CLS **no** equivale a Core Web Vitals de producción.
 - **Flujos completos:** este laboratorio mide **la primera navegación a la pantalla inicial**, no tiempos de subida, revisión, exportación, carga con historial grande ni latencia del API.
 - **UX-5.6 humana:** siguen pendientes las sesiones moderadas, NVDA, VoiceOver y zoom nativo.
