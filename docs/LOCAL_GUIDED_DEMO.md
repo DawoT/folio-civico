@@ -28,6 +28,9 @@ La creación de observaciones y su segunda revisión utilizan la **API de produc
 
 ```sh
 pnpm test:demo
+# Requiere compilar primero el frontend; mide el backend firmado local
+pnpm --filter @folio/web build
+pnpm test:demo:performance
 pnpm typecheck
 pnpm build
 ```

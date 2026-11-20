@@ -59,6 +59,9 @@ pnpm test:browser
 step 'Loopback guided demo E2E (real API, signed local JWT, SQLite in-memory)'
 pnpm test:demo
 
+step 'PERF-005 built frontend + signed local API and SQLite (read-only laboratory)'
+pnpm test:demo:performance
+
 for config in \
   apps/api/wrangler.jsonc \
   apps/mcp/wrangler.jsonc \
