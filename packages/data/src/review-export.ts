@@ -67,8 +67,9 @@ export async function collectFinalizedReviews(
   // membership inside that query alone is insufficient: an empty result
   // would still expose the commission metadata fetched above, and a
   // completed query could return sensitive rows after revocation.
-  // Recheck immediately before assembling the response, with no further
-  // asynchronous work between the authorization decision and return.
+  // Recheck before assembling the collection, with no further awaits here.
+  // API callers must revalidate again after any asynchronous serialization
+  // or hashing before returning a download.
   const currentCommission = await getCommissionSummary(db, subject, commissionId);
   if (!currentCommission) return null;
 
