@@ -39,6 +39,30 @@ Los cuatro casos control conservan **identidad exacta de raster** entre ambas co
 | `splash_triangle` | `f1a3b46b6801f1dfb1432a46b3ab54f56a6f40be617dffead450c0769eaf7575` |
 | `splash_far` | `13bcd1fc4385cca9bb4ac72c30ff3e87dcbd9bb2cd868d5ff3a93b4ebcdb5e0f` |
 
+### Verificación limpia definitiva
+
+Tras corregir la dependencia accidental de Python dentro del builder, la ejecución
+**completa desde fuentes originales**, sin reutilizar los objetos compilados
+del pase de diagnóstico, devolvió `exit 0` y
+`status=isolated_adversarial_source_comparison_only`.
+
+- **`two_numeric_ub_differentials_observed=true`**: dos rutas reales
+  de `pdftoppm` produjeron UBSan en la fuente original y ninguna señal
+  en la variante con los cinco parches de investigación.
+- **`four_control_rasters_identical=true`**: dos controles JBIG2 y dos
+  controles Splash reprodujeron el mismo SHA-256 del raster en ambas
+  compilaciones. Los dos casos con abortos UBSan no se cuentan como paridad.
+- `original_sanitizer_findings` contiene exclusivamente
+  `sampled32=ubsan_shift_exponent_32` y
+  `jbig2_intmin=ubsan_signed_integer_overflow`.
+  `prototype_sanitizer_findings={}` para el corpus observado.
+- **`jbig2_intmin_syntax_warning_remains=true`** y
+  `targeted_pdf_cases_without_exploit_reproduction=["splash_far","jbig2_large_page"]`.
+  Estos estados **no** se ocultan ni reclasifican como corrección.
+- Builder local de investigación por digest:
+  `sha256:2f57f656317dc0b6106437640c8b91ee1a9452fe5c019b2e53dbd6a007272049`.
+  No se generó ni etiquetó una imagen de runtime.
+
 ## Comprobación aritmética independiente: fuente, no parser
 
 `apps/inspector/poppler_arithmetic_boundary_probe.py` valida SHA-256 exactos de cinco archivos de la extracción Debian (`FoFiTrueType.cc`, `Function.cc`, `JBIG2Stream.cc`, `SplashClip.cc`, `GooCheckedOps.h`) y compila con UBSan `research_patches/differential_arithmetic_boundaries.cc`. Este micro-harness **reproduce las expresiones**, pero **no invoca** las rutas de procesamiento del PDF. Los resultados diferenciados se deben interpretar como **pruebas de las operaciones aritméticas**, no como PoCs de las CVE.
@@ -78,6 +102,29 @@ bash apps/inspector/audit_image.sh --experiment --advisories
 ```
 
 El JSON principal solo puede afirmar `status=isolated_adversarial_source_comparison_only` tras verificar **dos diferencias UBSan** esperadas, **cuatro controles raster idénticos** y todos los artefactos de entrada/salida. Independientemente del resultado, siempre conserva `individual_cve_fix_verified=false`, `cve_remediation_claimed=false`, `source_binary_equivalence_to_runtime_verified=false` y `release_authorized=false`. Cualquier ejecución incompleta o evidencia inesperada devuelve `exit 3`.
+
+## Verificaciones de integración y gates, ejecutadas
+
+- **Probe completo offline desde cero:** `poppler_adversarial_differential.py` terminó con
+  **`exit 0`**, después de compilar ambos árboles con ASan/UBSan y
+  verificar dos errores del parser original, ninguna señal de sanitizador en
+  los seis casos parcheados y cuatro controles con raster idéntico.
+- **Harness aritmético de fuente SHA-pinned:** `poppler_arithmetic_boundary_probe.py`
+  terminó con **`exit 0`**: cuatro fallos del original/guards de prototipo
+  y dos expresiones todavía desprotegidas en ambas variantes.
+- **Unitarias del inspector:** `python3 -m unittest discover -s apps/inspector/tests
+  -p 'test_*.py'`: **162/162 aprobadas**, incluidas 13 nuevas R1.16
+  de corpus sintético, validadores negativos, errores de entrada y hashes.
+- **`sh scripts/ci.sh`: exit 0** sobre los últimos cambios concurrentes de
+  UX y R2 integrados en la rama: Vitest/workerd, TypeScript, builds dry-run,
+  Playwright Chromium E2E/accesibilidad y migraciones D1 `0025`
+  **exclusivamente locales**. El CI general no ejecuta Trivy.
+- **`bash apps/inspector/verify_raster_guard.sh`: exit 0, 8/8** sobre la
+  imagen experimental existente **sin** los prototipos, incluidos antivirus,
+  parser aislado, OCR/nativo y rechazo de PDFs prohibidos.
+- **`bash apps/inspector/audit_image.sh --experiment --advisories`: exit 2
+  BLOQUEADO** — 0 CRITICAL, **70 HIGH / 19 UNKNOWN**, dos motores nativos
+  sin cobertura CVE completa. Sin VEX ni excepción.
 
 ## Riesgos no resueltos y siguiente criterio
 
