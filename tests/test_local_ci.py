@@ -118,6 +118,17 @@ class LocalCiContractTests(unittest.TestCase):
         self.assertIn("--throttling-method=simulate", runner)
         self.assertIn("--only-categories=performance", runner)
 
+    def test_navigation_failures_upload_only_synthetic_trace_and_geometry(self):
+        """A failed Chromium anchor click must leave useful, bounded diagnostics."""
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn("Preserve synthetic Playwright failure evidence", workflow)
+        self.assertIn("if: failure()", workflow)
+        self.assertIn("actions/upload-artifact@v4", workflow)
+        self.assertIn("test-results/task-navigation-*/task-anchor-diagnostics.json", workflow)
+        self.assertIn("test-results/task-navigation-*/trace.zip", workflow)
+        self.assertIn("retention-days: 3", workflow)
+        self.assertNotIn("path: test-results/**", workflow)
+
     def test_browser_failures_block_database_steps_and_success(self):
         self.env["CI_FAIL_STEP"] = "test:browser"
         result = self.run_ci()
