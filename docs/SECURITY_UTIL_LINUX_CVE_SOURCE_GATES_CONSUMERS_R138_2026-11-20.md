@@ -1,5 +1,7 @@
 # R1.38 — Control de cuatro CVE y consumidores Debian reales (NO RELEASE)
 
+> **Fe de erratas R1.39 (2026-11-20):** la atribución de CVE-2026-78409 a la fuente `folio2` fue un **falso positivo de aplicabilidad**: el verificador R1.38 exigía un parche de una ruta de ejecución introducida en util-linux 2.42, mientras que la rama 2.41.6 bloquea `X-mount.subdir` de usuarios restringidos antes de entrar al montaje temporal. Los avisos upstream/Red Hat consideran no afectada la línea 2.41; Debian aún marca Trixie vulnerable. Los datos de abajo se conservan como registro histórico de la hipótesis inicial, **no como conclusión vigente**. Véase [dossier y prueba corregida R1.39](SECURITY_UTIL_LINUX_CVE_78409_APPLICABILITY_R139_2026-11-20.md). La puerta G2 sigue bloqueada.
+
 **Fecha:** 2026-11-20. **Base:** R1.37 / PR #98 fusionada con CI completa verde en `main` (`5d7acf5e11abcfc608ca6d645c2611b3985cdfa4`). **Ámbito:** investigación en `util-linux 2.41.6-0+folio2~deb13u1`, sin instalar paquetes, construir o publicar una nueva imagen, ni levantar G2.
 
 ## Hallazgo crítico: CVE-2026-78409 no cuenta con el guard esperado en folio2
