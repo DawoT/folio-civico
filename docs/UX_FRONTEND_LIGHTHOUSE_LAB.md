@@ -40,6 +40,29 @@ Tres ejecuciones reales de Lighthouse 13.6.0, bajo el perfil anterior:
 
 Por eso, **PERF-003 no introduce un umbral de puntuación o milisegundos** que se pueda ajustar para desbloquear un PR. El gate exige que Lighthouse realmente funcione y produzca tres informes válidos; el presupuesto de transferencia PERF-001 sigue siendo el límite cuantitativo exigible.
 
+## Corrección de CI — salida ANSI de Vite Preview
+
+Tras integrar PERF-003 en `main`, las ejecuciones de GitHub Actions
+reproducían `Vite preview startup timed out` a los 25 segundos, antes de
+invocar Lighthouse. La causa no era un resultado de rendimiento: con `CI=true`
+Vite introduce códigos de color ANSI incluso **entre el host y el puerto** de
+la línea `Local: http://127.0.0.1:<puerto>/`. El runner esperaba el URL
+literal sin esos códigos y nunca reconocía la señal de su propio proceso.
+Se reprodujo el cambio de formato en un Vite real ejecutado localmente con
+`CI=true`, confirmando la diferencia en stdout.
+
+La corrección elimina únicamente secuencias ANSI de la salida del proceso
+antes de contrastar el marcador `Local:` y el **origen/puerto exactos**;
+también acepta el mismo marcador en stderr. No reduce el número de auditorías,
+no cambia los perfiles ni los umbrales de integridad; mantiene
+`--strictPort`, origen loopback, el proceso nuevo y la verificación del
+frontend compilado. Una URL diferente o texto sin marcador siguen fallando.
+
+**TDD:** prueba de ANSI partido en el número de puerto, salida sin ANSI,
+puerto incorrecto, URL ajena y texto incidental. Red: 3/4 aprobadas (1 nueva
+fallida); Green: **4/4 aprobadas**. La integración CI de GitHub es necesaria
+antes de afirmar que el bloqueo común quedó resuelto.
+
 ## Reproducir
 
 ```sh
