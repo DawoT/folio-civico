@@ -19,6 +19,7 @@ EXPECTED = [
     "build",
     "test:workers",
     "test:browser",
+    "test:demo",
     "exec wrangler d1 migrations apply folio-civico-preview --local --config apps/api/wrangler.jsonc",
     "exec wrangler d1 migrations apply folio-civico-preview --local --config apps/mcp/wrangler.jsonc",
     "exec wrangler d1 migrations apply folio-civico-preview --local --config apps/processor/wrangler.jsonc",
@@ -75,6 +76,14 @@ class LocalCiContractTests(unittest.TestCase):
         result = self.run_ci()
         self.assertEqual(result.returncode, 47)
         self.assertEqual(self.calls(), EXPECTED[:8])
+        self.assertNotIn("CI PASSED", result.stdout)
+        self.assertFalse(any("d1 migrations" in call for call in self.calls()))
+
+    def test_demo_failure_blocks_database_steps_and_success(self):
+        self.env["CI_FAIL_STEP"] = "test:demo"
+        result = self.run_ci()
+        self.assertEqual(result.returncode, 47)
+        self.assertEqual(self.calls(), EXPECTED[:9])
         self.assertNotIn("CI PASSED", result.stdout)
         self.assertFalse(any("d1 migrations" in call for call in self.calls()))
 
