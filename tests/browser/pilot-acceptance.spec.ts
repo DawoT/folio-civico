@@ -143,7 +143,10 @@ test("UX-5.1: complete synthetic multi-role pilot acceptance and evidence receip
         observations: Array<{ status: string; authorSubject: string; reviewedBy: string }>;
       };
       expect(report.kind).toBe("internal_human_review");
-      expect(report.completeness).toEqual({ included: 1, truncated: false });
+      expect(report.completeness).toEqual({
+        included:1, truncated:false, maximumPerExport:500,
+        statuses:["validated","dismissed"]
+      });
       expect(report.observations).toHaveLength(1);
       expect(report.observations[0]).toMatchObject({
         status: "validated", authorSubject: "author", reviewedBy: "reviewer"

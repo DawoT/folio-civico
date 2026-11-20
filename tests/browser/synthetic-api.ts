@@ -248,9 +248,15 @@ export class SyntheticPilotApi {
       if(action==="export" && method==="GET"){
         const records=this.observations.filter(o=>o.commissionId===cid &&
           (o.status==="validated" || o.status==="dismissed"));
+        const commission=this.commissions.find(item=>item.id===cid);
         const payload=JSON.stringify({
           schemaVersion:1,kind:"internal_human_review",
-          commission:{id:cid},completeness:{included:records.length,truncated:false},
+          generatedAt:new Date().toISOString(),
+          commission:{id:cid,name:commission?.name,status:commission?.status},
+          completeness:{
+            statuses:["validated","dismissed"],included:records.length,
+            truncated:false,maximumPerExport:500
+          },
           observations:records,disclaimer:"No constituye acta oficial."
         });
         const sha=createHash("sha256").update(payload).digest("hex");
