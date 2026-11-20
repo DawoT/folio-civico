@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from decimal import Decimal
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -15,6 +17,13 @@ SPEC.loader.exec_module(inspector)
 
 PDF = b"%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF"
 SHA = hashlib.sha256(PDF).hexdigest()
+
+
+def bounded_geometry(raw: str, *, page: int, count: int) -> tuple[int, int]:
+    """Security contract: a caller MUST supply a resolved UserUnit."""
+    return inspector.require_ocr_raster_geometry(
+        raw, page=page, count=count, user_unit=Decimal(1),
+    )
 
 
 def box_report(
@@ -34,7 +43,7 @@ def box_report(
 
 class GeometryBudgetTests(unittest.TestCase):
     def test_media_box_cropped_size_does_not_understate_raster(self):
-        result = inspector.require_ocr_raster_geometry(
+        result = bounded_geometry(
             box_report(2, media="0 0 200 200", crop="20 30 120 90",
                        size="100 x 60"),
             page=2, count=2,
@@ -42,7 +51,7 @@ class GeometryBudgetTests(unittest.TestCase):
         self.assertEqual(result, (501, 501))
 
     def test_inherited_media_box_not_reduced_by_crop(self):
-        result = inspector.require_ocr_raster_geometry(
+        result = bounded_geometry(
             box_report(2, media="0 0 500 300", crop="100 10 300 210",
                        size="200 x 200"),
             page=2, count=2,
@@ -50,7 +59,7 @@ class GeometryBudgetTests(unittest.TestCase):
         self.assertEqual(result, (1251, 751))
 
     def test_cropbox_outside_media_is_clamped_by_poppler_without_underbudgeting(self):
-        result = inspector.require_ocr_raster_geometry(
+        result = bounded_geometry(
             box_report(2, media="0 0 200 200", crop="0 0 400 400",
                        size="200 x 200"),
             page=2, count=2,
@@ -59,7 +68,7 @@ class GeometryBudgetTests(unittest.TestCase):
 
     def test_rejects_pixel_budget_even_when_each_side_passes(self):
         with self.assertRaises(inspector.ReviewRequired):
-            inspector.require_ocr_raster_geometry(
+            bounded_geometry(
                 box_report(2, media="0 0 3000 3000", size="3000 x 3000"),
                 page=2, count=2,
             )
@@ -67,12 +76,12 @@ class GeometryBudgetTests(unittest.TestCase):
     def test_legitimate_spanish_unicode_in_metadata_is_not_rejected(self):
         report = "Title: Expediente técnico de hidráulica\n" + box_report(2)
         self.assertEqual(
-            inspector.require_ocr_raster_geometry(report, page=2, count=2),
+            bounded_geometry(report, page=2, count=2),
             (1488, 2106),
         )
 
     def test_negative_origin_is_allowed_only_for_bounded_extent(self):
-        dims = inspector.require_ocr_raster_geometry(
+        dims = bounded_geometry(
             box_report(2, media="-100 -100 100 100", size="200 x 200"),
             page=2, count=2,
         )
@@ -86,7 +95,7 @@ class GeometryBudgetTests(unittest.TestCase):
             ("270", (1001, 501)),
         ):
             with self.subTest(rotation=rotation):
-                result = inspector.require_ocr_raster_geometry(
+                result = bounded_geometry(
                     box_report(2, media="0 0 200 400", rot=rotation,
                                size="200 x 400"),
                     page=2, count=2,
@@ -95,7 +104,7 @@ class GeometryBudgetTests(unittest.TestCase):
 
     def test_supports_valid_a1_and_a2_as_provisional_product_limit(self):
         for box in ("0 0 1684 2384", "0 0 1191 1684"):
-            self.assertTrue(all(n > 0 for n in inspector.require_ocr_raster_geometry(
+            self.assertTrue(all(n > 0 for n in bounded_geometry(
                 box_report(2, media=box, size="200 x 300"), page=2, count=2
             )))
 
@@ -107,7 +116,7 @@ class GeometryBudgetTests(unittest.TestCase):
             ("0 0 10000 10000", "0 0 100 100"),
         ):
             with self.subTest(box=box), self.assertRaises(inspector.ReviewRequired):
-                inspector.require_ocr_raster_geometry(
+                bounded_geometry(
                     box_report(2, media=box, crop=crop, size="100 x 1"),
                     page=2, count=2,
                 )
@@ -133,7 +142,7 @@ class GeometryBudgetTests(unittest.TestCase):
         )
         for raw in invalid:
             with self.subTest(tail=raw[-80:]), self.assertRaises(inspector.ReviewRequired):
-                inspector.require_ocr_raster_geometry(raw, page=2, count=2)
+                bounded_geometry(raw, page=2, count=2)
 
     def test_rejects_invalid_rectangle_coordinate_and_scientific_overflow(self):
         for box in (
@@ -149,7 +158,7 @@ class GeometryBudgetTests(unittest.TestCase):
             "0 0 99999999999999999999999999 842",
         ):
             with self.subTest(box=box), self.assertRaises(inspector.ReviewRequired):
-                inspector.require_ocr_raster_geometry(
+                bounded_geometry(
                     box_report(2, media=box), page=2, count=2
                 )
 
@@ -163,7 +172,7 @@ class GeometryBudgetTests(unittest.TestCase):
             (report, 2, 101),
         ):
             with self.subTest(page=page, count=count), self.assertRaises(inspector.ReviewRequired):
-                inspector.require_ocr_raster_geometry(text, page=page, count=count)
+                bounded_geometry(text, page=page, count=count)
 
 
 class PipelineTests(unittest.TestCase):
@@ -184,6 +193,25 @@ class PipelineTests(unittest.TestCase):
             return "ClamAV 1.5.5/28187/2026-11-18"
         if op == "qpdf" and argv[1] == "--is-encrypted":
             return "not_encrypted"
+        if op == "qpdf" and argv[1] == "--json":
+            if "--json-key=pages" in argv:
+                return json.dumps({
+                    "version": 2, "pages": [
+                        {"object": "3 0 R", "pageposfrom1": 1},
+                        {"object": "4 0 R", "pageposfrom1": 2},
+                    ],
+                })
+            number = int(next(
+                arg.split("=", 1)[1].split(",")[0]
+                for arg in argv if arg.startswith("--json-object=")
+            ))
+            return json.dumps({
+                "version": 2,
+                "qpdf": [
+                    {"jsonversion": 2},
+                    {f"obj:{number} 0 R": {"value": {"/Type": "/Page"}}},
+                ],
+            })
         if op == "pdfdetach":
             return "0 embedded files\n"
         if op == "pdfinfo":
