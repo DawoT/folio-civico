@@ -77,7 +77,12 @@ export class SyntheticPilotApi {
         status:"validated",validatedBy:"reviewer",
         createdAt:"2026-11-18T10:00:00.000Z",
         reviewedBy:"reviewer",reviewedAt:"2026-11-18T11:00:00.000Z",
-        reviewNote:"Comprobación de archivo anterior",evidence:[]
+        reviewNote:"Comprobación de archivo anterior",
+        evidence:[{
+          type:"SEARCH_SCOPE",commissionId:"c_a",
+          checklistItemId:"item_a",batchId:"b_a",reviewerId:"author",
+          searchedAt:"2026-11-18T10:00:00.000Z"
+        }]
       });
     }
   }
