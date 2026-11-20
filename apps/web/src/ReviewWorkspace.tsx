@@ -3,6 +3,7 @@ import {InspectedTextViewer} from "./InspectedTextViewer";
 import { Field, SelectField, TextareaField } from "./ui/Fields";
 import { EmptyState } from "./ui/FeedbackStates";
 import { StatusBadge } from "./ui/StatusBadge";
+import { ReviewEvidenceContext, canPrepareReviewDecision } from "./ui/ReviewEvidenceContext";
 import { ObservationInboxFilters, countLoadedObservations, filterLoadedObservations, inboxEmptyText, type InboxFilter } from "./ui/ObservationInbox";
 import { makeReviewSummary, type ReviewSummary } from "./layout/CommissionOverview";
 import {
@@ -211,7 +212,9 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
   }
 
   async function changeStatus(record:ObservationRow,action:"submit"|"validate"|"dismiss") {
-    if(transitionBusy || (action!=="submit" && (!reviewConfirmed || reviewNote.trim().length<15))) return;
+    if(action==="submit") {
+      if(transitionBusy || record.status!=="draft" || record.canSubmit!==true) return;
+    } else if(!canPrepareReviewDecision(record, activeReviewId, reviewNote, reviewConfirmed, transitionBusy)) return;
     setTransitionBusy(true);setError("");setNotice("");
     try {
       const note=action==="submit"?undefined:reviewNote.trim();
@@ -378,7 +381,7 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
               ++linkedRequest.current;setLinkedRecord(null);setFocusedPage(null);setLinkedError("");setLinkedLoading(false);
             }}>Cerrar detalle</button>
           </div>
-          {linkedLoading && <p role="status">Consultando evidencia original…</p>}
+          {linkedLoading && <p role="status">Consultando el detalle autorizado de la observación…</p>}
           {linkedError && <p role="alert" className="message error">{linkedError}</p>}
           {linkedRecord && (
             <div>
@@ -456,7 +459,7 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
               </button>
               {record.evidence.map((proof,index) =>
                 <p className="proof-reference" key={index}>
-                  {proof.type === "SEARCH_SCOPE" ? "Búsqueda documentada" : proof.type === "DOCUMENT_PAGE" ? "Página verificada" : "Fuente oficial"}
+                  {proof.type === "SEARCH_SCOPE" ? "Búsqueda documentada" : proof.type === "DOCUMENT_PAGE" ? "Referencia a página documental" : "Fuente registrada"}
                   {" · "}
                   {proof.type === "SEARCH_SCOPE" ? `Lote ${String(proof.batchId)} · ${String(proof.searchedAt)}` :
                     proof.type === "DOCUMENT_PAGE" ? `Versión ${String(proof.documentVersionId)} · Página ${String(proof.page)}` :
@@ -478,6 +481,7 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
               )}
               {record.canReview && activeReviewId===record.id && (
                 <div className="decision-panel">
+                  <ReviewEvidenceContext record={record}/>
                   <TextareaField id={`review-note-${record.id}`} label="Justificación de la decisión humana"
                     rows={3} maxLength={1000} value={reviewNote} disabled={transitionBusy}
                     onChange={event=>setReviewNote(event.target.value)}
@@ -490,10 +494,10 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
                   </label>
                   <div className="decision-actions">
                     <button type="button" className="button primary"
-                      disabled={transitionBusy || !reviewConfirmed || reviewNote.trim().length<15}
+                      disabled={!canPrepareReviewDecision(record, activeReviewId, reviewNote, reviewConfirmed, transitionBusy)}
                       onClick={()=>void changeStatus(record,"validate")}>Validar internamente</button>
                     <button type="button" className="button secondary"
-                      disabled={transitionBusy || !reviewConfirmed || reviewNote.trim().length<15}
+                      disabled={!canPrepareReviewDecision(record, activeReviewId, reviewNote, reviewConfirmed, transitionBusy)}
                       onClick={()=>void changeStatus(record,"dismiss")}>Descartar</button>
                   </div>
                 </div>

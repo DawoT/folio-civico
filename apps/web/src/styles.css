@@ -552,6 +552,84 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
   .review-grid { grid-template-columns: 1fr; }
 }
 
+/* UX-3.2: evidence is context for human review, never an original-file preview. */
+.review-evidence-context {
+  display: grid;
+  gap: var(--fc-space-3);
+  padding: var(--fc-space-4);
+  margin-bottom: var(--fc-space-4);
+  border: 1px solid var(--fc-color-border-default);
+  border-radius: var(--fc-radius-control);
+  background: var(--fc-color-surface-base);
+  min-width: 0;
+}
+.review-evidence-context h4,
+.review-evidence-context h5 {
+  margin: 0;
+  color: var(--fc-color-text-primary);
+  letter-spacing: -.02em;
+}
+.review-evidence-context h4 { font-size: 17px; }
+.review-evidence-context h5 { font-size: var(--fc-type-label); }
+.review-evidence-disclaimer {
+  margin: 0;
+  color: var(--fc-color-text-secondary);
+  font-size: var(--fc-type-label);
+  line-height: 1.6;
+}
+.review-evidence-metadata {
+  display: grid;
+  gap: var(--fc-space-2);
+  margin: 0;
+  min-width: 0;
+}
+.review-evidence-metadata > div {
+  display: grid;
+  grid-template-columns: minmax(85px, 115px) minmax(0, 1fr);
+  gap: var(--fc-space-2);
+  padding: var(--fc-space-2) 0;
+  border-bottom: 1px solid var(--fc-color-border-default);
+}
+.review-evidence-metadata dt {
+  color: var(--fc-color-text-secondary);
+  font-size: var(--fc-type-caption);
+}
+.review-evidence-metadata dd {
+  margin: 0;
+  color: var(--fc-color-text-primary);
+  font-size: var(--fc-type-label);
+  font-weight: 600;
+  line-height: 1.5;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.review-evidence-list {
+  list-style: decimal;
+  padding-left: var(--fc-space-5);
+  margin: 0;
+  display: grid;
+  gap: var(--fc-space-3);
+}
+.review-evidence-list li {
+  min-width: 0;
+  padding-left: var(--fc-space-1);
+  color: var(--fc-color-text-primary);
+  overflow-wrap: anywhere;
+}
+.review-evidence-list li strong { font-size: var(--fc-type-label); }
+.review-evidence-list li p,
+.review-evidence-empty {
+  margin: var(--fc-space-1) 0 0;
+  color: var(--fc-color-text-secondary);
+  font-size: var(--fc-type-caption);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.review-evidence-list code { overflow-wrap: anywhere; word-break: break-all; }
+@media (max-width: 440px) {
+  .review-evidence-metadata > div { grid-template-columns: 1fr; gap: var(--fc-space-1); }
+}
+
 .decision-panel { margin-top: 13px; padding: 15px; border: 1px solid #cbded8; border-radius: 10px; background: #f8fbf9; }
 .decision-panel > label:not(.attestation) { display: block; font-size: 13px; font-weight: 700; margin-bottom: 8px; }
 .decision-panel textarea { width: 100%; min-height: 94px; resize: vertical; padding: 11px;
