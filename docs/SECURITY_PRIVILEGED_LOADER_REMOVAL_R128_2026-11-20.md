@@ -71,6 +71,8 @@ Se añadieron exclusivamente archivos experimentales, sin cambiar el entrypoint 
 
 **Estabilidad de CI local:** al ejecutar `sh scripts/ci.sh`, Vitest falló inicialmente en cuatro casos de dos suites ajenas al inspector. Se reprodujeron **los mismos cuatro fallos en la rama base R1.27**. Causa: fixtures de `quarantine-audit.test.ts` y `processing-pipeline.e2e.test.ts` combinaban `CURRENT_TIMESTAMP` real de SQLite con evaluaciones simuladas fijadas a noviembre 2026; el reloj de ejecución había cruzado el límite temporal. Se corrigieron **solo las fechas de los fixtures sintéticos**, no el código productivo. Los **16/16 tests focalizados** pasaron tras el cambio. La CI integral se vuelve a ejecutar para confirmar.
 
+**CI integral local verificada después del ajuste de fixtures:** `FOLIO_E2E_PORT=4177 sh scripts/ci.sh` terminó **exit 0**. Se comprobaron 7 tests del contrato de CI local, **217/217 Python inspector**, Vitest TypeScript, `tsc --noEmit`, builds web/API/MCP/processor/gateway, cuatro Workers dry-runs, pruebas Workers con D1/R2 locales y **81/81 Chromium Playwright** (desktop, móvil y reflow). Migraciones D1 se aplicaron o verificaron **solo en bases locales**. El override `FOLIO_E2E_PORT` ya está soportado por `playwright.config.ts` y evita colisiones entre worktrees simultáneos; **el código del script `scripts/ci.sh` no se modificó**. No se utilizó GitHub Actions ni se autorizó despliegue.
+
 Los comandos R1.24 continúan físicamente presentes y potencialmente invocables mediante loader en **la imagen base R1.27**. R1.28 **no corrige retrospectivamente esa imagen ni promueve la nueva**: exige utilizar solo el nuevo experimento para evaluar esta defensa, y queda sujeto a revisión humana.
 
 ## Reproducción local
