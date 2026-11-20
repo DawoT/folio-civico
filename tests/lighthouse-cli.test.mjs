@@ -56,6 +56,16 @@ describe("PERF-003 Lighthouse CLI report integrity and safe process diagnostics"
     )).rejects.toThrow(/timed out/i);
   });
 
+  it("does not await inherited stdout pipes after its process timeout",async()=>{
+    const started=Date.now();
+    await expect(fixture(
+      "require('node:child_process').spawn(process.execPath,"+
+      "['-e','setTimeout(()=>{},1500)'],"+
+      "{stdio:['ignore','inherit','inherit']});process.exit(0);",200
+    )).rejects.toThrow(/timed out/i);
+    expect(Date.now()-started).toBeLessThan(1200);
+  });
+
   it("returns the actual valid JSON when every child requirement was met",async()=>{
     const report={lighthouseVersion:"13.6.0",requestedUrl:"http://127.0.0.1:4181/"};
     const result=await fixture(
