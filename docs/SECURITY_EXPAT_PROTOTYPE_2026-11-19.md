@@ -93,10 +93,50 @@ TDD: las pruebas de R1.20 empezaron con **importación fallida** al faltar los v
 
 **Limitaciones explícitas:** CycloneDX no cubre automáticamente todos los CVE de componentes compilados desde fuente; los hashes identifican el binario, pero **no equivalen a atestación firmada del build, prueba de reproducibilidad, VEX ni aprobación institucional**. Es necesario clasificar los 70 HIGH y 19 UNKNOWN con evidencia específica y controles independientes. El experimento sigue heredando una imagen Poppler no desplegable.
 
+## R1.21 · Menor superficie de ataque en runtime (eliminación de GnuPG)
+
+**Alcance:** investigación local, imagen `folio-civico-inspector:runtime-pruned-experiment`, derivada de la imagen experimental Expat, **no** de una imagen aprobada para release.
+
+**Hallazgo:** Trivy reportaba siete hallazgos HIGH de `CVE-2026-24882`, uno por cada paquete `dirmngr`, `gnupg`, `gnupg-l10n`, `gpg`, `gpg-agent`, `gpgconf` y `gpgsm`. Una prueba `apt-get -s purge` realizada dentro del contenedor anterior confirmó que, tras sustituir Poppler por nuestro build fuente sin GPGME, se podía retirar esta cadena **sin eliminar los analizadores PDF**; APT enumeró nueve paquetes para eliminar, contando `libgpgme11t64` y `libgpgmepp6t64`. Este cambio no debe confundirse con la remediación de Poppler ni de ClamAV.
+
+**Implementación TDD:**
+- `Dockerfile.runtime-pruned-experiment`: etapa de investigación que hereda `expat-experiment`, realiza simulación APT y **compara el conjunto exacto de nueve paquetes** antes de ejecutar el purge. Nunca ejecuta `autoremove` ni permite retirar paquetes esenciales de Debian. Tras purgar valida `dpkg-query`, las cinco utilidades Poppler, Tesseract, modelos español/inglés, fontconfig, enlaces sin bibliotecas ausentes y ClamAV 1.5.5.
+- `build_runtime_pruned_experiment.sh`: crea una **etiqueta nueva** sin modificar ni `expat-experiment` ni las otras etiquetas; vuelve a correr 6 smokes de motores PDF/ClamAV/OCR y 4 smokes HTTP con contenedores sin red, sin privilegios ni puertos.
+- `runtime_prune_comparison.py` y `scan_runtime_pruned_experiment.sh`: obtienen escaneo Trivy y SBOM CycloneDX de ambas imágenes, verifican los digest Docker y exigen que solo desaparezcan los nueve paquetes permitidos y sus alertas. Cualquier cambio de paquete o CVE no autorizado **falla**, no se suprimen avisos. El comando final retorna **2 (blocked)** aun cuando la comparación diferencial sea válida.
+- TDD Red→Green, con una discrepancia real encontrada: en CycloneDX 1.7, Trivy registra `debian 13.7` como componente `operating-system` **sin purl**. El comparador ahora acepta únicamente esta forma tipada y exige que la versión del SO sea idéntica entre las dos imágenes.
+
+**Resultados verificables (Trivy local de ambas imágenes, misma base de datos):**
+
+| Métrica | Expat experimental (antes) | Runtime recortado (después) |
+| --- | ---: | ---: |
+| Paquetes detectados de Debian por Trivy | 157 | **148** |
+| CycloneDX: paquetes/componentes totales (incluido SO) | 159 | **150** |
+| CRITICAL | 0 | 0 |
+| HIGH | 70 | **63** |
+| UNKNOWN | 19 | **19** |
+| Cambios no autorizados de paquete o CVE | — | **0** |
+| Auditoría de liberación | bloqueada | **bloqueada** |
+
+Image ID original: `sha256:221078247d17f98ab0981c3808ddfe7da65db8e5d9a99b5f5bc3431e5276f4d7`.
+
+Image ID recortada: `sha256:fb6fadc18a9e1190ec6b104b2faedfebb2381a627d4d9586dc416671da034b4f`.
+
+**Desduplicación adicional:** en la nueva imagen quedan 63 registros HIGH asociados a **26 identificadores de vulnerabilidad distintos**, y 19 registros UNKNOWN asociados a **12 identificadores**. Cuatro CVE de util-linux se repiten en nueve paquetes esenciales (36 filas HIGH); su retirada no es viable mediante `apt-get purge` sin afectar paquetes esenciales. Las próximas investigaciones deben centrarse en un backport/actualización de Debian o un runtime mínimo distinto, no en suprimir los 36 registros. ClamAV aporta 7 HIGH independientes que requieren evaluación de la versión verificada por firma de Talos.
+
+**Interpretación rigurosa:** los siete registros HIGH eliminados corresponden a paquetes **que ya no están instalados**; no implican que se haya corregido su CVE en Debian, ni constituyen un VEX o una excepción al gate. La política exige comparar los registros de los demás paquetes; no retira bibliotecas esenciales como las de util-linux, que el simulador marca como esenciales. Los **63 HIGH / 19 UNKNOWN remanentes siguen bloqueando** Preview y producción.
+
+**Reproducción:**
+
+```sh
+python3 -m unittest discover -s apps/inspector/tests -p 'test_runtime_pruning.py' -v
+bash apps/inspector/build_runtime_pruned_experiment.sh
+bash apps/inspector/scan_runtime_pruned_experiment.sh  # exit 2: bloqueo esperado
+```
+
 ## Riesgos y siguientes gates
 - **Gate oficial del inspector sigue BLOQUEADO.** R1.20 sí produce un CycloneDX reconciliado, pero no genera un VEX aprobado, una atestación independiente del build ni la evaluación CVE completa que exige el gate formal. No incorporar esta imagen a `apps/inspector-gateway`.
 - La imagen es un **prototipo en capas** sobre Poppler, no una imagen multi-stage limpia de release; el paquete es una reconstrucción local no incluida en los repositorios estables de Trixie.
-- Para atribuir cada CVE como corregido/no alcanzable se requieren prueba adversaria, revisión de código, hashes de ELF, inventario completo y decisión VEX con responsable/vigencia. Faltan CVE de Poppler, Expat restantes y otros 70/19 hallazgos.
+- Para atribuir cada CVE como corregido/no alcanzable se requieren prueba adversaria, revisión de código, hashes de ELF, inventario completo y decisión VEX con responsable/vigencia. La imagen Expat conserva 70 HIGH / 19 UNKNOWN; el prototipo R1.21 elimina 7 HIGH por desinstalación verificada de nueve paquetes, pero mantiene **63 HIGH / 19 UNKNOWN** y la deuda de CVE nativos de Poppler/Expat/Tesseract.
 - No se realizaron despliegues, mutaciones de D1/R2/Queues, OCR institucional, gastos Cloudflare ni intervención en otros worktrees.
 
 ## Repetición
