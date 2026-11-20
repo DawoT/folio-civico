@@ -32,7 +32,9 @@ TDD Red inicial: **6 pruebas fallaban** antes de la corrección y demostraron es
 ```sh
 pnpm exec vitest run apps/processor/src/consumer.test.ts apps/processor/src/manual-redrive-fence.test.ts
 pnpm typecheck
-FOLIO_E2E_PORT=42931 sh scripts/ci.sh
+FOLIO_E2E_PORT=42934 sh scripts/ci.sh
 ```
+
+**Resultado verificado en la base UX5:** `FOLIO_E2E_PORT=42934 sh scripts/ci.sh`, **exit 0**, 466 Vitest + 181 Python inspector + 7 contratos CI + 13 pruebas UX5 privacidad + 5 workerd + 129 Chromium = **801/801**, typecheck, builds/dry-runs y 30 migraciones D1 **exclusivamente locales**. La primera pasada (`42932`) tuvo un fallo E2E UX4 de arranque en 320 px y un error temporal de proxy API; el escenario pasó 6 veces aislado y 129/129 en la segunda pasada completa. No se atribuye una causa definitiva a ese fallo inicial ni se usó GitHub Actions como gate.
 
 **Gate de publicación externo:** [issue institucional #19](https://github.com/DawoT/folio-civico/issues/19), CVE/VEX, IdP/MFA y autorización explícita Preview continúan sin cumplirse.
