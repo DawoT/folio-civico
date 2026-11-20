@@ -26,6 +26,9 @@ pnpm install --frozen-lockfile
 step 'Local CI contract tests (fail-closed)'
 pnpm test:local-ci
 
+step 'Moderated UX-5.2 study schema and privacy tests (local only)'
+python3 -m unittest discover -s tests -p test_ux5_study.py
+
 step 'Unit and integration tests (TypeScript)'
 pnpm test
 
