@@ -67,7 +67,7 @@ El ejecutor confirma, por documento, `QPDF→pdftotext sin texto→preflight Med
 
 ## Pruebas automatizadas y límites
 
-Se añadió `apps/inspector/tests/test_ocr_real_fidelity_lab.py` con seis pruebas unitarias y 24 subtests: validez del corpus sintético, generación de PDF estrictamente de imagen, rechazo de parámetros/PGM corruptos, política Docker inmutable/no privilegiada y rechazo cerrado de informes de identidad ausentes, corruptos y hashes sintácticamente válidos pero distintos a las ocho huellas esperadas. En la rama local, **436/436 tests Python del inspector, 616 subtests** pasaron; las seis pruebas nuevas pasaron también en **Python 3.12** dentro de Docker no privilegiado.
+Se añadió `apps/inspector/tests/test_ocr_real_fidelity_lab.py` con seis pruebas unitarias y 24 subtests: validez del corpus sintético, generación de PDF estrictamente de imagen, rechazo de parámetros/PGM corruptos, política Docker inmutable/no privilegiada y rechazo cerrado de informes de identidad ausentes, corruptos y hashes sintácticamente válidos pero distintos a las ocho huellas esperadas. En la rama local, **456/456 tests Python del inspector, 620 subtests** tras rebase a `main` pasaron; las seis pruebas nuevas pasaron también en **Python 3.12** dentro de Docker no privilegiado.
 
 Aún quedan por realizar para cualquier aprobación operativa: inspección **completa** con ClamAV **1.5.5** y firmas oficiales vigentes + Tesseract fuente 5.5.4 y sus librerías originales, imagen candidata exacta, CVE/Trivy y cobertura fuente→ELF, pruebas de estrés y PDF hostil moderado, fidelidad de **planos reales autorizados** (A0 requiere decisión de producto), rotación de firmas y autorización independiente de Preview/producción.
 
