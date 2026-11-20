@@ -169,6 +169,71 @@ describe("authenticated PDF intake route", () => {
     }finally{f.close();}
   });
 
+  it.each(["revoked","closed","observer"] as const)(
+    "does not acknowledge a committed PDF upload when authority becomes %s before the HTTP response",
+    async(change)=>{
+      const f=fixture();
+      try{
+        let mutated=false;
+        const raced={
+          prepare:f.db.prepare.bind(f.db),
+          async batch(statements:D1PreparedStatement[]){
+            const rows=await f.db.batch(statements);
+            mutated=true;
+            if(change==="revoked"){
+              f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='c_a' AND subject='alice'");
+            }else if(change==="closed"){
+              f.sqlite.exec("UPDATE commissions SET status='closed' WHERE id='c_a'");
+            }else{
+              f.sqlite.exec("UPDATE commission_members SET role='observer' WHERE commission_id='c_a' AND subject='alice'");
+            }
+            return rows;
+          }
+        } as D1Database;
+        const result=await handleDocumentRequest(post(),{...f.env,DB:raced},"alice","c_a","b_a");
+        expect(mutated).toBe(true);
+        expect(result.status).toBe(change==="revoked"?404:change==="closed"?409:403);
+        expect(result.headers.get("Cache-Control")).toBe("no-store");
+        // Commit already occurred; never remove the R2 object it references.
+        expect(f.put).toHaveBeenCalledTimes(1);
+        expect(f.del).not.toHaveBeenCalled();
+        expect(f.objects.size).toBe(1);
+        for(const table of ["documents","document_versions","audit_events","document_processing_outbox"]){
+          expect(f.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toEqual({n:1});
+        }
+      }finally{f.close();}
+    }
+  );
+
+  it("does not clean a committed R2 object if the final D1 authorization check fails",async()=>{
+    const f=fixture();
+    try {
+      let committed=false;
+      const raced={
+        prepare(sql:string){
+          if(committed && sql.includes("SELECT m.role, c.status AS commissionStatus")){
+            throw new Error("PRIVATE_D1_AFTER_COMMIT");
+          }
+          return f.db.prepare(sql);
+        },
+        async batch(statements:D1PreparedStatement[]){
+          const result=await f.db.batch(statements);
+          committed=true;
+          return result;
+        }
+      } as D1Database;
+      const response=await handleDocumentRequest(post(),{...f.env,DB:raced},"alice","c_a","b_a");
+      expect(committed).toBe(true);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({error:"Request could not be completed"});
+      expect(f.del).not.toHaveBeenCalled();
+      expect(f.objects.size).toBe(1);
+      for(const table of ["documents","document_versions","audit_events","document_processing_outbox"]){
+        expect(f.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toEqual({n:1});
+      }
+    }finally{f.close();}
+  });
+
   it("uploads to quarantine and writes a D1 record for the same commission", async () => {
     const f=fixture();
     try {
