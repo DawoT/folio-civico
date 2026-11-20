@@ -88,6 +88,13 @@ El verificador exige primero **27/27 resultados C++** anteriores y después **12
   TypeScript, cinco paquetes compilados, builds Workers `--dry-run`,
   Chromium E2E y migraciones D1 **únicamente locales hasta `0030`**.
   No equivale a aprobación de seguridad del inspector.
+- Tras fusionar los cambios de `origin/main` relacionados con
+  preflight de PDFs cortos y veredictos firmados (P9), se repitieron
+  **210/210 Python del inspector** y **29/29 Vitest específicos**
+  (`document-routes`, `inspector-gateway/route` y `documents/pdf`);
+  todos aprobaron. El CI remoto del PR certificará la integración
+  completa sobre esta base. El CI local completo anterior se ejecutó
+  sobre la base anterior a P9.
 - **Smoke de motores existentes `exit 0, 8/8`** (PDF nativo, OCR,
   antivirus, aislamiento, rechazos cifrados, archivos adjuntos y
   malformados). La imagen existente **no incorpora** estos métodos
