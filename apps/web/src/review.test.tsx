@@ -4,6 +4,35 @@ import { loadChecklist, loadObservationDrafts, loadObservationDetail, loadVerifi
 import { ReviewWorkspace, ChecklistStatus } from "./ReviewWorkspace";
 import type { ChecklistRow } from "./api";
 
+const validExportPayload = {
+  schemaVersion: 1, kind: "internal_human_review",
+  generatedAt: "2026-11-20T13:00:00.000Z",
+  disclaimer: "Insumo de trabajo. No constituye acta oficial.",
+  commission: {id:"c_a",name:"Comisión A",status:"active"},
+  completeness: {
+    statuses:["validated","dismissed"], included:1,
+    truncated:false, maximumPerExport:500
+  },
+  observations:[{
+    id:"review_1",authorSubject:"author",title:"Observación revisada",
+    description:"Búsqueda documentada",createdAt:"2026-11-19 11:00:00",
+    status:"validated",validatedBy:"reviewer",reviewedBy:"reviewer",
+    reviewedAt:"2026-11-20 12:00:00",reviewNote:"Confirmación independiente",
+    evidence:[{
+      type:"SEARCH_SCOPE",commissionId:"c_a",checklistItemId:"item_a",
+      batchId:"batch_a",reviewerId:"author",searchedAt:"2026-11-19T11:00:00.000Z"
+    }]
+  }]
+};
+
+async function hashedExport(payload: unknown) {
+  const serialized=JSON.stringify(payload);
+  const sha256=Array.from(new Uint8Array(await crypto.subtle.digest(
+    "SHA-256",new TextEncoder().encode(serialized))),
+    byte=>byte.toString(16).padStart(2,"0")).join("");
+  return {format:"folio-civico.review-export.v1",sha256,payload:serialized};
+}
+
 describe("review API client", () => {
   it("loads checklist with same-origin credentials and no caching", async () => {
     const fetcher=vi.fn(async (_url:RequestInfo|URL,_init?:RequestInit)=>
@@ -35,14 +64,8 @@ describe("review API client", () => {
   });
 
   it("downloads a complete, correctly hashed review export from the authorized commission", async () => {
-    const payload=JSON.stringify({
-      schemaVersion:1,kind:"internal_human_review",
-      commission:{id:"c_a"},completeness:{truncated:false,included:1},
-      observations:[{status:"validated",id:"review_1"}]
-    });
-    const sha256=Array.from(new Uint8Array(await crypto.subtle.digest(
-      "SHA-256",new TextEncoder().encode(payload))),x=>x.toString(16).padStart(2,"0")).join("");
-    const envelope={format:"folio-civico.review-export.v1",sha256,payload};
+    const envelope=await hashedExport(validExportPayload);
+    const {sha256,payload}=envelope;
     const fetcher=vi.fn(async()=>Response.json(envelope));
     const result=await loadVerifiedReviewReport("c_a",fetcher);
     expect(result.sha256).toBe(sha256);
@@ -57,6 +80,52 @@ describe("review API client", () => {
       payload:JSON.stringify({...JSON.parse(payload),commission:{id:"c_b"}})}));
     await expect(loadVerifiedReviewReport("c_a",wrongCommission)).rejects.toThrow();
     await expect(loadVerifiedReviewReport("../c_b",fetcher)).rejects.toThrow();
+  });
+
+  it("refuses a rehashed dossier with cross-commission evidence or incomplete human-review provenance", async () => {
+    const original=validExportPayload.observations[0]!;
+    for(const modified of [
+      {...validExportPayload, observations:[{
+        ...original,evidence:[{...original.evidence[0],commissionId:"c_b"}]
+      }]},
+      {...validExportPayload, observations:[{...original,reviewedBy:""}]},
+      {...validExportPayload, observations:[{...original,reviewedBy:"author"}]},
+      {...validExportPayload, observations:[{...original,reviewNote:""}]},
+      {...validExportPayload, observations:[{
+        ...original,evidence:[{...original.evidence[0],searchedAt:"not-a-date"}]
+      }]},
+      {...validExportPayload, observations:[{
+        ...original,evidence:[{type:"DOCUMENT_PAGE",commissionId:"c_a",
+          documentVersionId:"v1",page:0,sha256:"a".repeat(64)}]
+      }]},
+      {...validExportPayload, observations:[original,original],
+        completeness:{...validExportPayload.completeness,included:2}},
+      {...validExportPayload, completeness:{
+        ...validExportPayload.completeness,maximumPerExport:999
+      }}
+    ]) {
+      const envelope=await hashedExport(modified);
+      const fetcher=vi.fn(async()=>Response.json(envelope));
+      await expect(loadVerifiedReviewReport("c_a",fetcher)).rejects.toThrow();
+    }
+  });
+
+  it("accepts a verified empty internal report and a valid document-page citation", async () => {
+    const empty=await hashedExport({
+      ...validExportPayload,observations:[],
+      completeness:{...validExportPayload.completeness,included:0}
+    });
+    expect(await loadVerifiedReviewReport("c_a",async()=>Response.json(empty)))
+      .toMatchObject({count:0});
+    const withPage=await hashedExport({
+      ...validExportPayload,observations:[{
+        ...validExportPayload.observations[0],
+        evidence:[{type:"DOCUMENT_PAGE",commissionId:"c_a",
+          documentVersionId:"version_a",page:1,sha256:"a".repeat(64)}]
+      }]
+    });
+    expect(await loadVerifiedReviewReport("c_a",async()=>Response.json(withPage)))
+      .toMatchObject({count:1});
   });
 
   it("creates authorized pilot batches and checklist items without supplying actor identity",async()=>{
