@@ -27,12 +27,15 @@ export function localLighthouseInvocation(root, flags) {
 }
 
 const MAX_OUTPUT_BYTES = 7000;
-const ERROR_CODES = /\b(?:ENOENT|EACCES|EPERM|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|EPIPE|ERR_[A-Z0-9_]{2,36})\b/g;
+const ERROR_CODES = /\b(?:ENOENT|EACCES|EPERM|EADDRINUSE|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|EPIPE)\b/g;
 
 /** A safe diagnostic summary: only allowlisted error codes and failure classes. */
-function diagnosticMarkers(output) {
+export function diagnosticMarkers(output) {
   const raw=typeof output==="string"?output:"";
   const markers=[...new Set(raw.match(ERROR_CODES)??[])].slice(0,5);
+  // Arbitrary ERR_* suffixes may encode secrets; never echo them verbatim.
+  if (/\bERR_[A-Z0-9_]{2,36}\b/.test(raw)) markers.push("node-error");
+  if (/\bEADDRINUSE\b|port.{0,30}in use/i.test(raw)) markers.push("port-in-use");
   if (/chrom(?:e|ium)|devtools/i.test(raw)) markers.push("chromium");
   if (/sandbox/i.test(raw)) markers.push("sandbox");
   if (/timeout|timed out/i.test(raw)) markers.push("timeout");
