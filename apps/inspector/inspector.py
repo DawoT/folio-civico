@@ -8,6 +8,7 @@ to Cloudflare until operator approval.
 """
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 import hashlib
 import hmac
 import json
@@ -25,6 +26,15 @@ from typing import Callable
 MAX_PDF_BYTES = 8 * 1024 * 1024
 MAX_PAGES = 100
 MAX_PAGE_TEXT = 8000
+# Defense-in-depth for blank pages rasterized at 180 DPI. A1 passes; A0 needs
+# manual handling rather than an unbounded raster. These are initial admission
+# limits, not a proof of safety for every Poppler PDF feature or a CVE fix.
+OCR_DPI = 180
+OCR_MAX_SIDE_PX = 8192
+OCR_MAX_PIXELS = 32_000_000
+OCR_MAX_COORDINATE_PT = Decimal("1000000")
+OCR_GEOMETRY_ROUNDING_MARGIN_PT = Decimal("0.02")
+OCR_MAX_METADATA_BYTES = 65_536
 MAX_SIGNATURE_AGE = 72 * 60 * 60
 MAX_PROCESS_SECONDS = 30
 MAX_TOTAL_SECONDS = 8 * 60
@@ -155,6 +165,100 @@ def command(argv: list[str], cwd: Path, seconds: int = MAX_PROCESS_SECONDS) -> s
             raise ReviewRequired("Non-UTF-8 inspector output") from error
 
 
+# pdfinfo -f PAGE -l PAGE -box exposes effective per-page MediaBox after
+# inheritance. "Page size" is normally based on CropBox and MUST NEVER be
+# used to budget pdftoppm without -cropbox.
+_OCR_NUM = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d{1,2})?"
+_OCR_SIZE = re.compile(
+    rf"^Page[ \t]+(\d+)[ \t]+size:[ \t]+({_OCR_NUM})[ \t]+x[ \t]+({_OCR_NUM})"
+    r"[ \t]+pts(?:[ \t]+\([^()\r\n]{1,80}\))?[ \t]*$", re.M,
+)
+_OCR_ROT = re.compile(r"^Page[ \t]+(\d+)[ \t]+rot:[ \t]+(\d+)[ \t]*$", re.M)
+_OCR_BOX = {
+    kind: re.compile(
+        rf"^Page[ \t]+(\d+)[ \t]+{kind}:[ \t]+"
+        rf"({_OCR_NUM})[ \t]+({_OCR_NUM})[ \t]+({_OCR_NUM})[ \t]+({_OCR_NUM})[ \t]*$",
+        re.M,
+    )
+    for kind in ("MediaBox", "CropBox")
+}
+
+
+def _ocr_decimal(token: str) -> Decimal:
+    if len(token) > 32:
+        raise ReviewRequired("Invalid OCR geometry coordinate")
+    try:
+        value = Decimal(token)
+    except InvalidOperation as error:
+        raise ReviewRequired("Invalid OCR geometry coordinate") from error
+    if not value.is_finite() or abs(value) > OCR_MAX_COORDINATE_PT:
+        raise ReviewRequired("Unsupported OCR geometry coordinate")
+    return value
+
+
+def require_ocr_raster_geometry(raw: str, *, page: int, count: int) -> tuple[int, int]:
+    """Fail closed on per-page MediaBox before pdftoppm -r 180 -png.
+
+    Conservative OCR budget from pdfinfo's rounded MediaBox, not its CropBox
+    page-size line. Not a validator for UserUnit, internal Poppler rendering,
+    source/ELF identity, or all possible PDF content stream allocations.
+    """
+    if (type(page) is not int or type(count) is not int
+            or not 1 <= page <= count <= MAX_PAGES or not isinstance(raw, str)
+            or not raw or not raw.isascii() or "\r" in raw or "\x00" in raw
+            or len(raw) > OCR_MAX_METADATA_BYTES):
+        raise ReviewRequired("Invalid OCR page geometry report")
+    pages = re.findall(r"^Pages:[ \t]*(\d+)[ \t]*$", raw, re.M)
+    encryptions = re.findall(r"^Encrypted:[ \t]*(yes|no)\b[^\r\n]*$", raw, re.M)
+    if pages != [str(count)] or encryptions != ["no"]:
+        raise ReviewRequired("OCR page inventory unavailable")
+
+    matches: dict[str, tuple[str, ...]] = {}
+    for kind, pattern in (
+        ("size", _OCR_SIZE), ("rot", _OCR_ROT),
+        ("MediaBox", _OCR_BOX["MediaBox"]), ("CropBox", _OCR_BOX["CropBox"]),
+    ):
+        # Checking both the marker and the full record detects malformed or
+        # duplicate entries and metadata for an unintended page.
+        markers = re.findall(
+            rf"^Page[ \t]+(\d+)[ \t]+{kind}:", raw, re.M,
+        )
+        found = list(pattern.finditer(raw))
+        if (len(markers) != 1 or markers != [str(page)]
+                or len(found) != 1 or found[0].group(1) != str(page)):
+            raise ReviewRequired("OCR page geometry metadata incomplete")
+        matches[kind] = found[0].groups()[1:]
+
+    try:
+        size = tuple(_ocr_decimal(t) for t in matches["size"])
+        media = tuple(_ocr_decimal(t) for t in matches["MediaBox"])
+        crop = tuple(_ocr_decimal(t) for t in matches["CropBox"])
+        rot = int(matches["rot"][0])
+    except (ValueError, OverflowError) as error:
+        raise ReviewRequired("Invalid OCR page geometry") from error
+    if rot not in (0, 90, 180, 270) or min(size) <= 0:
+        raise ReviewRequired("Unsupported OCR page rotation or size")
+    for rect in (media, crop):
+        if rect[2] <= rect[0] or rect[3] <= rect[1]:
+            raise ReviewRequired("Invalid OCR page rectangle")
+
+    width_pt, height_pt = media[2] - media[0], media[3] - media[1]
+    if rot in (90, 270):
+        width_pt, height_pt = height_pt, width_pt
+    # pdfinfo reports box coordinates rounded to two decimal places. Add a
+    # two-coordinate rounding margin rather than assuming the printed box is
+    # exact. Decimal avoids binary float and signed-overflow arithmetic here.
+    width_px = int(((width_pt + OCR_GEOMETRY_ROUNDING_MARGIN_PT)
+                    * OCR_DPI / 72).to_integral_value(rounding=ROUND_CEILING))
+    height_px = int(((height_pt + OCR_GEOMETRY_ROUNDING_MARGIN_PT)
+                     * OCR_DPI / 72).to_integral_value(rounding=ROUND_CEILING))
+    if (width_px < 1 or height_px < 1
+            or max(width_px, height_px) > OCR_MAX_SIDE_PX
+            or width_px * height_px > OCR_MAX_PIXELS):
+        raise ReviewRequired("OCR raster page exceeds geometry budget")
+    return width_px, height_px
+
+
 def inspect_pdf(
     pdf: bytes, version_id: str, expected_sha256: str, *,
     signatures: Path, run: Callable[[list[str], Path], str] = command
@@ -205,11 +309,19 @@ def inspect_pdf(
                 ], directory)
                 text = raw.strip()
                 if not text:
+                    # Check the effective MediaBox of *this* OCR page before
+                    # Poppler allocates the 180 DPI raster. Page size/CropBox
+                    # would understate the area for pdftoppm without -cropbox.
+                    box_info = run([
+                        "pdfinfo", "-f", str(page), "-l", str(page),
+                        "-box", str(source),
+                    ], directory)
+                    require_ocr_raster_geometry(box_info, page=page, count=count)
                     # Rasterize ONLY in the isolated sandbox; never serve these
                     # derived images until a separate sanitization gate exists.
                     output_prefix = directory / "ocr-page"
                     run(["pdftoppm", "-f", str(page), "-l", str(page),
-                         "-singlefile", "-r", "180", "-png",
+                         "-singlefile", "-r", str(OCR_DPI), "-png",
                          str(source), str(output_prefix)], directory)
                     image = directory / "ocr-page.png"
                     if not image.is_file() or image.stat().st_size > 32 * 1024 * 1024:

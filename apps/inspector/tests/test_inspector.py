@@ -42,6 +42,13 @@ class ScannerTests(unittest.TestCase):
         if command == "pdfdetach":
             return "0 embedded files\n"
         if command == "pdfinfo":
+            if "-box" in argv:
+                page = int(argv[argv.index("-f") + 1])
+                return ("Pages: 2\nEncrypted: no\n"
+                        f"Page {page} size: 595 x 842 pts (A4)\n"
+                        f"Page {page} rot: 0\n"
+                        f"Page {page} MediaBox: 0 0 595 842\n"
+                        f"Page {page} CropBox: 0 0 595 842\n")
             return "Pages: 2\nEncrypted: no\n"
         if command == "pdftotext":
             page = int(argv[argv.index("-f") + 1])
