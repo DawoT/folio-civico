@@ -13,6 +13,38 @@ export interface InspectedTextManifest {
   scannedAt:string;
   pages:Array<{page:number;text:string}>;
 }
+/** Domain-separated terminal rejection attested by the gateway, not the parser.
+ * The random challenge prevents replaying an earlier 422 for the same PDF.
+ * No document text, private R2 key, engine detail or identity is returned.
+ */
+export interface UnsafeInspectionVerdict {
+  kind:"folio.inspection.unsafe.v1";
+  documentVersionId:string;
+  sourceSha256:string;
+  requestNonce:string;
+}
+export function serializeUnsafeInspectionVerdict(input:UnsafeInspectionVerdict):Uint8Array {
+  if(!strictObject(input,["kind","documentVersionId","sourceSha256","requestNonce"])
+    || input.kind!=="folio.inspection.unsafe.v1"
+    || typeof input.documentVersionId!=="string"
+    || !/^[A-Za-z0-9_-]{1,64}$/.test(input.documentVersionId)
+    || typeof input.sourceSha256!=="string"
+    || !/^[a-f0-9]{64}$/.test(input.sourceSha256)
+    || typeof input.requestNonce!=="string"
+    || !/^[a-f0-9]{32}$/.test(input.requestNonce)) {
+    throw new InspectionGateError("Invalid terminal inspection verdict");
+  }
+  return new TextEncoder().encode(JSON.stringify({
+    kind:input.kind,documentVersionId:input.documentVersionId,
+    sourceSha256:input.sourceSha256,requestNonce:input.requestNonce
+  }));
+}
+export async function verifyUnsafeInspectionVerdict(
+  verdict:UnsafeInspectionVerdict,signature:string,secret:string
+):Promise<boolean>{
+  return verifySignature(serializeUnsafeInspectionVerdict(verdict),signature,secret);
+}
+
 export interface DocumentTextView {
   versionId:string;
   sha256:string;

@@ -5,6 +5,7 @@ import {persistDocumentUpload} from "../../../packages/data/src/documents";
 import {openRecoveryReview,decideRecoveryReview} from "../../../packages/data/src/recovery-review";
 import {processProcessingMessage,processBatch,parseProcessingMessage,type ProcessorEnv} from "./consumer";
 import {serializeInspectionManifest,type InspectedTextManifest} from "../../../packages/data/src/inspected-text";
+import {syntheticSignedUnsafeResponse} from "../../../tests/helpers/unsafe-inspection";
 
 const ORIGINAL=new TextEncoder().encode("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF");
 const SHA=createHash("sha256").update(ORIGINAL).digest("hex");
@@ -111,7 +112,7 @@ async function fixture(){
       ORIGINAL.byteOffset,ORIGINAL.byteOffset+ORIGINAL.length
     )
   }));
-  const inspectorFetch=vi.fn(async()=>Response.json({manifest,signature}));
+  const inspectorFetch=vi.fn(async(_request:Request)=>Response.json({manifest,signature}));
   const env:ProcessorEnv={
     DB:f.db,DOCUMENTS:{get} as unknown as R2Bucket,
     INSPECTOR:{fetch:inspectorFetch} as unknown as Fetcher,
@@ -159,11 +160,11 @@ describe("R2.12b/P6 transactional consumer authority fence",()=>{
   it("halts a redrive 422 outcome when commission closes during inspection",async()=>{
     const f=await fixture();
     try {
-      f.inspectorFetch.mockImplementationOnce(async()=>{
+      f.inspectorFetch.mockImplementationOnce(async(request:Request)=>{
         f.sqlite.prepare(
           "UPDATE commissions SET status='closed' WHERE id='commission_p5'"
         ).run();
-        return new Response(null,{status:422});
+        return syntheticSignedUnsafeResponse(request,SCANNER_SECRET);
       });
       expect(await processProcessingMessage(message(MANUAL_ID),f.env)).toBe("stale");
       expect(f.sqlite.prepare(
@@ -420,9 +421,9 @@ describe("R2.12b/P5 consumer provenance and institutional cancellation fencing",
   it("does not persist a 422 unsafe result after a cancellation during inspection",async()=>{
     const f=await fixture();
     try{
-      f.inspectorFetch.mockImplementationOnce(async()=>{
+      f.inspectorFetch.mockImplementationOnce(async(request:Request)=>{
         f.invalidate();
-        return new Response(null,{status:422});
+        return syntheticSignedUnsafeResponse(request,SCANNER_SECRET);
       });
       expect(await processProcessingMessage(message(MANUAL_ID),f.env))
         .toBe("stale");
