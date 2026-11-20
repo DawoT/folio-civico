@@ -1,6 +1,7 @@
 import {
   collectFinalizedReviews, getCommissionSummary, MAX_FINALIZED_REVIEW_EXPORT, ReviewExportLimitError
 } from "@folio/data";
+import { isValidReviewExportPayload } from "../../../packages/domain/src/review-export-structure.mjs";
 
 export interface ReviewExportEnv { DB: D1Database; }
 
@@ -39,6 +40,11 @@ export async function handleReviewExportRequest(
       },
       observations: data.records
     };
+    // Reject malformed or missing provenance before hashing and publishing a
+    // seemingly intact file. Use the exact offline/browser v1 validator.
+    if (!isValidReviewExportPayload(payload)) {
+      return errorJson(503, "Report could not be generated");
+    }
     // The payload is retained as a string to make offline hash verification
     // independent of JSON whitespace, key order and downstream formatting.
     const payloadJson = JSON.stringify(payload);
