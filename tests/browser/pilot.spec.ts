@@ -139,7 +139,7 @@ test("a11y: observer history over 25 records, opening exact detail, no mutation 
   const row=page.locator(".observations-card li").filter({hasText:"Histórico 000"});
   await row.getByRole("button",{name:"Ver detalle"}).click();
   await expect(page.getByRole("heading",{name:"Detalle de la observación"})).toBeVisible();
-  await expect(page.getByText("old_000",{exact:true})).toBeVisible();
+  await expect(page.locator(".linked-observation-id")).toHaveText("old_000");
   await expectA11y(page);
 });
 
