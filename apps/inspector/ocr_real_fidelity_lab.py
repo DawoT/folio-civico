@@ -19,7 +19,10 @@ import tempfile
 import zlib
 
 from fixtures import _pdf, _stream
-from inspector import require_ocr_png_envelope, require_ocr_raster_geometry
+from inspector import (
+    parse_qpdf_page_inventory, parse_qpdf_user_unit,
+    require_ocr_png_envelope, require_ocr_raster_geometry,
+)
 from ocr_quality_matrix import canonical, edit_distance, synthetic_text_pdf
 
 IMAGE_REF = re.compile(r"sha256:[a-f0-9]{64}\Z")
@@ -37,6 +40,7 @@ EXPECTED_BINARY_SHA256 = {
     "/usr/bin/pdfinfo": "a1a371340d7b76e7d501da9136cc9256dfdb9cbdf09300520d7a3b4465343e67",
     "/usr/bin/pdftoppm": "f22d753dfb4c31c9f0198d608982dac5b06a3c5d9a08d7d9bf0c6004f08a1a56",
     "/usr/bin/qpdf": "30b2389c3ed0ba73434244fff5b149d4d919279ea7a8c3b1cd9fc25f57ec1792",
+    "/usr/bin/pdfdetach": "85df25b0d0533e09f2e1ab8f5f1f89377854b2b68e6cf911ca4dd18e63a2b479",
     "/usr/bin/tesseract": "74b76a5b994adcc18be362bf64ed5118082b2401d5d9a35242e92fc4c62e2b4b",
     "/usr/lib/x86_64-linux-gnu/libpoppler.so.147": "8f199d8f320d485c8a0051676b8a0d6c6019900e5643b685afd7e304250ef340",
     "/usr/lib/x86_64-linux-gnu/libtesseract.so.5": "66b27d857aa90bb7a31059c65bb624e918e96a7c276699bd5ac5dca4cf1ba322",
@@ -126,7 +130,7 @@ def container_command(
     """Only approved engine binaries in unprivileged, offline, read-only OCI."""
     if not isinstance(image_id, str) or not IMAGE_REF.fullmatch(image_id):
         raise ValueError("Experimental image must be specified by immutable ID")
-    if tool not in ("pdfinfo", "pdftoppm", "pdftotext", "qpdf", "tesseract", "sha256sum"):
+    if tool not in ("pdfinfo", "pdftoppm", "pdftotext", "pdfdetach", "qpdf", "tesseract", "sha256sum"):
         raise ValueError("Unapproved real engine")
     for folder in (fixtures, output):
         if (not folder.is_dir() or folder.is_symlink()
@@ -212,13 +216,29 @@ def run_experiment(image_id: str, *, runner=subprocess.run) -> dict:
             call("qpdf", "--is-encrypted", f"/fixtures/{scan_name}",
                  expected_rc=2)
             call("qpdf", "--check", f"/fixtures/{scan_name}")
+            attachments = call("pdfdetach", "-list", f"/fixtures/{scan_name}")
+            if not re.search(r"^0 embedded files?\s*$", attachments, re.M | re.I):
+                raise ValueError("Synthetic image-only PDF contains an attachment")
+            page_inventory = parse_qpdf_page_inventory(
+                call("qpdf", "--json", "--json-key=pages",
+                     f"/fixtures/{scan_name}"), count=1,
+            )
+            objnum, generation = page_inventory[0]
+            user_unit = parse_qpdf_user_unit(
+                call("qpdf", "--json", "--json-key=qpdf",
+                     f"--json-object={objnum},{generation}",
+                     f"/fixtures/{scan_name}"),
+                object_number=objnum, generation=generation,
+            )
+            if user_unit != Decimal(1):
+                raise ValueError("Unexpected unit in synthetic PDF without UserUnit")
             if call("pdftotext", "-f", "1", "-l", "1", "-enc", "UTF-8",
                     f"/fixtures/{scan_name}", "-").strip():
                 raise ValueError("Synthetic scanned PDF contains extractable text")
             meta = call("pdfinfo", "-f", "1", "-l", "1", "-box",
                         f"/fixtures/{scan_name}")
             budget = require_ocr_raster_geometry(
-                meta, page=1, count=1, user_unit=Decimal(1),
+                meta, page=1, count=1, user_unit=user_unit,
             )
             png_prefix = f"/results/{kind}-ocr"
             call("pdftoppm", "-f", "1", "-l", "1", "-singlefile",
@@ -241,6 +261,7 @@ def run_experiment(image_id: str, *, runner=subprocess.run) -> dict:
                 "scan_sha256": hashlib.sha256(scan).hexdigest(),
                 "scan_bytes": len(scan),
                 "source_raster_dimensions": [width, height],
+                "qpdf_user_unit": str(user_unit),
                 "preflight_dimensions": list(budget),
                 "real_png_dimensions": list(actual_dims),
                 "png_sha256": hashlib.sha256(png_path.read_bytes()).hexdigest(),

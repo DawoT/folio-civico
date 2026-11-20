@@ -10,7 +10,7 @@ El programa `apps/inspector/ocr_real_fidelity_lab.py`:
 
 1. Genera cada página vectorial original y comprueba su estructura con QPDF.
 2. Con `pdftoppm -gray -r 180` rasteriza el texto original, verifica el tamaño real del PGM y construye un **nuevo PDF con un XObject de imagen, sin objetos de fuente ni capa de texto**. Comprueba con `pdftotext` real que no hay texto extraíble.
-3. Ejecuta `qpdf --is-encrypted` (salida 2 para PDF sin cifrar), `qpdf --check` y `pdfinfo -f 1 -l 1 -box` reales sobre ese PDF escaneado.
+3. Ejecuta `qpdf --is-encrypted` (salida 2 para PDF sin cifrar), `qpdf --check`, `pdfdetach -list` y `qpdf --json` para obtener el objeto de página y validar `UserUnit=1` mediante **los parsers operativos**. También consulta `pdfinfo -f 1 -l 1 -box` sobre el PDF escaneado.
 4. Ejecuta la **misma** función del inspector para presupuestar las dimensiones: `require_ocr_raster_geometry` con `UserUnit = 1`, seguido de `pdftoppm -f 1 -l 1 -singlefile -r 180 -png` y el **mismo** postflight operativo `require_ocr_png_envelope` de R1.38.
 5. Ejecuta Tesseract **real** en `-l spa+eng`, normaliza el resultado mediante el algoritmo de la matriz de calidad existente, y compara con el texto de referencia. El contrato exige **cero errores de caracteres** en estos casos controlados; cualquier desviación falla cerrada.
 6. Emite **solo métricas y SHA-256** del origen, documento escaneado, PNG y textos normalizados. No publica el OCR extraído, no retiene PDFs ni imágenes cuando termina y no incorpora contenido institucional.
@@ -35,6 +35,7 @@ SHA-256 medidos dentro de la imagen con `sha256sum`:
 | `/usr/bin/pdfinfo` | `a1a371340d7b76e7d501da9136cc9256dfdb9cbdf09300520d7a3b4465343e67` |
 | `/usr/bin/pdftoppm` | `f22d753dfb4c31c9f0198d608982dac5b06a3c5d9a08d7d9bf0c6004f08a1a56` |
 | `/usr/bin/qpdf` | `30b2389c3ed0ba73434244fff5b149d4d919279ea7a8c3b1cd9fc25f57ec1792` |
+| `/usr/bin/pdfdetach` | `85df25b0d0533e09f2e1ab8f5f1f89377854b2b68e6cf911ca4dd18e63a2b479` |
 | `/usr/bin/tesseract` | `74b76a5b994adcc18be362bf64ed5118082b2401d5d9a35242e92fc4c62e2b4b` |
 | `/usr/lib/x86_64-linux-gnu/libpoppler.so.147` | `8f199d8f320d485c8a0051676b8a0d6c6019900e5643b685afd7e304250ef340` |
 | `/usr/lib/x86_64-linux-gnu/libtesseract.so.5` | `66b27d857aa90bb7a31059c65bb624e918e96a7c276699bd5ac5dca4cf1ba322` |
@@ -43,7 +44,7 @@ SHA-256 medidos dentro de la imagen con `sha256sum`:
 
 **No es la imagen candidata del inspector.** El Dockerfile operativo requiere Tesseract **5.5.4 compilado desde código fuente** y elimina `libarchive`/`libcurl`/`libxml2` de su cadena; **el Tesseract Debian de este laboratorio es 5.5.0 y reporta dependencias a libarchive y libcurl**. La prueba no acredita seguridad, equivalencia fuente→ELF ni CVE del runtime operativo. La construcción requiere repositorios APT Debian; no es una reconstrucción inmutable ni un artefacto desplegable.
 
-Cada motor se invoca en un **nuevo contenedor Docker, sin red**, con `--pull never --read-only --user 65534:65534 --cap-drop ALL --security-opt no-new-privileges --pids-limit 64 --cpus 2 --memory 1g --memory-swap 1g`. `/tmp` es tmpfs de 64 MiB; se montan solo los directorios de fixtures y resultados temporales, sin secretos ni archivos institucionales. Los procesos están limitados a 90 segundos y la salida textual se acota a 64 KiB. El contrato exige la **identidad completa por SHA-256** de la imagen y los **ocho hashes de referencia del laboratorio**, incluidos ejecutables, bibliotecas Poppler/Tesseract y modelos OCR. Cualquier diferencia o informe incompleto aborta. Estas referencias son locales y no equivalen a una atestación de la imagen operativa.
+Cada motor se invoca en un **nuevo contenedor Docker, sin red**, con `--pull never --read-only --user 65534:65534 --cap-drop ALL --security-opt no-new-privileges --pids-limit 64 --cpus 2 --memory 1g --memory-swap 1g`. `/tmp` es tmpfs de 64 MiB; se montan solo los directorios de fixtures y resultados temporales, sin secretos ni archivos institucionales. Los procesos están limitados a 90 segundos y la salida textual se acota a 64 KiB. El contrato exige la **identidad completa por SHA-256** de la imagen y los **nueve hashes de referencia del laboratorio**, incluidos ejecutables, bibliotecas Poppler/Tesseract y modelos OCR. Cualquier diferencia o informe incompleto aborta. Estas referencias son locales y no equivalen a una atestación de la imagen operativa.
 
 ## Resultados observados
 
@@ -63,11 +64,11 @@ Cada motor se invoca en un **nuevo contenedor Docker, sin red**, con `--pull nev
 | A1 rótulo | `818859a510d42e85d1c101e6c6c0990d6021ed08399d4484e337b5f4a1e6219a` | `cd1f5423a7488caad6c72c91966c19afaacd383ff35508053dbb1dfb3e0d9f94` |
 | A1 detalle | `9da4edf5abbfe703adec724046ec2f46df4631f57e2bcac45859bd3d726e6c2b` | `1a55db88930a4d04722862ea1c2fcc423d3a094197d0a52c951ed9593a91bfb5` |
 
-El ejecutor confirma, por documento, `QPDF→pdftotext sin texto→preflight MediaBox→PNG con postflight→Tesseract`. El ensayo previo R1.36 demostró el factor `UserUnit`; este corpus mide por diseño el valor predeterminado `UserUnit=1`. No se rasterizan PDF extremos ni documentos reales.
+El ejecutor confirma, por documento, `QPDF cifrado/check/JSON UserUnit→pdfdetach sin adjuntos→pdftotext sin texto→preflight MediaBox→PNG con postflight→Tesseract`. El ensayo previo R1.36 demostró el factor `UserUnit`; este corpus mide por diseño el valor predeterminado `UserUnit=1`. No se rasterizan PDF extremos ni documentos reales.
 
 ## Pruebas automatizadas y límites
 
-Se añadió `apps/inspector/tests/test_ocr_real_fidelity_lab.py` con seis pruebas unitarias y 24 subtests: validez del corpus sintético, generación de PDF estrictamente de imagen, rechazo de parámetros/PGM corruptos, política Docker inmutable/no privilegiada y rechazo cerrado de informes de identidad ausentes, corruptos y hashes sintácticamente válidos pero distintos a las ocho huellas esperadas. En la rama local, **456/456 tests Python del inspector, 620 subtests** tras rebase a `main` pasaron; las seis pruebas nuevas pasaron también en **Python 3.12** dentro de Docker no privilegiado.
+Se añadió `apps/inspector/tests/test_ocr_real_fidelity_lab.py` con seis pruebas unitarias y 24 subtests: validez del corpus sintético, generación de PDF estrictamente de imagen, rechazo de parámetros/PGM corruptos, política Docker inmutable/no privilegiada y rechazo cerrado de informes de identidad ausentes, corruptos y hashes sintácticamente válidos pero distintos a las nueve huellas esperadas. En la rama local, **456/456 tests Python del inspector, 620 subtests** tras rebase a `main` pasaron; las seis pruebas nuevas pasaron también en **Python 3.12** dentro de Docker no privilegiado.
 
 Aún quedan por realizar para cualquier aprobación operativa: inspección **completa** con ClamAV **1.5.5** y firmas oficiales vigentes + Tesseract fuente 5.5.4 y sus librerías originales, imagen candidata exacta, CVE/Trivy y cobertura fuente→ELF, pruebas de estrés y PDF hostil moderado, fidelidad de **planos reales autorizados** (A0 requiere decisión de producto), rotación de firmas y autorización independiente de Preview/producción.
 
