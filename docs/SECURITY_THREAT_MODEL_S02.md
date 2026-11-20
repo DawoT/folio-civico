@@ -1,6 +1,6 @@
 # S02-01 · Modelo de amenazas y matriz de pruebas negativas — Folio Cívico
 
-**Corte:** 2026-11-20 (America/Lima). **Código base auditado:** `origin/main@d275a99c8ac235b336cdb107c4026054374893c4`. **Objeto:** revisión transversal del código y plan de pruebas de seguridad por confianza. **Estado:** `analyzed / tests-to-execute`, no certificación ni habilitación de Preview. **Coordinación:** `docs/AGENT_TDD_SPRINT_ROADMAP.md` S02/G2/G3/G4; ADR-023 y `docs/PREVIEW_CHECKLIST.md` prevalecen para liberaciones.
+**Corte:** 2026-11-20 (America/Lima). **Código base de auditoría:** `origin/main@d275a99c8ac235b336cdb107c4026054374893c4`. **Reconciliación posterior:** rama sincronizada con `origin/main@17e06fe4f0981158cc0b0554d7c2ed8e37b5fc19` (PR #77 de procedencia util-linux fusionado; sigue siendo investigación sin autorización de runtime). Las pruebas y certificaciones se atribuyen a cada SHA, no a una versión genérica. **Objeto:** revisión transversal del código y plan de pruebas de seguridad por confianza. **Estado:** `analyzed / tests-to-execute`, no certificación ni habilitación de Preview. **Coordinación:** `docs/AGENT_TDD_SPRINT_ROADMAP.md` S02/G2/G3/G4; ADR-023 y `docs/PREVIEW_CHECKLIST.md` prevalecen para liberaciones.
 
 ## 1. Premisas verificadas
 
