@@ -234,6 +234,83 @@ describe("authenticated PDF intake route", () => {
     }finally{f.close();}
   });
 
+  it("retains its own committed R2 object if the D1 batch acknowledgement is lost",async()=>{
+    const f=fixture();
+    try{
+      let committed=false;
+      const raced={
+        prepare:f.db.prepare.bind(f.db),
+        async batch(statements:D1PreparedStatement[]){
+          await f.db.batch(statements);
+          committed=true;
+          throw new Error("D1_ACK_LOST_AFTER_COMMIT");
+        }
+      } as unknown as D1Database;
+      const response=await handleDocumentRequest(post(),{...f.env,DB:raced},"alice","c_a","b_a");
+      expect(committed).toBe(true);
+      expect(response.status).toBe(201);
+      expect(await response.json()).toMatchObject({repeated:false,ingestStatus:"quarantined",processingStatus:"pending"});
+      expect(f.del).not.toHaveBeenCalled();
+      expect(f.objects.size).toBe(1);
+      for(const table of ["documents","document_versions","audit_events","document_processing_outbox"]){
+        expect(f.sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toEqual({n:1});
+      }
+      const key=f.sqlite.prepare("SELECT r2_object_key AS objectKey FROM document_versions").get() as {objectKey:string};
+      expect(f.objects.has(key.objectKey)).toBe(true);
+    }finally{f.close();}
+  });
+
+  it("never deletes an uncertain committed R2 object when D1 recovery is unavailable",async()=>{
+    const f=fixture();
+    try{
+      let committed=false;
+      const raced={
+        prepare(sql:string){
+          if(committed && sql.includes("SELECT d.id AS documentId, v.id AS versionId")){
+            throw new Error("D1_RECOVERY_UNAVAILABLE");
+          }
+          return f.db.prepare(sql);
+        },
+        async batch(statements:D1PreparedStatement[]){
+          await f.db.batch(statements);
+          committed=true;
+          throw new Error("D1_ACK_LOST_AFTER_COMMIT");
+        }
+      } as unknown as D1Database;
+      const response=await handleDocumentRequest(post(),{...f.env,DB:raced},"alice","c_a","b_a");
+      expect(committed).toBe(true);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({error:"Unable to register document"});
+      expect(f.del).not.toHaveBeenCalled();
+      const key=f.sqlite.prepare("SELECT r2_object_key AS objectKey FROM document_versions").get() as {objectKey:string};
+      expect(f.objects.has(key.objectKey)).toBe(true);
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM document_processing_outbox").get()).toEqual({n:1});
+    }finally{f.close();}
+  });
+
+  it("retains the committed PDF when the actor is revoked before a recovery lookup",async()=>{
+    const f=fixture();
+    try{
+      let committed=false;
+      const raced={
+        prepare:f.db.prepare.bind(f.db),
+        async batch(statements:D1PreparedStatement[]){
+          await f.db.batch(statements);
+          committed=true;
+          f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='c_a' AND subject='alice'");
+          throw new Error("D1_ACK_LOST_AFTER_REVOKED_COMMIT");
+        }
+      } as unknown as D1Database;
+      const response=await handleDocumentRequest(post(),{...f.env,DB:raced},"alice","c_a","b_a");
+      expect(committed).toBe(true);
+      expect(response.status).toBe(503);
+      expect(f.del).not.toHaveBeenCalled();
+      const key=f.sqlite.prepare("SELECT r2_object_key AS objectKey FROM document_versions").get() as {objectKey:string};
+      expect(f.objects.has(key.objectKey)).toBe(true);
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:1});
+    }finally{f.close();}
+  });
+
   it("uploads to quarantine and writes a D1 record for the same commission", async () => {
     const f=fixture();
     try {
@@ -378,15 +455,18 @@ describe("authenticated PDF intake route", () => {
     } finally {f.close();}
   });
 
-  it("does not leave an object when the database transaction fails", async () => {
+  it("retains quarantine for audit when the D1 commit outcome cannot be proven", async () => {
     const f=fixture();
     try {
       f.sqlite.exec("DROP TABLE audit_events");
       const response=await handleDocumentRequest(post(),f.env,"alice","c_a","b_a");
       expect(response.status).toBe(503);
       expect(f.put).toHaveBeenCalledTimes(1);
-      expect(f.del).toHaveBeenCalledTimes(1);
-      expect(f.objects.size).toBe(0);
+      // The route cannot prove the transaction rolled back from a generic
+      // D1 rejection. Keep the object for bounded quarantine reconciliation
+      // instead of risking deletion of a committed document's R2 source.
+      expect(f.del).not.toHaveBeenCalled();
+      expect(f.objects.size).toBe(1);
       expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM documents").get()).toMatchObject({n:0});
     } finally {f.close();}
   });
