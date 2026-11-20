@@ -4,6 +4,7 @@ import { Field, SelectField, TextareaField } from "./ui/Fields";
 import { EmptyState } from "./ui/FeedbackStates";
 import { StatusBadge } from "./ui/StatusBadge";
 import { ReviewEvidenceContext, canPrepareReviewDecision } from "./ui/ReviewEvidenceContext";
+import { ChecklistFilters, countChecklistByStatus, filterChecklistRows, isInternallyValidated, type ChecklistAreaFilter, type ChecklistStatusFilter } from "./ui/ChecklistFilters";
 import { ObservationInboxFilters, countLoadedObservations, filterLoadedObservations, inboxEmptyText, type InboxFilter } from "./ui/ObservationInbox";
 import { makeReviewSummary, type ReviewSummary } from "./layout/CommissionOverview";
 import {
@@ -18,13 +19,12 @@ const labels: Record<ChecklistRow["status"], string> = {
 };
 
 export function ChecklistStatus({item,onOpenValidation}: {item: ChecklistRow; onOpenValidation?: (id:string)=>void}) {
-  const internallyValidated = item.statusSource === "validated_search"
-    && item.validatedSearchObservationId !== null;
+  const internallyValidated = isInternallyValidated(item);
   return (
     <>
-      <span className="checklist-status">
+      <StatusBadge className="checklist-status" status={internallyValidated ? "validated" : item.status==="pending" ? "warning" : item.status==="located" ? "ready" : "reviewing"}>
         {labels[item.status]}{internallyValidated ? " · validación interna" : ""}
-      </span>
+      </StatusBadge>
       {internallyValidated && (
         <>
           <small className="checklist-proof">
@@ -83,6 +83,8 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
   onSummaryChange?: (summary: ReviewSummary | null) => void;
 }) {
   const [checklist,setChecklist] = useState<ChecklistRow[]>([]);
+  const [checklistFilterStatus,setChecklistFilterStatus] = useState<ChecklistStatusFilter>("all");
+  const [checklistFilterArea,setChecklistFilterArea] = useState<ChecklistAreaFilter>("all");
   const [observations,setObservations] = useState<ObservationRow[]>([]);
   const [observationFilter,setObservationFilter] = useState<InboxFilter>("all");
   const [historyCursor,setHistoryCursor] = useState<string|null>(null);
@@ -278,6 +280,8 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
     }
   }
 
+  const visibleChecklist = filterChecklistRows(checklist, checklistFilterStatus, checklistFilterArea);
+  const checklistCounts = countChecklistByStatus(checklist, checklistFilterArea);
   const visibleObservations = filterLoadedObservations(observations, observationFilter);
   const inboxCounts = countLoadedObservations(observations);
 
@@ -329,10 +333,16 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
               </button>
             </form>
           )}
+          {!loading && checklist.length > 0 && (
+            <ChecklistFilters selectedStatus={checklistFilterStatus} selectedArea={checklistFilterArea}
+              counts={checklistCounts} onStatusChange={setChecklistFilterStatus}
+              onAreaChange={setChecklistFilterArea}/>
+          )}
           {loading ? <p>Consultando ítems…</p> :
             checklist.length === 0 ? <p>No hay ítems configurados para esta comisión.</p> :
+            visibleChecklist.length === 0 ? <EmptyState>No hay ítems que coincidan con los filtros actuales. Cambia el área o el estado.</EmptyState> :
             <ul className="checklist-items">
-              {checklist.map((item) => (
+              {visibleChecklist.map((item) => (
                 <li key={item.id}>
                   <span className="checklist-area">{item.area === "works" ? "Obras" : "Contrataciones"}</span>
                   <strong>{item.expectedDocument}</strong>
