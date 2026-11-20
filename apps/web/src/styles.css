@@ -24,18 +24,18 @@ button:disabled { cursor: not-allowed; opacity: .52; }
   height: 44px; width: 44px; border-radius: 13px; display: grid; place-items: center;
   font: 700 27px Georgia, serif; color: var(--fc-color-brand-on-primary); background: var(--fc-color-brand-primary);
 }
-.brand strong { display: block; font-size: 17px; letter-spacing: -.025em; }
-.brand span:not(.brand-mark) { display: block; font-size: 11px; color: #536a72; margin-top: 2px; }
-.environment-tag { color: var(--fc-color-brand-primary); font-size: 11px; letter-spacing: .1em; font-weight: 750; white-space: nowrap; }
+.brand strong { display: block; font-size: 1.0625rem; letter-spacing: -.025em; }
+.brand span:not(.brand-mark) { display: block; font-size: .6875rem; color: #536a72; margin-top: 2px; }
+.environment-tag { color: var(--fc-color-brand-primary); font-size: .6875rem; letter-spacing: .1em; font-weight: 750; white-space: normal; overflow-wrap: anywhere; text-align: end; }
 .disclaimer {
   background: var(--fc-color-status-warning-bg); color: var(--fc-color-status-warning-fg); padding: 10px clamp(20px, 5vw, 70px);
-  font-size: 13px; border-bottom: 1px solid var(--fc-color-status-warning-border);
+  font-size: var(--fc-type-label); border-bottom: 1px solid var(--fc-color-status-warning-border);
 }
 .main-content { max-width: 1450px; padding: 40px clamp(20px, 5vw, 70px) 30px; margin: 0 auto; }
 .intro { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 30px; }
-.eyebrow { font-size: 11px; color: var(--fc-color-brand-primary); font-weight: 780; letter-spacing: .13em; margin: 0 0 9px; }
+.eyebrow { font-size: .6875rem; color: var(--fc-color-brand-primary); font-weight: 780; letter-spacing: .13em; margin: 0 0 9px; }
 h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; line-height: 1.15; }
-.intro p:not(.eyebrow) { margin: 12px 0 0; font-size: 15px; color: #536773; }
+.intro p:not(.eyebrow) { margin: 12px 0 0; font-size: var(--fc-type-body); color: #536773; }
 /* DS-002: semantic status labels; the visible text is always authoritative. */
 .status-badge {
   display: inline-flex; align-items: center; width: fit-content;
@@ -88,7 +88,7 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
   min-width: 0;
   gap: var(--fc-space-2);
 }
-.fc-field-label { color: var(--fc-color-text-primary); font-size: var(--fc-type-label); font-weight: 700; }
+.fc-field-label { color: var(--fc-color-text-primary); font-size: var(--fc-type-label); font-weight: 700; overflow-wrap: anywhere; }
 .fc-field-hint, .fc-field-error { font-size: var(--fc-type-caption); line-height: 1.5; }
 .fc-field-hint { color: var(--fc-color-text-secondary); }
 .fc-field-error { color: var(--fc-color-status-error-fg); }
@@ -301,7 +301,7 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
 
 .status-label {
   color: var(--fc-color-status-reviewing-fg); background: var(--fc-color-status-warning-bg); border: 1px solid #eed8a5;
-  border-radius: 999px; font-size: 12px; padding: 9px 13px; white-space: nowrap;
+  border-radius: 999px; font-size: var(--fc-type-caption); padding: 9px 13px; white-space: normal; text-wrap: pretty; overflow-wrap: anywhere;
 }
 .scope-form {
   display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: 16px;
@@ -309,7 +309,7 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
   background: var(--fc-color-surface-base); border-radius: var(--fc-radius-card);
 }
 .scope-form label { display: flex; flex-direction: column; min-width: 0; gap: 8px; }
-.scope-form label span, .upload-form label { font-weight: 700; font-size: 13px; }
+.scope-form label span, .upload-form label { font-weight: 700; font-size: var(--fc-type-label); }
 .scope-form input, .scope-form select {
   min-height: var(--fc-control-min-height); width: 100%; border: 1px solid var(--fc-color-border-strong); border-radius: var(--fc-radius-control);
   background: var(--fc-color-surface-base); padding: 10px 13px; color: var(--fc-color-text-primary);
@@ -331,11 +331,11 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
   border: 1px solid var(--fc-color-border-default); background: var(--fc-color-surface-base); border-radius: var(--fc-radius-card);
   overflow: hidden; min-height: 560px;
 }
-.panel-header { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 25px 25px 20px; border-bottom: 1px solid #ecf0ee; }
-.panel-header h2 { font-size: 19px; letter-spacing: -.03em; margin: 0; }
+.panel-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 15px; padding: 25px 25px 20px; border-bottom: 1px solid #ecf0ee; min-width: 0; }
+.panel-header h2 { font-size: 1.1875rem; letter-spacing: -.03em; margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .count {
   border-radius: 10px; background: #eef3f1; color: #075c57;
-  padding: 9px 12px; font-size: 16px; font-weight: 750; min-width: 38px; text-align: center;
+  padding: 9px 12px; font-size: 1rem; font-weight: 750; min-width: 38px; max-width: 100%; text-align: center; flex: 0 1 auto;
 }
 .upload-form { margin: 21px; border: 1px dashed #9ebbb5; background: #f7fbf9; border-radius: 12px; padding: 19px; }
 .upload-form label { display: block; margin-bottom: 12px; }
@@ -357,10 +357,10 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
 .document-item:hover:not(.selected) { background: #f6f9f8; }
 .pdf-icon { border-radius: 7px; background: #f8e8e1; color: #9c3326; padding: 8px; font-weight: 800; font-size: 10px; }
 .document-details { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 5px; }
-.document-details strong { overflow-wrap: anywhere; font-size: 13px; line-height: 1.3; }
-.document-details small { font-size: 12px; color: #40575b; }
+.document-details strong { overflow-wrap: anywhere; font-size: var(--fc-type-label); line-height: 1.4; }
+.document-details small { font-size: var(--fc-type-caption); color: #40575b; }
 .chevron { font-size: 23px; color: #81908f; }
-.read-only { font-size: 11px; padding: 7px 11px; color: #60706e; background: #eef3f1; border-radius: 30px; white-space: nowrap; }
+.read-only { font-size: .6875rem; padding: 7px 11px; color: #60706e; background: #eef3f1; border-radius: 30px; white-space: normal; overflow-wrap: anywhere; text-align: center; max-width: 100%; flex: 0 1 auto; }
 .empty-evidence { text-align: center; margin: 75px auto; padding: 30px; max-width: 390px; }
 .empty-evidence h3 { font-size: 18px; letter-spacing: -.025em; }
 .empty-evidence p { font-size: 14px; color: #647882; line-height: 1.7; }
@@ -370,11 +370,11 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
 .placeholder-art span:nth-child(3) { width: 88%; }
 .evidence-detail { padding: 26px; }
 .doc-label { color: #075c57; font-weight: 800; font-size: 11px; letter-spacing: .12em; }
-.evidence-detail h3 { font-size: 23px; overflow-wrap: anywhere; margin: 10px 0 22px; }
+.evidence-detail h3 { font-size: 1.4375rem; overflow-wrap: anywhere; margin: 10px 0 22px; }
 .evidence-detail dl { margin: 0 0 24px; border-top: 1px solid #e1e7e4; }
 .evidence-detail dl div { display: grid; grid-template-columns: 125px 1fr; gap: 16px; border-bottom: 1px solid #e1e7e4; padding: 15px 0; }
-.evidence-detail dt { font-size: 13px; color: #536773; }
-.evidence-detail dd { font-size: 13px; font-weight: 650; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.evidence-detail dt { font-size: var(--fc-type-label); color: #536773; }
+.evidence-detail dd { font-size: var(--fc-type-label); font-weight: 650; margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric: tabular-nums; }
 .hash { line-height: 1.7; }
 .review-placeholder { padding: 21px; background: #f6f8f6; border-radius: 11px; border: 1px solid #e1e8e4; }
@@ -400,13 +400,13 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
 /* Commission-specific review panel: accessible, responsive, no document previews. */
 .review-area { margin-top: 24px; }
 .review-heading { padding: 11px 1px 19px; }
-.review-heading h2 { font-size: 25px; margin: 0 0 8px; letter-spacing: -.035em; }
-.review-heading > p:not(.eyebrow) { margin: 0; font-size: 14px; color: #536773; }
+.review-heading h2 { font-size: 1.5625rem; margin: 0 0 8px; letter-spacing: -.035em; overflow-wrap: anywhere; }
+.review-heading > p:not(.eyebrow) { margin: 0; font-size: .875rem; color: #536773; }
 .review-grid { display: grid; grid-template-columns: minmax(290px, 1fr) minmax(320px,1fr); gap: 22px; align-items: stretch; }
 .review-card { background: var(--fc-color-surface-base); border: 1px solid var(--fc-color-border-default); padding: 23px; border-radius: var(--fc-radius-card); }
-.review-card h3 { margin: 0 0 17px; font-size: 18px; letter-spacing: -.03em; }
-.review-card > p:not(.review-note) { font-size: 14px; color: #536773; line-height: 1.7; }
-.review-note { font-size: 12px; color: #536773; line-height: 1.6; }
+.review-card h3 { margin: 0 0 17px; font-size: 1.125rem; letter-spacing: -.03em; overflow-wrap: anywhere; }
+.review-card > p:not(.review-note) { font-size: .875rem; color: #536773; line-height: 1.7; }
+.review-note { font-size: var(--fc-type-caption); color: #536773; line-height: 1.6; }
 /* UX-3.3 — Contextual checklist filters with clear, server-grounded status. */
 .checklist-filters {
   display: grid;
@@ -1007,7 +1007,7 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
   flex: 0 0 44px;
 }
 .brand strong {
-  font-size: 18px;
+  font-size: 1.125rem;
   font-weight: 780;
 }
 .brand span:not(.brand-mark) {
@@ -1142,7 +1142,7 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
     gap: var(--fc-space-2);
   }
   .brand strong {
-    font-size: 16px;
+    font-size: 1rem;
   }
   .brand-mark {
     width: 40px;
@@ -1179,3 +1179,27 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
     transform: none;
   }
 }
+
+/* UX-4.3: forced-color modes discard background tints and box shadows.
+ * Preserve record selection and pressed state with physical borders. */
+@media (forced-colors: active) {
+  .document-item.selected {
+    border-inline-start: 4px solid Highlight;
+    box-shadow: none;
+    background-color: Canvas;
+    color: CanvasText;
+  }
+  .checklist-filter-button[aria-pressed="true"],
+  .inbox-filter-button[aria-pressed="true"] {
+    border: 2px solid Highlight;
+    background-color: Canvas;
+    color: CanvasText;
+  }
+  :is(.skip-link, .button, .document-item,
+    .task-navigation-links a, .checklist-filter-button,
+    .inbox-filter-button):focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 3px;
+  }
+}
+
