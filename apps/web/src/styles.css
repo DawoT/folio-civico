@@ -407,11 +407,74 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
 .review-card h3 { margin: 0 0 17px; font-size: 18px; letter-spacing: -.03em; }
 .review-card > p:not(.review-note) { font-size: 14px; color: #536773; line-height: 1.7; }
 .review-note { font-size: 12px; color: #536773; line-height: 1.6; }
+/* UX-3.3 — Contextual checklist filters with clear, server-grounded status. */
+.checklist-filters {
+  display: grid;
+  gap: var(--fc-space-3);
+  padding: var(--fc-space-3);
+  margin: var(--fc-space-3) 0 var(--fc-space-4);
+  border: 1px solid var(--fc-color-border-default);
+  border-radius: var(--fc-radius-control);
+  background: var(--fc-color-surface-subtle);
+}
+.checklist-filter-area {
+  display: grid;
+  gap: var(--fc-space-2);
+  color: var(--fc-color-text-primary);
+  font-size: var(--fc-type-label);
+  font-weight: 650;
+}
+.checklist-filter-area select {
+  min-height: 44px;
+  max-width: 100%;
+  width: 100%;
+  border-radius: var(--fc-radius-control);
+  border: 1px solid var(--fc-color-border-strong);
+  padding: 10px 12px;
+  background: var(--fc-color-surface-base);
+  color: var(--fc-color-text-primary);
+}
+.checklist-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fc-space-2);
+}
+.checklist-filter-button {
+  flex: 1 1 120px;
+  min-height: 44px;
+  min-width: 0;
+  padding: 9px 12px;
+  border-radius: var(--fc-radius-control);
+  border: 1px solid var(--fc-color-border-strong);
+  background: var(--fc-color-surface-base);
+  color: var(--fc-color-text-primary);
+  font: inherit;
+  font-size: var(--fc-type-label);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.checklist-filter-button[aria-pressed="true"] {
+  background: var(--fc-color-brand-primary);
+  border-color: var(--fc-color-brand-primary);
+  color: var(--fc-color-brand-on-primary);
+}
+.checklist-filter-button:focus-visible,
+.checklist-filter-area select:focus-visible {
+  outline: 3px solid var(--fc-color-focus);
+  outline-offset: 3px;
+}
+.checklist-filter-note {
+  margin: 0;
+  color: var(--fc-color-text-secondary);
+  font-size: var(--fc-type-caption);
+  line-height: 1.6;
+}
+
 .checklist-items,.observation-items { list-style: none; padding: 0; margin: 0; }
 .checklist-items li { display: grid; gap: 7px; padding: 13px 0; border-bottom: 1px solid #ebf0ed; }
 .checklist-items strong { font-size: 14px; overflow-wrap: anywhere; }
 .checklist-area { font-size: 11px; color: #075c57; font-weight: 750; text-transform: uppercase; }
-.checklist-status { display: inline-flex; width: fit-content; background: #eef3f1; padding: 5px 8px; border-radius: 5px; color: #435b58; font-size: 12px; }
+.checklist-status { width: fit-content; font-size: var(--fc-type-caption); }
 .checklist-proof { color: #465e61; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .checklist-proof code { overflow-wrap: anywhere; }
 .linked-observation-card { margin-top: 22px; }
