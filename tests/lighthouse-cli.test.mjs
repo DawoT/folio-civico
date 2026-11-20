@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { runLighthouseCli } from "../scripts/lighthouse-cli.mjs";
+import { join, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { runLighthouseCli, localLighthouseInvocation } from "../scripts/lighthouse-cli.mjs";
 
 const directories=[];
 afterEach(()=>{
@@ -19,6 +21,20 @@ function fixture(script, timeoutMs=1500) {
 }
 
 describe("PERF-003 Lighthouse CLI report integrity and safe process diagnostics",()=>{
+  it("launches the locally pinned Lighthouse executable directly with Node, never a pnpm wrapper",()=>{
+    const root=resolve(fileURLToPath(new URL("..",import.meta.url)));
+    const invocation=localLighthouseInvocation(root,["--version"]);
+    expect(invocation.command).toBe(process.execPath);
+    expect(invocation.args).toEqual([join(root,"node_modules","lighthouse","cli","index.js"),"--version"]);
+    const reported=execFileSync(invocation.command,invocation.args,{
+      cwd:root,encoding:"utf8",timeout:15_000
+    }).trim();
+    expect(reported).toBe("13.6.0");
+    const empty=mkdtempSync(join(tmpdir(),"folio-lh-uninstalled-"));
+    directories.push(empty);
+    expect(()=>localLighthouseInvocation(empty,["--version"]))
+      .toThrow(/Pinned Lighthouse CLI unavailable/);
+  });
   it("fails closed when a successful child writes no JSON, retaining safe stdout/stderr markers",async()=>{
     await expect(fixture(
       "console.log('Chromium launch failed: ENOENT API_KEY=stdout-secret');"+

@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { chromium } from "@playwright/test";
 import { enforceFrontendBudget } from "./check-frontend-budget.mjs";
-import { runLighthouseCli } from "./lighthouse-cli.mjs";
+import { runLighthouseCli, localLighthouseInvocation } from "./lighthouse-cli.mjs";
 import {
   summarizeLighthouseRuns, validateLighthousePort, hasOwnVitePreviewUrl
 } from "./lighthouse-lab-metrics.mjs";
@@ -66,7 +66,7 @@ function startPreview() {
 
 async function lighthouseRun(output, chromePath) {
   const flags = [
-    "exec", "lighthouse", url,
+    url,
     "--quiet", "--no-enable-error-reporting",
     "--only-categories=performance",
     "--output=json", "--output-path=" + output,
@@ -82,7 +82,7 @@ async function lighthouseRun(output, chromePath) {
     "--chrome-flags=--headless=new --no-sandbox --disable-dev-shm-usage --disable-background-networking"
   ];
   return runLighthouseCli({
-    command:"pnpm",args:flags,outputPath:output,cwd:root,
+    ...localLighthouseInvocation(root,flags),outputPath:output,cwd:root,
     env:{ ...process.env, CHROME_PATH:chromePath },timeoutMs:90_000
   });
 }
