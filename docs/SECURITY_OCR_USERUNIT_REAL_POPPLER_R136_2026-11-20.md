@@ -63,7 +63,7 @@ Controles con `-cropbox`: página 2, 250×150 px; página 7, 500×500 px. Esta d
 ## Verificaciones de código
 
 - TDD Red → Green para JSON QPDF, `UserUnit` directo/ausente, rechazo de tipos no confiables, objetos mezclados/duplicados, referencias indirectas y errores de motor, flujos OCR mixtos y ausencia de costes adicionales en páginas de texto.
-- 9 nuevos tests de UserUnit con subtests adversariales; 6 tests de harness Docker; regresión del inspector **395/395 tests Python, 540 subtests** en la rama local.
+- 9 nuevos tests de UserUnit con subtests adversariales; 6 tests de harness Docker; regresión del inspector **408/408 tests Python, 552 subtests** tras rebase a `main` en la rama local.
 - Faltan por registrar CI integral local, CI remoto del PR y CI posterior a merge, cada uno por separado.
 - No se ejecutó `inspect_pdf` completo con ClamAV, Tesseract y QPDF/Poppler **reales** en una única imagen operativa; el smoke prueba el subflujo QPDF → metadatos → preflight → raster en un laboratorio independiente, más unitaria de integración `inspect_pdf` con runner simulado.
 
