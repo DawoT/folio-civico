@@ -3,6 +3,8 @@
 FROM debian:trixie-slim AS expat_builder
 ARG EXPAT_VERSION=2.10.0
 ARG EXPAT_DEBIAN_VERSION=2.10.0-1
+ARG EXPAT_LOCAL_VERSION=2.10.0-1+folio1
+ARG EXPAT_PATCH_SHA256=0263891b16fd918e30f5116ff1cf33e757974a87ffc2c48667b06c98a85e46f3
 ARG EXPAT_SOURCE_SHA256=b3644a12f62d7762b62c444f69d169ba0234f13138d0240244bca64cbe35286f
 RUN test "$(dpkg --print-architecture)" = "amd64"
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -25,6 +27,24 @@ RUN set -eux; \
     | sha256sum --check -; \
   dpkg-source -x "/src/expat_${EXPAT_DEBIAN_VERSION}.dsc" "/src/expat-${EXPAT_VERSION}"; \
   test "$(dpkg-parsechangelog -l /src/expat-${EXPAT_VERSION}/debian/changelog -S Version)" = "$EXPAT_DEBIAN_VERSION"
+# Upstream libexpat PR #1492, three commits including its native regression.
+# No network retrieval of patches at build; exact reviewed bytes are in Git.
+COPY research_patches/expat-pr1492.patch /tmp/expat-pr1492.patch
+RUN set -eux; \
+  printf '%s  %s\n' "$EXPAT_PATCH_SHA256" /tmp/expat-pr1492.patch | sha256sum --check -; \
+  patch --batch --fuzz=0 -p1 -d "/src/expat-${EXPAT_VERSION}" \
+    < /tmp/expat-pr1492.patch; \
+  grep -q 'test_misc_unknown_encoding_no_source_overread' \
+    "/src/expat-${EXPAT_VERSION}/expat/tests/misc_tests.c"; \
+  test "$(grep -Fxc '  char *const buffer = XML_GetBuffer64(parser, docLen);' \
+    "/src/expat-${EXPAT_VERSION}/expat/tests/misc_tests.c")" -eq 1; \
+  sed -i 's/XML_GetBuffer64(parser, docLen)/XML_GetBuffer(parser, (int)docLen)/' \
+    "/src/expat-${EXPAT_VERSION}/expat/tests/misc_tests.c"; \
+  test "$(grep -Fxc '  char *const buffer = XML_GetBuffer(parser, (int)docLen);' \
+    "/src/expat-${EXPAT_VERSION}/expat/tests/misc_tests.c")" -eq 1; \
+  sed -i '1s/^expat (2.10.0-1) /expat (2.10.0-1+folio1) /' \
+    "/src/expat-${EXPAT_VERSION}/debian/changelog"; \
+  test "$(dpkg-parsechangelog -l /src/expat-${EXPAT_VERSION}/debian/changelog -S Version)" = "$EXPAT_LOCAL_VERSION"
 # Native regression tests run on the EXACT source later packaged for Trixie.
 RUN cmake -S /src/expat-${EXPAT_VERSION}/expat -B /tmp/expat-build \
       -DCMAKE_BUILD_TYPE=Release \
@@ -39,13 +59,13 @@ RUN cmake -S /src/expat-${EXPAT_VERSION}/expat -B /tmp/expat-build \
 RUN set -eux; \
   cd "/src/expat-${EXPAT_VERSION}"; \
   DEB_BUILD_OPTIONS="parallel=4 nocheck" dpkg-buildpackage -b -us -uc; \
-  pkg="/src/libexpat1_${EXPAT_DEBIAN_VERSION}_amd64.deb"; \
+  pkg="/src/libexpat1_${EXPAT_LOCAL_VERSION}_amd64.deb"; \
   test -s "$pkg"; \
-  test "$(dpkg-deb --field "$pkg" Version)" = "$EXPAT_DEBIAN_VERSION"; \
+  test "$(dpkg-deb --field "$pkg" Version)" = "$EXPAT_LOCAL_VERSION"; \
   mkdir -p /opt/folio-expat-package; \
   cp "$pkg" /opt/folio-expat-package/libexpat1.deb; \
-  printf '{"name":"expat","version":"%s","source_sha256":"%s","release_authorized":false}\n' \
-    "$EXPAT_VERSION" "$EXPAT_SOURCE_SHA256" \
+  printf '{"name":"expat","upstream_version":"%s","local_package_version":"%s","source_sha256":"%s","patch_sha256":"%s","release_authorized":false}\n' \
+    "$EXPAT_VERSION" "$EXPAT_LOCAL_VERSION" "$EXPAT_SOURCE_SHA256" "$EXPAT_PATCH_SHA256" \
     > /opt/folio-expat-package/source-provenance.json
 
 # Retain the experimental Poppler base and preserve its original tag.
@@ -56,7 +76,9 @@ RUN set -eux; \
   dpkg -i /opt/folio-expat-package/libexpat1.deb; \
   rm /opt/folio-expat-package/libexpat1.deb; \
   ldconfig; \
-  test "$(dpkg-query -W -f='${Version}' libexpat1)" = "2.10.0-1"; \
+  test "$(dpkg-query -W -f='${Version}' libexpat1)" = "2.10.0-1+folio1"; \
+  test ! -e /usr/bin/xmlwf; \
+  ! command -v xmlwf; \
   test -s /opt/folio-expat-package/source-provenance.json; \
   python3 -I -c "import ctypes; lib=ctypes.CDLL('libexpat.so.1'); lib.XML_ExpatVersion.restype=ctypes.c_char_p; assert lib.XML_ExpatVersion()==b'expat_2.10.0'"; \
   for binary in pdfinfo pdftotext pdftoppm; do \

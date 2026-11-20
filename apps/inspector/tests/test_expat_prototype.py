@@ -42,6 +42,41 @@ class ExpatPrototypePolicyTests(unittest.TestCase):
                           "FROM folio-civico-inspector:validation"):
             self.assertNotIn(forbidden, source)
 
+    def test_upstream_overread_patch_is_exact_and_runs_native_regression(self):
+        import hashlib
+        patch = (ROOT / "apps/inspector/research_patches/expat-pr1492.patch")
+        data = patch.read_bytes()
+        self.assertEqual(
+            hashlib.sha256(data).hexdigest(),
+            "0263891b16fd918e30f5116ff1cf33e757974a87ffc2c48667b06c98a85e46f3",
+        )
+        self.assertEqual(data.count(b"Subject: [PATCH"), 3)
+        self.assertIn(b"test_misc_unknown_encoding_no_source_overread", data)
+        self.assertIn(b"return XML_CONVERT_INPUT_INCOMPLETE;", data)
+        source = (ROOT / "apps/inspector/Dockerfile.expat-experiment").read_text()
+        self.assertIn("COPY research_patches/expat-pr1492.patch", source)
+        self.assertIn("patch --batch --fuzz=0", source)
+        self.assertIn("sha256sum --check -", source)
+        self.assertIn("2.10.0-1+folio1", source)
+        self.assertIn("XML_GetBuffer64(parser, docLen)", source)
+        self.assertIn("XML_GetBuffer(parser, (int)docLen)", source)
+        self.assertIn("grep -Fxc", source)
+        self.assertLess(source.index("XML_GetBuffer(parser, (int)docLen)"),
+                        source.index("ctest --test-dir"))
+        self.assertLess(source.index("patch --batch --fuzz=0"),
+                        source.index("ctest --test-dir"))
+        self.assertLess(source.index("ctest --test-dir"),
+                        source.index("dpkg-buildpackage"))
+
+    def test_xmlwf_never_enters_an_untrusted_pdf_runtime(self):
+        source = (ROOT / "apps/inspector/Dockerfile.expat-experiment").read_text()
+        self.assertIn("EXPAT_BUILD_TOOLS=OFF", source)
+        self.assertIn("test ! -e /usr/bin/xmlwf", source)
+        self.assertIn("! command -v xmlwf", source)
+        runner = (ROOT / "apps/inspector/build_expat_experiment.sh").read_text()
+        self.assertIn("command -v xmlwf", runner)
+        self.assertIn("2.10.0-1+folio1", runner)
+
     def test_manual_runner_is_offline_and_proves_all_parser_linkage(self):
         script = (ROOT / "apps/inspector/build_expat_experiment.sh").read_text()
         for token in (
@@ -119,7 +154,7 @@ class ExpatPrototypePolicyTests(unittest.TestCase):
             "ArtifactName": IMAGE, "ArtifactType": "container_image",
             "Results": [{"Target": "debian", "Type": "debian", "Vulnerabilities": [{
                 "Severity": "HIGH", "VulnerabilityID": "CVE-2026-113351",
-                "PkgName": "libexpat1", "InstalledVersion": "2.10.0-1",
+                "PkgName": "libexpat1", "InstalledVersion": "2.10.0-1+folio1",
             }]}],
         }
         with tempfile.TemporaryDirectory() as directory:
@@ -132,7 +167,7 @@ class ExpatPrototypePolicyTests(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 2)
             report = json.loads(proc.stdout)
-            self.assertEqual(report["expat_installed_version"], "2.10.0-1")
+            self.assertEqual(report["expat_installed_version"], "2.10.0-1+folio1")
             self.assertEqual(report["expat_high"], 1)
             self.assertFalse(report["release_authorized"])
 

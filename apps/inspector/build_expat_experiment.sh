@@ -29,7 +29,8 @@ lib.XML_ExpatVersion.restype=ctypes.c_char_p
 assert lib.XML_ExpatVersion() == b"expat_2.10.0"
 package=subprocess.check_output(
     ["dpkg-query","-W","-f=${Version}","libexpat1"],text=True,timeout=10)
-assert package == "2.10.0-1"
+assert package == "2.10.0-1+folio1"
+assert subprocess.run(["/bin/sh","-c","! command -v xmlwf"],check=False,timeout=8).returncode == 0
 for binary in ("/opt/folio-poppler/bin/pdfinfo",
                "/opt/folio-poppler/bin/pdftotext",
                "/opt/folio-poppler/bin/pdftoppm"):

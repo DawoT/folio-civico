@@ -31,7 +31,7 @@ Se creó `security/expat-prototype-r118` sobre `origin/main` en un worktree inde
 | CVE-2026-115506 | Corrección anunciada | Falta PoC/evaluación VEX individual |
 | CVE-2026-117610 | Corrección anunciada | Falta PoC/evaluación VEX individual |
 | CVE-2026-118370 | Corrección anunciada | Falta PoC/evaluación VEX individual |
-| CVE-2026-124317 | **No corregido por 2.10.0** | UNKNOWN continúa bloqueando |
+| CVE-2026-124317 | **No corregido por 2.10.0 sin backport** | Parche #1492 incorporado en R1.19 local; UNKNOWN continúa bloqueando sin VEX |
 | CVE-2026-128241 | **No corregido por 2.10.0** | UNKNOWN, `xmlwf` no presente; sin VEX |
 
 **No asumir** que desaparece un CVE por no aparecer en una ruta dinámica; el parser puede ser indirectamente alcanzable, y Trivy Trixie no reconoce automáticamente las correcciones de la rama `unstable`.
@@ -44,6 +44,26 @@ Se creó `security/expat-prototype-r118` sobre `origin/main` en un worktree inde
 - Smokes de motor real: **6/6**; HTTP: **4/4**, sin red en el contenedor.
 - **Trivy sobre nueva imagen:** 0 CRITICAL, **70 HIGH, 19 UNKNOWN**; sigue atribuyendo **4 HIGH y 2 UNKNOWN** a `libexpat1 2.10.0-1`. Comando diagnóstico **exit 2 (blocked)**, no es el gate completo SBOM.
 - `sh scripts/ci.sh` **exit 0 tras la reconstrucción de paquete y la ampliación de tests**: Vitest, 168 pruebas Python, TypeScript, compilación y dry-runs de Workers, 81 pruebas Chromium y migraciones D1 locales. Esta CI no sustituye el gate CVE independiente.
+
+## R1.19 · Backport upstream CVE-2026-124317 (incremento posterior)
+
+**Objetivo:** corregir un camino de sobrelectura real sin esperar un binario Debian Trixie y sin suprimir diagnósticos ni tocar las imágenes de referencia.
+
+**Procedencia del código:** [libexpat PR #1492](https://github.com/libexpat/libexpat/pull/1492), merge upstream del 2026-11-07 (tres commits `bf26290`, `3d77567`, `0507597`). Archivo congelado en `apps/inspector/research_patches/expat-pr1492.patch`, SHA-256:
+
+```text
+0263891b16fd918e30f5116ff1cf33e757974a87ffc2c48667b06c98a85e46f3
+```
+
+- Docker verifica digest, aplica con `patch --batch --fuzz=0 -p1` y exige la prueba upstream `test_misc_unknown_encoding_no_source_overread`. La aplicación no utilizó *fuzz*; se observó un desplazamiento de contexto de 29 líneas en el hunk de registro de la prueba.
+- **Compatibilidad fuente (detectada en Red):** la prueba de Expat master emplea `XML_GetBuffer64`, ausente en 2.10.0. Se adaptó solo la llamada de prueba a `XML_GetBuffer(parser, (int)docLen)` con comprobaciones exactas antes y después; el cuerpo de la corrección `xmltok.c` **no se alteró**.
+- El paquete reconstruido se identifica como `libexpat1 2.10.0-1+folio1` para distinguir claramente el backport local del `2.10.0-1` oficial de Debian. La procedencia en la imagen incluye fuente y hash del parche.
+- `xmlwf` (vector de **CVE-2026-128241**) no se compila en la suite CMake de esta imagen y se verifica su ausencia del runtime. Esa observación **no** representa una revisión VEX ni prueba la ausencia de todos los riesgos asociados a la biblioteca.
+- TDD: dos tests nuevos primero fallaron (faltaban parche, aplicación y prohibición de `xmlwf`); posteriormente **8/8 tests focalizados** pasaron.
+- Imagen reconstruida localmente: build `exit 0`, CTest nativo con el test upstream incorporado, **6/6** smokes de antivirus/PDF/OCR y **4/4** de HTTP. Imagen local experimental ID `sha256:221078247d17f98ab0981c3808ddfe7da65db8e5d9a99b5f5bc3431e5276f4d7` (no digest de registro).
+- Trivy de la imagen reconstruida: **0 CRITICAL, 70 HIGH, 19 UNKNOWN**, de los cuales `libexpat1 2.10.0-1+folio1` sigue contribuyendo **4 HIGH + 2 UNKNOWN**. Diagnóstico `exit 2` **bloqueado**; no sustituye la auditoría oficial ni genera CycloneDX/VEX. Las cifras reflejan la base del scanner, no una prueba de que el parche no funcione.
+
+**Por resolver:** evidencia independiente de procedencia y firma, evaluación específica de los seis CVE de Expat sobre el código reconstruido, pruebas adversarias adicionales para UTF-16 y XML, SBOM exhaustivo y análisis del resto de hallazgos. La corrección upstream de `CVE-2026-128241` existe en [PR #1502](https://github.com/libexpat/libexpat/pull/1502), pero su herramienta `xmlwf` no forma parte del runtime; no se incorporó ese parche ni se emitió VEX.
 
 ## Riesgos y siguientes gates
 - **Gate oficial del inspector sigue BLOQUEADO.** El escaneo diagnóstico no genera un VEX, una atestación de corrección específica ni el CycloneDX requerido por el gate formal. No incorporar esta imagen a `apps/inspector-gateway`.
