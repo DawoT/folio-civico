@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # R1.33: authenticated Debian Trixie source + upstream 2.41.6 quilt overlay.
-# Creates only an EPHEMERAL, UNRELEASED Debian SOURCE package. Never install,
-# Docker build, push, deploy or issue VEX/waivers. Valid evidence must exit 2.
+# Default is EPHEMERAL; --export-dir creates a private UNSIGNED source handoff.
+# Never install, Docker build, push, deploy or issue VEX/waivers. Exit 2=blocked.
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "$0")/../.." && pwd)"
 cd "$ROOT"
-if [[ "$#" -ne 0 ]]; then
+EXPORT=()
+if [[ "$#" -eq 2 && "$1" == "--export-dir" && -n "$2" ]]; then
+  EXPORT=(--export-dir "$2")
+elif [[ "$#" -ne 0 ]]; then
   printf '{"status":"error","reason":"unsupported_debian_overlay_option","release_authorized":false}\n'
   exit 3
 fi
@@ -56,4 +59,4 @@ fetch debian-maintainer.asc \
 # An authenticated and rebuilt *SOURCE* overlay must exit 2 because
 # no Debian binary package/ABI test/release exists. Any failure exits 3.
 python3 apps/inspector/util_linux_debian_source_overlay.py \
-  --artifacts-dir "$OUT"
+  --artifacts-dir "$OUT" "${EXPORT[@]}"
