@@ -95,11 +95,12 @@ export async function handleInspectorGatewayRequest(
   let original:Uint8Array;
   try{original=await readBounded(request.body,MAX_PDF_BYTES);}
   catch{return empty(413);}
-  if(original.length<12)return empty(400);
-  // A hash mismatch indicates a broken transport/binding, NOT an unsafe PDF
-  // verdict. Never convert such errors into terminal document findings.
+  // Verify the actual object before classifying its content, including a
+  // previously admitted short PDF. Transport corruption is not a finding.
   if(await sha256(original)!==expectedHash)return empty(400);
-  if(new TextDecoder().decode(original.slice(0,5))!=="%PDF-") {
+  // Historical quarantined 8–11-byte PDF headers must not loop forever on
+  // HTTP 400. Sign a terminal malformed-document verdict for these records.
+  if(original.length<12 || new TextDecoder().decode(original.slice(0,5))!=="%PDF-") {
     return signedUnsafeResponse(version,expectedHash,requestNonce,secrets.INSPECTOR_HMAC_KEY);
   }
   const headers=new Headers({

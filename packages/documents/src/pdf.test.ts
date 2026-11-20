@@ -39,6 +39,14 @@ describe("PDF quarantine intake", () => {
     }
   });
 
+  it.each([8,9,11])(
+    "rejects %s bytes of a truncated PDF header before quarantine",async(length)=>{
+      const short=new TextEncoder().encode("%PDF-1.7\nxxx").subarray(0,length);
+      await expect(readPdfUpload(request(short)))
+        .rejects.toMatchObject({status:422});
+    }
+  );
+
   it("rejects a stream exceeding the cap even without Content-Length", async () => {
     const source = new ReadableStream<Uint8Array>({
       start(controller) {
