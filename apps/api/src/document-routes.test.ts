@@ -29,7 +29,146 @@ function post(key = "upload_req_123", data: Uint8Array = bytes, extras: Record<s
   }, body: data as BodyInit });
 }
 
+/** Replays real SQLite rows before interleaving a membership/commission update. */
+function afterDocumentRead(db:D1Database, scope:"list"|"replay", mutate:()=>void):D1Database {
+  const marker = scope==="list"
+    ? "SELECT d.id, d.filename, v.id AS versionId"
+    : "SELECT d.id AS documentId, v.id AS versionId";
+  let fired=false;
+  return {
+    prepare(sql:string) {
+      const statement=db.prepare(sql);
+      if(!sql.includes(marker)) return statement;
+      return {
+        bind(...params:unknown[]) {
+          const bound=statement.bind(...params);
+          return scope==="list" ? {
+            async all<T>() {
+              const data=await bound.all<T>();
+              if(!fired){fired=true;mutate();}
+              return data;
+            }
+          } : {
+            async first<T>() {
+              const data=await bound.first<T>();
+              if(!fired){fired=true;mutate();}
+              return data;
+            }
+          };
+        }
+      } as unknown as D1PreparedStatement;
+    }
+  } as D1Database;
+}
+
 describe("authenticated PDF intake route", () => {
+  it("never returns a document listing after membership is revoked during its D1 fetch",async()=>{
+    const f=fixture();
+    try {
+      expect((await handleDocumentRequest(post(),f.env,"alice","c_a","b_a")).status).toBe(201);
+      const before=f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get();
+      const raced=afterDocumentRead(f.db,"list",()=>{
+        f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='c_a' AND subject='alice'");
+      });
+      const res=await handleDocumentRequest(new Request(url),{...f.env,DB:raced},"alice","c_a","b_a");
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({error:"Not found"});
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual(before);
+    }finally{f.close();}
+  });
+
+  it.each(["revoked","closed","observer"] as const)(
+    "never confirms a retried upload after authority becomes %s during the D1 lookup",async (change)=>{
+      const f=fixture();
+      try {
+        const created=await handleDocumentRequest(post(),f.env,"alice","c_a","b_a");
+        expect(created.status).toBe(201);
+        const before=f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get();
+        const raced=afterDocumentRead(f.db,"replay",()=>{
+          if(change==="revoked") {
+            f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='c_a' AND subject='alice'");
+          }else if(change==="closed") {
+            f.sqlite.exec("UPDATE commissions SET status='closed' WHERE id='c_a'");
+          }else{
+            f.sqlite.exec("UPDATE commission_members SET role='observer' WHERE commission_id='c_a' AND subject='alice'");
+          }
+        });
+        const res=await handleDocumentRequest(post(),{...f.env,DB:raced},"alice","c_a","b_a");
+        expect(res.status).toBe(change==="revoked"?404:change==="closed"?409:403);
+        expect(res.headers.get("Cache-Control")).toBe("no-store");
+        expect(f.put).toHaveBeenCalledTimes(1);
+        expect(f.sqlite.prepare("SELECT count(*) AS n FROM documents").get()).toEqual({n:1});
+        expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual(before);
+      }finally{f.close();}
+    }
+  );
+
+  it("keeps read-only document listing available to active members of closed commissions",async()=>{
+    const f=fixture();
+    try{
+      expect((await handleDocumentRequest(post(),f.env,"alice","c_a","b_a")).status).toBe(201);
+      f.sqlite.exec("UPDATE commissions SET status='closed' WHERE id='c_a'");
+      const res=await handleDocumentRequest(new Request(url),f.env,"alice","c_a","b_a");
+      expect(res.status).toBe(200);
+      expect(await res.json()).toHaveLength(1);
+    }finally{f.close();}
+  });
+
+
+  it.each(["list","replay"] as const)(
+    "fails closed if the final %s authorization probe loses D1 connectivity",async(mode)=>{
+      const f=fixture();
+      try {
+        expect((await handleDocumentRequest(post(),f.env,"alice","c_a","b_a")).status).toBe(201);
+        let accessReads=0;
+        const broken={
+          prepare(sql:string){
+            if(sql.includes("SELECT m.role, c.status AS commissionStatus") && ++accessReads===2){
+              throw new Error("PRIVATE_D1_DETAILS");
+            }
+            return f.db.prepare(sql);
+          }
+        } as D1Database;
+        const res=await handleDocumentRequest(mode==="list"?new Request(url):post(),
+          {...f.env,DB:broken},"alice","c_a","b_a");
+        expect(res.status).toBe(503);
+        expect(await res.json()).toEqual({error:"Request could not be completed"});
+        expect(res.headers.get("Cache-Control")).toBe("no-store");
+      }finally{f.close();}
+    }
+  );
+
+  it("revalidates the winner after deleting an R2 object from a losing concurrent upload",async()=>{
+    const f=fixture();
+    try{
+      f.put.mockImplementationOnce(async(key,data)=>{
+        const sha=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new Uint8Array(data).buffer)))
+          .map(v=>v.toString(16).padStart(2,"0")).join("");
+        f.objects.set("quarantine/winner.pdf",data);
+        await persistDocumentUpload(f.db,{
+          commissionId:"c_a",batchId:"b_a",subject:"alice",documentId:"winning_doc",
+          versionId:"winning_ver",sha256:sha,r2Key:"quarantine/winner.pdf",
+          filename:"Contrato.pdf",idempotencyKey:"upload_req_123"
+        });
+        f.objects.set(key,data);
+        return {key};
+      });
+      f.del.mockImplementationOnce(async key=>{
+        f.objects.delete(key);
+        f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='c_a' AND subject='alice'");
+      });
+      const response=await handleDocumentRequest(post(),f.env,"alice","c_a","b_a");
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({error:"Not found"});
+      expect(f.put).toHaveBeenCalledTimes(1);
+      expect(f.del).toHaveBeenCalledTimes(1);
+      expect(f.objects.size).toBe(1);
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM documents").get()).toEqual({n:1});
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:1});
+    }finally{f.close();}
+  });
+
   it("uploads to quarantine and writes a D1 record for the same commission", async () => {
     const f=fixture();
     try {
