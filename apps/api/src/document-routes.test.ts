@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { makeD1 } from "../../../tests/helpers/d1";
+import { persistDocumentUpload } from "@folio/data";
 import { handleDocumentRequest } from "./document-routes";
 
 const bytes = new TextEncoder().encode("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF");
@@ -97,6 +98,42 @@ describe("authenticated PDF intake route", () => {
         .toMatchObject({n:1});
       expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM audit_events").get())
         .toMatchObject({n:1});
+    }finally{f.close();}
+  });
+
+  it("returns the winning state and cleans only the losing R2 object during a concurrent retry",async()=>{
+    const f=fixture();
+    try {
+      f.put.mockImplementationOnce(async (key,data)=>{
+        const digest=new Uint8Array(await crypto.subtle.digest(
+          "SHA-256",new Uint8Array(data).buffer
+        ));
+        const sha256=Array.from(digest,byte=>byte.toString(16).padStart(2,"0")).join("");
+        const winnerKey="quarantine/winner.pdf";
+        f.objects.set(winnerKey,data);
+        await persistDocumentUpload(f.db,{
+          commissionId:"c_a",batchId:"b_a",subject:"alice",documentId:"doc_winner",
+          versionId:"ver_winner",sha256,r2Key:winnerKey,filename:"Contrato.pdf",
+          idempotencyKey:"upload_req_123"
+        });
+        f.sqlite.exec("UPDATE document_versions SET extraction_status='needs_review' WHERE id='ver_winner'");
+        f.objects.set(key,data);
+        return {key};
+      });
+      const replay=await handleDocumentRequest(post(),f.env,"alice","c_a","b_a");
+      expect(replay.status).toBe(200);
+      expect(await replay.json()).toMatchObject({
+        documentId:"doc_winner",versionId:"ver_winner",
+        ingestStatus:"quarantined",processingStatus:"needs_review",repeated:true
+      });
+      expect(f.put).toHaveBeenCalledTimes(1);
+      expect(f.del).toHaveBeenCalledTimes(1);
+      expect(f.objects.size).toBe(1);
+      expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM documents").get()).toMatchObject({n:1});
+      expect(f.sqlite.prepare("SELECT COUNT(*) AS n FROM audit_events").get()).toMatchObject({n:1});
+      expect(f.sqlite.prepare(
+        "SELECT COUNT(*) AS n FROM document_versions WHERE extraction_status='needs_review'"
+      ).get()).toMatchObject({n:1});
     }finally{f.close();}
   });
 

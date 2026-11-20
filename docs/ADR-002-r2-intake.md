@@ -15,10 +15,10 @@ La recepción es `POST /api/commissions/{id}/batches/{batchId}/documents`. Por a
 1. Verificar comisión, lote, estado activo y permiso de escritura.
 2. Comprobar mismo origen en solicitudes del navegador, nombre del PDF, `Content-Type`, longitud declarada y límite real durante streaming.
 3. Validar la cabecera `%PDF-` y calcular SHA-256. **No equivale a malware scanning ni garantiza que el PDF sea legible.**
-4. Consultar la clave de idempotencia por comisión. Si ya existe con el mismo hash **y lote**, devolver el documento existente; si difiere, rechazar con 409.
+4. Consultar la clave de idempotencia por comisión. Si ya existe con el mismo hash **y lote**, devolver el documento existente con `repeated:true` y el estado actual `document_versions.extraction_status` (no etiquetar todo reintento como `pending`); si difiere, rechazar con 409. `ingestStatus:quarantined` describe el ingreso original, no el estado del procesamiento.
 5. Escribir objeto en R2 privado con nombre aleatorio bajo `quarantine/`, con disposición de descarga adjunta.
 6. Insertar documento, versión y evento de auditoría en una única transacción de D1. El SQL vuelve a comprobar membresía autorizada y comisión activa.
-7. En fallo de D1, intentar eliminar solo el objeto nuevo. En reintento concurrente, devolver el documento previo si coincide hash, comisión y lote.
+7. En fallo de D1, intentar eliminar solo el objeto nuevo. En reintento concurrente, devolver el documento previo si coincide hash, comisión y lote, incluyendo el estado actual obtenido tras resolver la colisión. Conservar objeto e historial del ganador, sin duplicar auditoría.
 
 ### Reglas de seguridad
 
