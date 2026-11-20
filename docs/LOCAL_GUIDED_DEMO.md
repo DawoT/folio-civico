@@ -32,7 +32,7 @@ pnpm typecheck
 pnpm build
 ```
 
-`pnpm test:demo` inicia la demo temporalmente si no existe y usa Chromium real para recorrer la web y la API sin interceptar `/api/**`. Si otra instancia de la demo ya usa el puerto, la prueba puede reutilizarla, pero para resultados repetibles se recomienda ejecutarla **sin un servidor ya iniciado**, con estado inicial limpio.
+`pnpm test:demo` **siempre exige arrancar una instancia nueva** y usa Chromium real para recorrer la web y la API sin interceptar `/api/**`. Si el puerto ya está ocupado, la prueba **falla sin reutilizar** un servidor antiguo: un CI local no puede aprobar por error una revisión ajena o un estado previo. El puerto predeterminado es `4176` y puede aislarse por worktree configurando `FOLIO_DEMO_PORT`, por ejemplo `FOLIO_DEMO_PORT=4518 pnpm test:demo` o `FOLIO_DEMO_PORT=4518 sh scripts/ci.sh`; el servidor y Playwright comparten la misma validación de rango `1024–65535`. No usar un puerto ocupado ni `--update-snapshots` para eludir fallos.
 
 ## Límites explícitos
 
