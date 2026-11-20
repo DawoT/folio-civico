@@ -79,9 +79,12 @@ La prueba unitaria específica incluye **nueve casos** que cubren resultados bue
   **190/190 pruebas Python**, incluidas 9 pruebas nuevas R1.21.
 - `bash -n apps/inspector/research_patches/run_splash_public_test.sh`:
   **exit 0**.
-- `FOLIO_E2E_PORT=42995 sh scripts/ci.sh`: **exit 0**, con
-  190/190 Python, Vitest/workerd, typecheck, cinco builds Workers
-  `--dry-run`, Chromium E2E y migraciones D1 **solo locales** hasta `0029`.
+- `FOLIO_E2E_PORT=42995 sh scripts/ci.sh`: **exit 0** sobre la
+  primera base; tras integrar los cambios UX5 recientes de `origin/main`,
+  se repitió con **`FOLIO_E2E_PORT=43019`**, también **exit 0**:
+  **190/190 tests Python del inspector, 129/129 Chromium**, 13 pruebas
+  de captura de estudio UX5, Vitest/workerd, typecheck, cinco builds
+  Workers `--dry-run` y migraciones D1 **solo locales** hasta `0029`.
   No se autoriza acceso a D1 remoto.
 - Auditoría experimental independiente:
   `bash apps/inspector/audit_image.sh --experiment --advisories`
