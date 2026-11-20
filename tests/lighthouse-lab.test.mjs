@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   validateLighthouseReport, summarizeLighthouseRuns, validateLighthousePort,
-  hasOwnVitePreviewUrl
+  hasOwnVitePreviewUrl, extractOwnVitePreviewUrl
 } from "../scripts/lighthouse-lab-metrics.mjs";
 
 function report(score=0.86, fcp=800, lcp=1200, cls=0.02, tbt=42) {
@@ -32,8 +32,26 @@ describe("PERF-003 Lighthouse fail-closed local report", () => {
     expect(hasOwnVitePreviewUrl("  ➜  Local:   https://outside.invalid/\n", own)).toBe(false);
   });
 
+  it("extracts only the actual localhost URL from Vite-owned startup, including ephemeral port", () => {
+    const colored="  ➜  Local:   \u001b[36mhttp://127.0.0.1:\u001b[1m38619\u001b[22m/\u001b[39m\n";
+    expect(extractOwnVitePreviewUrl(colored)).toBe("http://127.0.0.1:38619/");
+    expect(hasOwnVitePreviewUrl(colored, "http://127.0.0.1:38619/")).toBe(true);
+    expect(hasOwnVitePreviewUrl(colored, "http://127.0.0.1:4181/")).toBe(false);
+    for (const forged of [
+      "  ➜  Local:   http://127.0.0.1:80/\n",
+      "  ➜  Local:   http://127.0.0.1:65536/\n",
+      "  ➜  Local:   http://127.0.0.1:03861/\n",
+      "  ➜  Local:   http://127.0.0.1:38619/evil\n",
+      "  ➜  Local:   https://127.0.0.1:38619/\n",
+      "  ➜  Local:   http://localhost:38619/\n",
+      "untrusted text Local:   http://127.0.0.1:38619/\n",
+      "  ➜  Local:   http://127.0.0.1:38619/\n  ➜  Local:   http://127.0.0.1:38620/\n"
+    ]) expect(extractOwnVitePreviewUrl(forged)).toBeNull();
+  });
+
   it("requires strictly validated unprivileged ports", () => {
-    expect(validateLighthousePort(undefined)).toBe(4181);
+    // An unspecified port now delegates to Vite/OS; validation applies only to explicit overrides.
+    expect(() => validateLighthousePort(undefined)).toThrow(/FOLIO_LIGHTHOUSE_PORT/);
     expect(validateLighthousePort("4519")).toBe(4519);
     for(const bad of ["", "80", "0", "1023", "65536", "8080 ", " 8080", "08e4", "99999", "notaport"])
       expect(() => validateLighthousePort(bad)).toThrow(/FOLIO_LIGHTHOUSE_PORT/);

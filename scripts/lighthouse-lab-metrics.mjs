@@ -2,7 +2,7 @@
  * A Lighthouse JSON report is only usable when it was captured from our
  * intended loopback origin, completed without an error and has real metrics.
  */
-export function validateLighthousePort(raw = "4181") {
+export function validateLighthousePort(raw) {
   if (typeof raw !== "string" || !/^[1-9][0-9]{3,4}$/.test(raw)
       || Number(raw) < 1024 || Number(raw) > 65535) {
     throw new Error("FOLIO_LIGHTHOUSE_PORT must be an unprivileged TCP port (1024-65535)");
@@ -65,14 +65,28 @@ export function summarizeLighthouseRuns(lhrs, expectedUrl) {
 }
 
 
-/** Detect the exact startup URL of our spawned Vite process, not log chatter.
- * Under CI=true Vite colors even the port inside its URL; strip ANSI SGR.
+/** Extract the single loopback URL from the Vite process' own startup log.
+ * Port 0 requests an OS-assigned ephemeral port, so we must read the actual
+ * bind address rather than guessing and potentially reusing another server.
  */
-export function hasOwnVitePreviewUrl(output, expectedUrl) {
-  if (typeof output !== "string" || typeof expectedUrl !== "string"
-      || !/^http:\/\/127\.0\.0\.1:[0-9]+\/$/.test(expectedUrl)) return false;
+export function extractOwnVitePreviewUrl(output) {
+  if (typeof output !== "string") return null;
   const plain = output.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
-  return plain.split(/\r?\n/).some(line =>
-    /\bLocal:\s+/.test(line) && line.includes(expectedUrl)
-  );
+  const urls = [];
+  for (const line of plain.split(/\r?\n/)) {
+    const match = /^\s*(?:➜\s+)?Local:\s+(http:\/\/127\.0\.0\.1:([0-9]{4,5})\/)\s*$/.exec(line);
+    if (!match) continue;
+    try {
+      validateLighthousePort(match[2]);
+    } catch {
+      return null;
+    }
+    urls.push(match[1]);
+  }
+  return urls.length === 1 ? urls[0] : null;
+}
+
+export function hasOwnVitePreviewUrl(output, expectedUrl) {
+  return typeof expectedUrl === "string"
+    && extractOwnVitePreviewUrl(output) === expectedUrl;
 }
