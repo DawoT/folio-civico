@@ -26,9 +26,10 @@ La recuperación posterior del CI no prueba eliminación de la intermitencia.
   telemetría (**134/135 Chromium**): el contenido sintético de 1500 px no
   garantizaba scroll en un viewport móvil escalado. Se elevó **solo la
   altura del fixture sintético** a 10 000 px; la CI completa repetida aprobó.
-- **CI integral local final, exit 0:** 551 Vitest + 364 Python inspector +
-  17 contratos CI + 33 UX5 + 2 Chromium PERF + 5 workerd +
-  135 Chromium E2E + 1 demo + 1 demo PERF = **1109/1109**;
+- **CI integral local final, exit 0 sobre la base complementaria del PR #94:**
+  556 Vitest + 380 Python inspector + 18 contratos CI + 33 UX5 +
+  2 Chromium PERF + 5 workerd + 135 Chromium E2E + 1 demo +
+  1 demo PERF = **1131/1131**;
   Lighthouse móvil 3/3 informes reales, typecheck, builds/dry-runs,
   presupuesto de bundle y migraciones D1 locales.
 - Ninguna de estas ejecuciones representa una repetición determinista de la
