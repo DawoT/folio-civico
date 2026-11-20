@@ -29,7 +29,7 @@ Se construyó primero `apps/processor/src/manual-redrive-fence.test.ts` (Red): e
 ```sh
 pnpm exec vitest run apps/processor/src/manual-redrive-fence.test.ts apps/processor/src/consumer.test.ts apps/processor/src/dlq-triage.test.ts apps/operator/src/async-redrive.test.ts
 pnpm typecheck
-FOLIO_E2E_PORT=42926 sh scripts/ci.sh
+FOLIO_E2E_PORT=42928 sh scripts/ci.sh
 ```
 
 **Condición de cierre externo:** conector de incidencia e IdP auditado, control de facultades D1, autoridad de invalidación, consumidor y Queue autorizados, política de retención y cadena de custodia, gate CVE y aprobación expresa Preview. [Issue #19](https://github.com/DawoT/folio-civico/issues/19).
