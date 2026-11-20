@@ -50,7 +50,7 @@ sh scripts/ci.sh
 
 - **Lighthouse:** [PERF-003](UX_FRONTEND_LIGHTHOUSE_LAB.md) ya ejecuta tres auditorías móviles sobre el shell inicial no autenticado con simulación de red/CPU. Aún no hay Lighthouse de un flujo autorizado ni perfil de hardware profesional o umbrales temporales validados.
 - **Core Web Vitals de campo:** no hay RUM, usuarios reales, percentiles de población ni INP medido. La medición inicial de LCP/CLS **no** equivale a Core Web Vitals de producción.
-- **Flujos completos:** este laboratorio mide **la primera navegación a la pantalla inicial**, no tiempos de subida, revisión, exportación, carga con historial grande ni latencia del API.
+- **Flujos completos:** PERF-002 mide **la primera navegación a la pantalla inicial**; [PERF-004](UX_FRONTEND_AUTHORIZED_WORKFLOW_LAB.md) mide por separado un recorrido sintético de apertura de lote, paginación de 40 observaciones y detalle. Aún faltan tiempos de subida, revisión con backend firmado, exportación real y latencia del API.
 - **UX-5.6 humana:** siguen pendientes las sesiones moderadas, NVDA, VoiceOver y zoom nativo.
 
 El presupuesto de bytes (PERF-001) sigue siendo el gate cuantitativo de rendimiento; PERF-002 es un gate de **disponibilidad y validez de instrumentación**, no un nuevo SLO temporal.

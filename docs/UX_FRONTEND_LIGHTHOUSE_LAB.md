@@ -79,7 +79,7 @@ sh scripts/ci.sh
 
 ## Próximas brechas
 
-- **Rendimiento del flujo autorizado:** crear un fixture API local explícito y seguro para mostrar una comisión/lote sintéticos en el build, y repetir mediciones en estados significativos. No usar expedientes institucionales ni inventar usuarios humanos.
+- **Rendimiento del flujo autorizado:** [PERF-004](UX_FRONTEND_AUTHORIZED_WORKFLOW_LAB.md) mide con Playwright un recorrido con rol/API sintéticos, sobre el build, desde comisión y lote hasta historial de 40 observaciones y detalle. Sigue pendiente una **auditoría Lighthouse** de ese estado autorizado con fixture backend seguro y reproducible, sin expedientes institucionales ni datos humanos inventados.
 - **Serie controlada / presupuestos temporales:** fijar equipo físico, carga base, sistema operativo, versión exacta de Chromium y más series antes de decidir umbrales de Lighthouse.
 - **Accesibilidad manual y campo:** siguen pendientes NVDA, VoiceOver, zoom nativo, sesiones UX-5.6 autorizadas, Core Web Vitals reales (INP incluido), y métricas de interacción por rol.
 - **Liberación:** un CI local aprobado no desbloquea Cloudflare Preview, producción ni el inspector.
