@@ -1,4 +1,5 @@
-import type { Page } from "@playwright/test";
+import { expect, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { writeFile } from "node:fs/promises";
 
 /** Synthetic-only browser telemetry for diagnosing intermittent anchor scroll.
  * Captures geometry and timing, never DOM text, URLs, cookies or request bodies.
@@ -7,6 +8,46 @@ interface ScrollSample { atMs:number; scrollY:number }
 interface ShiftSample { atMs:number; value:number }
 interface ProbeState { scrolls:ScrollSample[]; shifts:ShiftSample[] }
 type ProbeWindow=Window & { __folioTaskNavProbe?:ProbeState };
+
+export interface TaskNavigationVisit {
+  id:string;
+  elapsedMs:number;
+  before:unknown;
+  after:unknown;
+}
+
+/** Real anchor click with fail-only, sanitized synthetic telemetry.
+ * Telemetry must never mask the original Playwright failure.
+ */
+export async function navigateTaskWithDiagnostics(
+  page:Page,nav:Locator,testInfo:TestInfo,step:{label:string;id:string},
+  visited:TaskNavigationVisit[]
+):Promise<void>{
+  const {label,id}=step;
+  const before=await snapshotTaskNavigation(page,id);
+  const started=Date.now();
+  try{
+    await nav.getByRole("link",{name:label,exact:true}).click();
+    await expect(page).toHaveURL(new RegExp(`#${id}$`));
+    await expect(page.locator(`#${id}`)).toBeVisible();
+    visited.push({id,elapsedMs:Date.now()-started,before,
+      after:await snapshotTaskNavigation(page,id)});
+  }catch(error){
+    let after:unknown={unavailable:true};
+    try{after=await snapshotTaskNavigation(page,id);}catch{/* retain original click error */}
+    const artifact=testInfo.outputPath("task-anchor-diagnostics.json");
+    try{
+      await writeFile(artifact,JSON.stringify({
+        schemaVersion:1,project:testInfo.project.name,
+        currentStep:id,elapsedMs:Date.now()-started,visited,before,after
+      },null,2));
+      await testInfo.attach("task-anchor-diagnostics",{
+        path:artifact,contentType:"application/json"
+      });
+    }catch{/* never replace the original failure with telemetry errors */}
+    throw error;
+  }
+}
 
 export async function installTaskNavigationProbe(page:Page):Promise<void> {
   await page.evaluate(()=>{
