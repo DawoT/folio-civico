@@ -46,3 +46,25 @@ sh scripts/ci.sh
 Todos los reportes mantienen `source_binary_equivalence_to_runtime_verified=false`, `cve_remediation_claimed=false` y `release_authorized=false`. El gate pesado Trivy permanece bloqueado hasta una auditoría posterior individual. La validación del CI general no lo reemplaza.
 
 **ADR-023:** esta entrega solo puede integrar investigación, corpus sintético, pruebas y documentación. Nada de publicación OCI, `validation`/runtime alterado, VEX, PDFs institucionales, Preview, producción ni migraciones D1 remotas.
+
+## R1.32 · Endurecimiento de controles de evidencia (rama separada)
+
+Una revisión adversarial del verificador R1.31 detectó que el resultado de
+`wide_noaa` no exigía `exit 0` y que `scaled_wide_aa` podía fallar sin
+invalidar una afirmación positiva de alcanzabilidad. Además, los bitmaps PBM
+pequeños se comprobaban únicamente por prefijo: un encabezado correcto, sin
+datos de píxeles, era suficiente para superar el control.
+
+La corrección acotada exige `exit 0` de ambos procesos de control y verifica
+el tamaño exacto del PBM `P4` (cabecera y `ceil(width / 8) * height` bytes),
+sin aceptar píxeles ausentes ni bytes adicionales. El test sintético de
+32 × 1 se actualizó para que represente un PBM P4 correcto.
+
+Se añadieron tres tests adversariales y se ejecutó Red → Green:
+**9/12 antes** (3 fallos esperados por aceptación indebida), **12/12 después**
+y **25/25 en la regresión conjunta con R1.27**. Estos ensayos verifican la
+lógica Python, no repiten por sí solos la reconstrucción ASan/UBSan de
+Poppler R1.31. El script experimental, los PDFs SHA-pinned y el resultado
+instrumentado previamente registrado permanecen sin cambios. Continúan
+`source_binary_equivalence_to_runtime_verified=false` y
+`release_authorized=false`.
