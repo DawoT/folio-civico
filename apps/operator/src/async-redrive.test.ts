@@ -102,6 +102,41 @@ function insertSyntheticAuditedRevocation(
 }
 
 describe("R2.11 · independent asynchronous redrive authority",()=>{
+  it("institutional evidence gate checks approval AND latest status before Queue execution",async()=>{
+    const f=await fixture();
+    try{
+      const id=(await (await f.propose()).json() as {id:string}).id;
+      const signed=await f.approvalJwt(id);
+      f.env.institutionalGate={};
+      expect((await f.approve(id,signed)).status).toBe(503);
+      expect(f.counts()).toEqual({proposals:{n:1},approvals:{n:0},sends:{n:0}});
+      let status="open",outage=false;
+      const source=vi.fn(async(query:Record<string,unknown>)=>{
+        if(outage)throw new Error("institutional service unavailable");
+        const t=Math.floor(Date.now()/1000);
+        return {...query,revision:9,status,decision:"approved",
+          reviewerSubject:query.approverSubject,checkedAt:t,
+          reviewedAt:t-4,mfaVerifiedAt:t-10,validUntil:t+90};
+      });
+      f.env.institutionalGate={reader:{readCurrentEvidence:source}};
+      expect((await f.approve(id,signed)).status).toBe(200);
+      expect(source).toHaveBeenCalledWith(expect.objectContaining({
+        purpose:"redrive",caseRef:f.input.approvalRef,requestId:id,
+        approverSubject:APPROVER,scopeDigest:expect.stringMatching(/^[a-f0-9]{64}$/)
+      }));
+      status="closed";
+      expect((await f.execute(id,signed)).status).toBe(403);
+      outage=true;
+      expect((await f.execute(id,signed)).status).toBe(503);
+      expect(f.send).not.toHaveBeenCalled();
+      expect(f.counts().sends).toEqual({n:0});
+      outage=false;
+      status="open";
+      expect((await f.execute(id,signed)).status).toBe(200);
+      expect(f.send).toHaveBeenCalledOnce();
+    }finally{f.close();}
+  });
+
   it("requires operator proposal, distinct approver Access and signed JWS, then operator executes exactly once",async()=>{
     const f=await fixture();
     try{

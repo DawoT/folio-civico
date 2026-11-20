@@ -3,6 +3,7 @@ import {InspectedTextViewer} from "./InspectedTextViewer";
 import { Field, SelectField, TextareaField } from "./ui/Fields";
 import { EmptyState } from "./ui/FeedbackStates";
 import { StatusBadge } from "./ui/StatusBadge";
+import { ReviewExportPanel, type ReportExportStatus } from "./ui/ReviewExportPanel";
 import { ReviewEvidenceContext, canPrepareReviewDecision } from "./ui/ReviewEvidenceContext";
 import { ChecklistFilters, countChecklistByStatus, filterChecklistRows, isInternallyValidated, type ChecklistAreaFilter, type ChecklistStatusFilter } from "./ui/ChecklistFilters";
 import { ObservationInboxFilters, countLoadedObservations, filterLoadedObservations, inboxEmptyText, type InboxFilter } from "./ui/ObservationInbox";
@@ -110,14 +111,20 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
   const [focusedPage,setFocusedPage]=useState<InspectedEvidenceReference|null>(null);
   const [linkedLoading,setLinkedLoading]=useState(false);
   const [linkedError,setLinkedError]=useState("");
-  const [exportBusy,setExportBusy]=useState(false);
-  const [exportError,setExportError]=useState("");
-  const [exportHash,setExportHash]=useState("");
+  const [exportStatus,setExportStatus]=useState<ReportExportStatus>({phase:"idle"});
+  const exportSequence=useRef(0);
+  const exportInFlight=useRef<number|null>(null);
   const [checklistArea,setChecklistArea]=useState<"works"|"procurement">("works");
   const [expectedDocument,setExpectedDocument]=useState("");
   const [checklistCreating,setChecklistCreating]=useState(false);
   const pendingChecklist=useRef<{fingerprint:string;key:string}|null>(null);
   const linkedRequest=useRef(0);
+
+  useEffect(() => {
+    setExportStatus({phase:"idle"});
+    exportInFlight.current=null;
+    return () => {exportSequence.current+=1;exportInFlight.current=null;};
+  }, [scope.commissionId,scope.batchId]);
 
   useEffect(() => {
     let active = true;
@@ -241,27 +248,39 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
   }
 
   async function exportReviewReport() {
-    if (exportBusy) return;
-    setExportBusy(true);setExportError("");setExportHash("");
+    // A ref is synchronous even when React has not committed the disabled state.
+    if (exportInFlight.current !== null) return;
+    const attempt=++exportSequence.current;
+    exportInFlight.current=attempt;
+    setExportStatus({phase:"verifying"});
     try {
+      // The API validates schema, commission scope, completeness and SHA-256
+      // BEFORE any browser download is requested.
       const report=await loadVerifiedReviewReport(scope.commissionId);
+      if(attempt!==exportSequence.current) return;
+      const filename=`folio-civico-${scope.commissionId}-revision-interna.json`;
       const url=URL.createObjectURL(new Blob([report.file],{type:"application/json;charset=utf-8"}));
       try {
         const link=document.createElement("a");
         link.href=url;
-        link.download=`folio-civico-${scope.commissionId}-revision-interna.json`;
+        link.download=filename;
         document.body.appendChild(link);
-        link.click();
-        link.remove();
+        try { link.click(); }
+        finally { link.remove(); }
       } finally {
         // Allow the browser to begin handling the download before releasing it.
         window.setTimeout(()=>URL.revokeObjectURL(url),1000);
       }
-      setExportHash(report.sha256);
+      if(attempt===exportSequence.current) {
+        setExportStatus({phase:"verified",sha256:report.sha256,count:report.count,filename});
+      }
     } catch(problem) {
-      setExportError(problem instanceof Error ? problem.message : "No se pudo exportar el informe.");
+      if(attempt===exportSequence.current) {
+        setExportStatus({phase:"error",
+          message:problem instanceof Error ? problem.message : "No se pudo exportar el informe."});
+      }
     } finally {
-      setExportBusy(false);
+      if(exportInFlight.current===attempt) exportInFlight.current=null;
     }
   }
 
@@ -291,21 +310,7 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
         <p className="eyebrow">03 · CONTROL Y OBSERVACIONES</p>
         <h2 id="review-title">Constatación documental</h2>
         <p>Registro de búsquedas realizadas por personas autorizadas. No equivale a declarar una irregularidad.</p>
-        <div className="review-export" id="informes">
-          <button type="button" className="button secondary" disabled={exportBusy}
-            onClick={()=>void exportReviewReport()}>
-            {exportBusy ? "Preparando informe…" : "Exportar revisión interna (JSON)"}
-          </button>
-          <p className="review-note">
-            Incluye decisiones internas validadas y descartadas, sus evidencias, autores y revisores.
-            No incluye borradores ni archivos PDF. No constituye un acta oficial.
-          </p>
-          {exportError && <p role="alert" className="message error">{exportError}</p>}
-          {exportHash && <p role="status" className="review-note">
-            Integridad verificada. SHA-256: <code className="report-digest">{exportHash}</code>.
-            Conserva esta huella por separado; no es una firma digital.
-          </p>}
-        </div>
+        <ReviewExportPanel status={exportStatus} onExport={()=>void exportReviewReport()}/>
       </div>
       {error && <p role="alert" className="message error">{error}</p>}
       {notice && <p role="status" className="message success">{notice}</p>}
