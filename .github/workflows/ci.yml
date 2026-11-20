@@ -32,3 +32,12 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Run local CI contract
         run: sh scripts/ci.sh
+      - name: Preserve synthetic Playwright failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: folio-synthetic-playwright-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 3

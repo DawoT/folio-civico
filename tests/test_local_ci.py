@@ -186,6 +186,30 @@ class LocalCiContractTests(unittest.TestCase):
         self.assertNotIn("playwright install --with-deps webkit", workflow)
         self.assertNotIn("wrangler deploy --remote", workflow)
 
+    def test_failed_browser_ci_preserves_short_lived_synthetic_evidence(self):
+        """A failed navigation must retain a trace; no permanent data archive."""
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        config = (ROOT / "playwright.config.ts").read_text(encoding="utf-8")
+        self.assertIn('trace: "retain-on-failure"', config)
+        self.assertIn('screenshot: "only-on-failure"', config)
+        # Keep the upload unconditional on the test's outcome (not on the
+        # success path), and after the complete CI job so failures still fail.
+        self.assertIn("uses: actions/upload-artifact@v4", workflow)
+        upload = workflow.split("uses: actions/upload-artifact@v4", 1)
+        self.assertEqual(len(upload), 2)
+        head, tail = upload
+        self.assertIn("if: failure()", head.rsplit("- name:", 1)[-1])
+        self.assertLess(head.index("run: sh scripts/ci.sh"), len(head))
+        self.assertIn("test-results/", tail)
+        self.assertIn("if-no-files-found: ignore", tail)
+        self.assertIn("retention-days: 3", tail)
+        self.assertNotIn("if: always()", workflow)
+        self.assertNotIn("continue-on-error: true", workflow)
+        self.assertIn("contents: read", workflow)
+        self.assertNotIn("playwright-report/", tail)
+        self.assertNotIn(".dev.vars", tail)
+        self.assertNotIn(".env", tail)
+
     def test_main_ci_cannot_activate_unapproved_inspector_runtime(self):
         """Main code integration does not grant container/Cloudflare release."""
         import json
