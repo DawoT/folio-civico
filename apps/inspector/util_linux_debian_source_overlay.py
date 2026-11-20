@@ -1,7 +1,9 @@
 """R1.33: signed Trixie Debian packaging roundtrip using 2.41.6 + CVE backport.
 
-OFFLINE, unprivileged, source-only, ephemeral. NOT Debian-maintained, signed,
-built as binaries, installed, published, VEXed, or authorized for release.
+OFFLINE, unprivileged, source-only; ephemeral by default. An explicit
+--export-dir hands off only unsigned, verified sources in a private new folder.
+NOT Debian-maintained, signed, built as binaries, installed, published, VEXed,
+or authorized for release.
 Valid evidence exits 2 (blocked); any break/incompleteness exits 3.
 
 Two Debian Trixie patches are ALREADY upstream in 2.41.6. Applying those
@@ -229,7 +231,79 @@ def _validate_debian_signature(root:Path,work:Path) -> dict:
             "debian_signer_fingerprint":DEBIAN_SIGNER_FINGERPRINT}
 
 
-def verify_debian_source_overlay(artifacts:Path)->dict:
+def _export_unsigned_source_bundle(work:Path, destination:Path, evidence:dict)->dict:
+    """Explicit private source-only handoff; never a binary or release grant.
+
+    Files come only from the fully verified, round-tripped temporary source tree.
+    Existing destinations and symlinked parents are refused, not overwritten.
+    """
+    required_true=("source_roundtrip_verified","debian_dsc_signed",
+                   "upstream_signatures_verified","cve_78408_backport_added")
+    if (not isinstance(evidence,dict)
+            or not all(evidence.get(field) is True for field in required_true)
+            or evidence.get("release_authorized") is not False
+            or evidence.get("experimental_dsc_signed") is not False
+            or evidence.get("new_quilt_patch_count")!=len(EXPECTED_OVERLAY_SERIES)
+            or evidence.get("patched_nsenter_sha256")!=PATCHED_NSENTER_SHA256):
+        raise ValueError("Unsigned source handoff lacks verified source evidence")
+    if (not destination.is_absolute() or ".." in destination.parts
+            or not destination.name or not destination.parent.is_dir()
+            or destination.parent.is_symlink()
+            or destination.parent.absolute()!=destination.parent.resolve(strict=True)
+            or destination.exists() or destination.is_symlink()):
+        raise ValueError("Source handoff destination must be new and non-symlinked")
+    if list(work.glob("*.deb")) or list(work.glob("*.udeb")):
+        raise ValueError("Source-only handoff cannot contain Debian binaries")
+    names=(f"util-linux_{VERSION}.orig.tar.xz",
+           f"util-linux_{EXPERIMENT_VERSION}.dsc",
+           f"util-linux_{EXPERIMENT_VERSION}.debian.tar.xz")
+    pinned={
+        names[0]:TAR_SHA256,
+        names[1]:evidence.get("experimental_dsc_sha256"),
+        names[2]:evidence.get("experimental_debian_tar_sha256"),
+    }
+    if any(not isinstance(digest,str) or
+           not re.fullmatch(r"[a-f0-9]{64}",digest) or
+           not (work/name).is_file() or (work/name).is_symlink() or
+           _hash(work/name)!=digest for name,digest in pinned.items()):
+        raise ValueError("Unsigned source input no longer matches verified hashes")
+    manifest={
+        "status":"unsigned_source_only_handoff_release_blocked",
+        "experimental_debian_version":EXPERIMENT_VERSION,
+        "source_roundtrip_verified":True,
+        "upstream_signatures_verified":True,
+        "debian_original_dsc_signed":True,
+        "experimental_dsc_signed":False,
+        "debian_binary_packages_built":False,
+        "runtime_image_replaced":False,
+        "vex":"not_issued",
+        "release_authorized":False,
+        "source_date_epoch":SOURCE_DATE_EPOCH,
+        "sha256":pinned,
+    }
+    # Exclusive mkdir prevents accidental overwrite of an agent's output.
+    # An interrupted export lacks the final manifest and cannot be admitted.
+    destination.mkdir(mode=0o700)
+    try:
+        os.chmod(destination,0o700)
+        for name in names:
+            target=destination/name
+            shutil.copyfile(work/name,target)
+            os.chmod(target,0o600)
+            if _hash(target)!=pinned[name]:
+                raise ValueError("Exported candidate changed during copy")
+        report=destination/"UNSIGNED_SOURCE_ONLY.json"
+        report.write_text(json.dumps(manifest,sort_keys=True,indent=2)+"\n",
+                          encoding="utf-8")
+        os.chmod(report,0o600)
+    except Exception:
+        # Only this newly-created, private directory is ever cleaned up.
+        shutil.rmtree(destination)
+        raise
+    return manifest
+
+
+def verify_debian_source_overlay(artifacts:Path,*,export_dir:Path|None=None)->dict:
     if os.geteuid()==0:
         raise ValueError("Unprivileged source-only verification required")
     artifacts=artifacts.resolve(strict=True)
@@ -357,15 +431,20 @@ def verify_debian_source_overlay(artifacts:Path)->dict:
             "vex":"not_issued",
             "release_authorized":False,
         }
+        if export_dir is not None:
+            _export_unsigned_source_bundle(work,export_dir,result)
+            result["source_handoff_exported"]=True
         return result
 
 
 def main()->int:
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifacts-dir",required=True,type=Path)
+    parser.add_argument("--export-dir",type=Path,default=None,
+                        help="new private directory for unsigned source-only handoff")
     args=parser.parse_args()
     try:
-        report=verify_debian_source_overlay(args.artifacts_dir)
+        report=verify_debian_source_overlay(args.artifacts_dir,export_dir=args.export_dir)
     except (ValueError,TypeError,KeyError,OSError,UnicodeError):
         print(json.dumps({"status":"error",
                           "reason":"debian_source_overlay_unverified",
