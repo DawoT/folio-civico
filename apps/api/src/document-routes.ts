@@ -27,6 +27,30 @@ function documentResult(
 }
 
 /**
+ * The first permission check can become stale across an awaited D1/R2 read.
+ * Revalidate the same commission+batch binding after the data is available
+ * and before disclosing it or acknowledging an idempotent write replay.
+ */
+async function finalAccessFence(
+  env: DocumentRouteEnv, subject: string, commissionId: string,
+  batchId: string, mode: "read" | "draft"
+): Promise<Response | null> {
+  const current = await getBatchAccess(env.DB, subject, commissionId, batchId);
+  if (!current) return json({ error: "Not found" }, 404);
+  if (mode === "draft" && current.commissionStatus !== "active") {
+    return json({ error: "Commission is closed" }, 409);
+  }
+  try {
+    assertMemberPermission({
+      commissionId, subject, role: current.role, active: true
+    }, subject, commissionId, mode);
+  } catch {
+    return json({ error: "Forbidden" }, 403);
+  }
+  return null;
+}
+
+/**
  * Internal route: subject is from a verified Access JWT, NEVER a request parameter.
  * The repository rechecks membership on every database operation.
  */
@@ -45,7 +69,9 @@ export async function handleDocumentRequest(
     }, subject, commissionId, request.method === "GET" ? "read" : "draft");
 
     if (request.method === "GET") {
-      return json(await listBatchDocuments(env.DB, subject, commissionId, batchId), 200);
+      const documents = await listBatchDocuments(env.DB, subject, commissionId, batchId);
+      const denied = await finalAccessFence(env, subject, commissionId, batchId, "read");
+      return denied ?? json(documents, 200);
     }
 
     if (access.commissionStatus !== "active") return json({ error: "Commission is closed" }, 409);
@@ -57,6 +83,8 @@ export async function handleDocumentRequest(
     const pdf = await readPdfUpload(request);
     const existing = await getExistingUpload(env.DB, subject, commissionId, pdf.idempotencyKey);
     if (existing) {
+      const denied = await finalAccessFence(env, subject, commissionId, batchId, "draft");
+      if (denied) return denied;
       if (existing.sha256 !== pdf.sha256 || existing.batchId !== batchId) {
         return json({ error: "Idempotency key already belongs to another upload" }, 409);
       }
@@ -99,6 +127,8 @@ export async function handleDocumentRequest(
         // Quarantine objects may require a retention/lifecycle sweeper after an R2 outage.
       }
       if (concurrent) {
+        const denied = await finalAccessFence(env, subject, commissionId, batchId, "draft");
+        if (denied) return denied;
         if (concurrent.sha256 === pdf.sha256 && concurrent.batchId === batchId) {
           return documentResult(concurrent.documentId, concurrent.versionId, concurrent.sha256,
             concurrent.processingStatus, true);
