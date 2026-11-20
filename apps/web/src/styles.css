@@ -485,11 +485,67 @@ h1 { margin: 0; font-size: var(--fc-type-heading-lg); letter-spacing: -.05em; li
 .attestation input { margin-top: 3px; flex: 0 0 auto; accent-color: #075c57; width: 16px; height: 16px; }
 .review-form button { align-self: stretch; }
 .review-form input:focus-visible,.review-form select:focus-visible,.review-form textarea:focus-visible { outline: 3px solid var(--fc-color-focus); outline-offset: 2px; }
+/* UX-3.1: filters operate ONLY on already-authorized, paginated history. */
+.inbox-filters {
+  display: grid;
+  gap: var(--fc-space-2);
+  padding: var(--fc-space-3);
+  margin: var(--fc-space-3) 0 var(--fc-space-4);
+  border: 1px solid var(--fc-color-border-default);
+  border-radius: var(--fc-radius-control);
+  background: var(--fc-color-surface-subtle);
+}
+.inbox-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fc-space-2);
+}
+.inbox-filter-button {
+  flex: 1 1 138px;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid var(--fc-color-border-strong);
+  border-radius: var(--fc-radius-control);
+  padding: 10px 12px;
+  background: var(--fc-color-surface-base);
+  color: var(--fc-color-text-primary);
+  font: inherit;
+  font-size: var(--fc-type-label);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.inbox-filter-button[aria-pressed="true"] {
+  background: var(--fc-color-brand-primary);
+  border-color: var(--fc-color-brand-primary);
+  color: var(--fc-color-brand-on-primary);
+}
+.inbox-filter-button:focus-visible {
+  outline: 3px solid var(--fc-color-focus);
+  outline-offset: 3px;
+}
+.inbox-filter-button:disabled { opacity: .58; cursor: not-allowed; }
+.inbox-filter-note {
+  margin: 0;
+  font-size: var(--fc-type-caption);
+  color: var(--fc-color-text-secondary);
+  line-height: 1.6;
+}
 .observations-card { margin-top: 22px; }
 .observation-items li { padding: 15px 0; border-top: 1px solid #e7efeb; }
-.observation-heading { display: flex; justify-content: space-between; gap: 12px; }
+.observation-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--fc-space-3);
+}
+.observation-heading strong {
+  flex: 1 1 180px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .observation-heading strong { font-size: 14px; }
-.observation-heading > span { font-size: 11px; background: #fff3d4; color: #854600; border-radius: 6px; padding: 5px 9px; }
 .observation-items p { font-size: 13px; color: #536773; line-height: 1.6; overflow-wrap: anywhere; }
 .proof-reference { font-family: ui-monospace, Consolas, monospace; font-size: 11px !important; color: #075c57 !important; }
 @media (max-width: 850px) {
