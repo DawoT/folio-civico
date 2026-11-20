@@ -126,6 +126,140 @@ async function fixture(){
   return {...f,env,get,invalidate,inspectorFetch,manifest,signature};
 }
 
+function syntheticR27Revocation(
+  f:Awaited<ReturnType<typeof fixture>>,
+  kind:"operator"|"approval_ref"|"attestation"|"image"|"approval_key"|"release_key",
+  target:string
+):void{
+  const incident="INC_CONSUMER_SQL_FENCE_P6";
+  f.sqlite.prepare(`
+    INSERT INTO processing_redrive_revocation_actions(
+      actor_subject,request_key,kind,target,incident_ref,approver_subject,
+      target_sha256,reason_sha256,approval_sha256,
+      approval_key_thumbprint,payload_sha256
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+  `).run("synthetic_registrar","revocation_sql_fence_001",kind,target,
+    incident,"independent_registrar",SHA,SHA,SHA,"C".repeat(43),SHA);
+  f.sqlite.prepare(`
+    INSERT INTO processing_redrive_revocations(kind,target,incident_ref)
+    VALUES(?,?,?)
+  `).run(kind,target,incident);
+}
+function insertSyntheticReport(f:Awaited<ReturnType<typeof fixture>>):void{
+  f.sqlite.prepare(`
+    INSERT INTO document_processing_reports(
+      document_version_id,scanner_name,scanner_report_id,scanned_at,
+      source_sha256,manifest_sha256,page_count
+    ) VALUES('version_p5','synthetic-scanner','report_sql_fence_p6',
+      '2026-11-19T10:00:00.000Z',?,?,1)
+  `).run(SHA,SHA);
+}
+
+describe("R2.12b/P6 transactional consumer authority fence",()=>{
+  it("rejects a report and 422 state write when the SQL clock exceeds approval expiry",async()=>{
+    const f=await fixture();
+    try{
+      const row=f.sqlite.prepare(`
+        SELECT expires_at AS expiresAt FROM processing_async_redrive_requests
+        WHERE id=?
+      `).get(ASYNC_ID) as {expiresAt:number};
+      // Simulate the DB crossing the real proposal TTL between the
+      // consumer's JS preflight and its final, atomic SQL write.
+      f.sqlite.function("unixepoch",()=>row.expiresAt+1);
+      expect(()=>insertSyntheticReport(f))
+        .toThrow(/REDRIVE_CONSUMER_AUTHORITY_DENIED/);
+      expect(()=>f.sqlite.exec(`
+        UPDATE document_versions SET extraction_status='needs_review'
+        WHERE id='version_p5'
+      `)).toThrow(/REDRIVE_CONSUMER_AUTHORITY_DENIED/);
+      expect(f.sqlite.prepare(
+        "SELECT count(*) AS n FROM document_processing_reports"
+      ).get()).toMatchObject({n:0});
+      expect(f.sqlite.prepare(
+        "SELECT extraction_status FROM document_versions WHERE id='version_p5'"
+      ).get()).toMatchObject({extraction_status:"pending"});
+    }finally{f.close();}
+  });
+
+  it.each([
+    ["operator",OPERATOR],
+    ["operator",APPROVER],
+    ["approval_ref","OPR_CONSUMER_FENCE_P5"],
+    ["attestation",SHA],
+    ["image","sha256:"+SHA],
+    ["approval_key","A".repeat(43)],
+    ["release_key","B".repeat(43)]
+  ] as const)("blocks %s revocation for target %s in SQL report and status writes",async(kind,target)=>{
+    const f=await fixture();
+    try{
+      syntheticR27Revocation(f,kind,target);
+      expect(()=>insertSyntheticReport(f))
+        .toThrow(/REDRIVE_CONSUMER_AUTHORITY_DENIED/);
+      expect(()=>f.sqlite.exec(`
+        UPDATE document_versions SET extraction_status='needs_review'
+        WHERE id='version_p5'
+      `)).toThrow(/REDRIVE_CONSUMER_AUTHORITY_DENIED/);
+      expect(f.sqlite.prepare(
+        "SELECT count(*) AS n FROM document_processing_reports"
+      ).get()).toMatchObject({n:0});
+      expect(f.sqlite.prepare(
+        "SELECT extraction_status FROM document_versions WHERE id='version_p5'"
+      ).get()).toMatchObject({extraction_status:"pending"});
+    }finally{f.close();}
+  });
+
+  it("rolls back signed pages and audit if authority is revoked after consumer preflight",async()=>{
+    const f=await fixture();
+    try{
+      let raced=false;
+      const db={
+        prepare:f.db.prepare.bind(f.db),
+        batch:async(statements:Parameters<D1Database["batch"]>[0])=>{
+          if(!raced){
+            raced=true;
+            syntheticR27Revocation(f,"operator",APPROVER);
+          }
+          return f.db.batch(statements);
+        }
+      } as unknown as D1Database;
+      const outcome=await processProcessingMessage(message(MANUAL_ID),{
+        ...f.env,DB:db
+      });
+      expect(raced).toBe(true);
+      expect(outcome).toBe("stale");
+      expect(f.inspectorFetch).toHaveBeenCalledOnce();
+      expect(f.sqlite.prepare(
+        "SELECT count(*) AS n FROM document_processing_reports"
+      ).get()).toMatchObject({n:0});
+      expect(f.sqlite.prepare(
+        "SELECT count(*) AS n FROM document_pages"
+      ).get()).toMatchObject({n:0});
+      expect(f.sqlite.prepare(
+        "SELECT extraction_status FROM document_versions WHERE id='version_p5'"
+      ).get()).toMatchObject({extraction_status:"pending"});
+      expect(f.sqlite.prepare(
+        "SELECT count(*) AS n FROM audit_events WHERE action='document.inspected_text_admitted'"
+      ).get()).toMatchObject({n:0});
+    }finally{f.close();}
+  });
+
+  it("blocks a halted reservation in D1 even if message passed earlier preflight",async()=>{
+    const f=await fixture();
+    try{
+      f.sqlite.prepare(`
+        UPDATE processing_manual_redrives
+        SET state='halted',outcome_at=? WHERE id=?
+      `).run(new Date().toISOString(),MANUAL_ID);
+      expect(()=>insertSyntheticReport(f))
+        .toThrow(/REDRIVE_CONSUMER_AUTHORITY_DENIED/);
+      expect(()=>f.sqlite.exec(`
+        UPDATE document_versions SET extraction_status='needs_review'
+        WHERE id='version_p5'
+      `)).toThrow(/REDRIVE_CONSUMER_AUTHORITY_DENIED/);
+    }finally{f.close();}
+  });
+});
+
 describe("R2.12b/P5 consumer provenance and institutional cancellation fencing",()=>{
   it("blocks a one-shot whose operator was revoked after Queue enqueue",async()=>{
     const f=await fixture();
