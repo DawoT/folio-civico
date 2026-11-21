@@ -9,6 +9,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -177,6 +179,24 @@ class VectorAdmissionTests(unittest.TestCase):
             not any(option.startswith("--json-object=") for option in argv)
             for argv in calls
         ))
+
+    def test_isolated_python_entrypoint_can_load_owned_visual_modules(self):
+        # The production Docker CMD is python3 -I /srv/folio-inspector/inspector.py;
+        # isolated Python ignores PYTHONPATH and the script directory.
+        executable = ROOT / "inspector.py"
+        isolated = (
+            "import runpy; "
+            f"runpy.run_path({str(executable)!r}, run_name='folio_isolated'); "
+            "from qpdf_scoped_gate_r155 import scoped_page_has_uncovered_paint; "
+            "print('visual_gate_loaded')"
+        )
+        child = subprocess.run(
+            [sys.executable, "-I", "-c", isolated],
+            cwd=ROOT, capture_output=True, text=True, timeout=15,
+            env={**os.environ, "PYTHONPATH": "/untrusted/nonexistent"},
+        )
+        self.assertEqual(child.returncode, 0, child.stderr[-600:])
+        self.assertEqual(child.stdout.strip(), "visual_gate_loaded")
 
     def test_image_build_copies_exact_visual_gate_modules(self):
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")

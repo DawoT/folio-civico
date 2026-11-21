@@ -19,12 +19,25 @@ import shutil
 import stat
 import struct
 import subprocess
+import sys
 import tempfile
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Callable
 import zlib
+
+# The runtime starts as python3 -I /srv/folio-inspector/inspector.py.
+# Isolated mode discards both PYTHONPATH and the script directory. Restore
+# ONLY the directory of this image-owned script so the mandatory sibling
+# QPDF visual admission modules can load; never use cwd or caller PYTHONPATH.
+_TRUSTED_INSPECTOR_MODULE_PATH = str(Path(__file__).resolve().parent)
+if _TRUSTED_INSPECTOR_MODULE_PATH not in sys.path:
+    sys.path.insert(0, _TRUSTED_INSPECTOR_MODULE_PATH)
+# Avoid creating a second instance of this module when a sibling imports
+# its strict QPDF JSON parser from the entrypoint running as __main__.
+if __name__ == "__main__":
+    sys.modules.setdefault("inspector", sys.modules[__name__])
 
 MAX_PDF_BYTES = 8 * 1024 * 1024
 MAX_PAGES = 100
