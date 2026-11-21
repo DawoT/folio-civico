@@ -97,7 +97,15 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
   if (checklistProvision) return handleProvisioningRequest(request,{DB:env.DB},subject,checklistProvision[1]!,"checklist");
   if (discovery || batches) {
     try {
-      if (discovery) return json(await listAccessibleCommissions(env.DB, subject), 200);
+      if (discovery) {
+        const initial = await listAccessibleCommissions(env.DB, subject);
+        if (initial.length === 0) return json(initial, 200);
+        // The first D1 query can finish before a membership revocation or role
+        // change becomes visible to this request. Return only a *fresh* scoped
+        // set; do not reuse the earlier rows, identities or role capabilities.
+        // One bounded re-read avoids an N+1 authorization check per commission.
+        return json(await listAccessibleCommissions(env.DB, subject), 200);
+      }
       const summary = await getCommissionSummary(env.DB, subject, batches![1]!);
       if (!summary) return json({ error: "Not found" }, 404);
       const records=await listCommissionBatches(env.DB,subject,batches![1]!);
