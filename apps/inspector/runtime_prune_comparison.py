@@ -13,6 +13,9 @@ import re
 
 OLD = "folio-civico-inspector:expat-experiment"
 NEW = "folio-civico-inspector:runtime-pruned-experiment"
+FLAT_OLD = "folio-civico-inspector:poppler-flat-research"
+FLAT_NEW = "folio-civico-inspector:gnupg-pruned-research-r145"
+ALLOWED_PAIRS = frozenset(((OLD, NEW), (FLAT_OLD, FLAT_NEW)))
 REMOVED_PACKAGES = frozenset((
     "dirmngr", "gnupg", "gnupg-l10n", "gpg", "gpg-agent", "gpgconf",
     "gpgsm", "libgpgme11t64", "libgpgmepp6t64",
@@ -97,16 +100,19 @@ def _sbom(bom: dict, image: str, digest: str) -> Counter:
 
 def compare_images(
     before_scan: dict, after_scan: dict, before_sbom: dict, after_sbom: dict,
-    before_id: str, after_id: str,
+    before_id: str, after_id: str, *, before_image: str = OLD,
+    after_image: str = NEW,
 ) -> dict:
+    if (before_image, after_image) not in ALLOWED_PAIRS:
+        raise ValueError("Unapproved research image comparison")
     if (not isinstance(before_id, str) or not isinstance(after_id, str)
             or not DIGEST.fullmatch(before_id) or not DIGEST.fullmatch(after_id)
             or before_id == after_id):
         raise ValueError("Distinct immutable image identities required")
-    a = _scan(before_scan, OLD)
-    b = _scan(after_scan, NEW)
-    sbom_a = _sbom(before_sbom, OLD, before_id)
-    sbom_b = _sbom(after_sbom, NEW, after_id)
+    a = _scan(before_scan, before_image)
+    b = _scan(after_scan, after_image)
+    sbom_a = _sbom(before_sbom, before_image, before_id)
+    sbom_b = _sbom(after_sbom, after_image, after_id)
 
     deleted_components = sbom_a - sbom_b
     introduced_components = sbom_b - sbom_a
@@ -147,8 +153,8 @@ def compare_images(
     return {
         "status": "surface_reduced_release_blocked",
         "release_authorized": False,
-        "source_image": OLD, "source_image_id": before_id,
-        "experimental_image": NEW, "experimental_image_id": after_id,
+        "source_image": before_image, "source_image_id": before_id,
+        "experimental_image": after_image, "experimental_image_id": after_id,
         "removed_packages": sorted(removed_names),
         "removed_high": removed_high,
         "high_before": counts_a["HIGH"], "high_after": counts_b["HIGH"],

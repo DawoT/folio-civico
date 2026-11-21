@@ -1,0 +1,51 @@
+# R1.45 — LOCAL NON-DEPLOYABLE RESEARCH. Never replace the official inspector.
+# Source image is locked to a locally verified Docker image ID by the builder.
+ARG RESEARCH_BASE=scratch
+FROM ${RESEARCH_BASE} AS pruner
+USER root
+
+# Poppler was compiled with GPGME=OFF; GnuPG executables and their GPGME
+# runtimes are not used by the isolated PDF/OCR pipeline. No autoremove:
+# fontconfig, libexpat and other transitive runtime libraries are essential.
+RUN set -eu; \
+    apt-get -s purge gnupg gnupg-l10n gpg gpg-agent gpgconf gpgsm dirmngr \
+      > /tmp/folio-gnupg-plan; \
+    python3 -c 'from pathlib import Path; text=Path("/tmp/folio-gnupg-plan").read_text(); rows=[line.split()[1] for line in text.splitlines() if line.startswith(("Purg ","Remv "))]; expected={"gnupg","gnupg-l10n","gpg","gpg-agent","gpgconf","gpgsm","dirmngr","libgpgme11t64","libgpgmepp6t64"}; assert len(rows)==len(expected) and set(rows)==expected and "WARNING:" not in text, (rows,expected)'; \
+    apt-get purge -y --no-install-recommends \
+      gnupg gnupg-l10n gpg gpg-agent gpgconf gpgsm dirmngr; \
+    rm -f /tmp/folio-gnupg-plan; \
+    for package in gnupg gnupg-l10n gpg gpg-agent gpgconf gpgsm dirmngr libgpgme11t64 libgpgmepp6t64; do \
+      status="$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null)" || status=""; \
+      test "$status" != "install ok installed"; \
+    done; \
+    for binary in pdfinfo pdftotext pdftoppm pdfdetach pdfattach; do \
+      test -x "/opt/folio-poppler/bin/$binary"; \
+      ! ldd "/opt/folio-poppler/bin/$binary" | grep -E 'not found|libgpgme'; \
+    done; \
+    test -x /opt/folio-ocr/bin/tesseract; \
+    ! ldd /opt/folio-ocr/bin/tesseract | grep -E 'not found|libgpgme'; \
+    ! ldd /opt/folio-ocr/lib/libtesseract.so.5.5.4 | grep -E 'not found|libgpgme'; \
+    test -r /etc/fonts/fonts.conf; \
+    test -s /usr/share/tesseract-ocr/5/tessdata/eng.traineddata; \
+    test -s /usr/share/tesseract-ocr/5/tessdata/spa.traineddata; \
+    clamscan --version | grep -F 'ClamAV 1.5.5'
+
+# Flatten the merged filesystem so removed GnuPG bytes are not retained in
+# inherited lower OCI layers. This does NOT fix other CVEs or prove release.
+FROM scratch
+COPY --from=pruner / /
+
+# Exact operational configuration from the pinned R1.42 source image.
+ENV PATH=/opt/folio-poppler/bin:/opt/folio-ocr/bin:/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    LANG=C.UTF-8 \
+    PYTHON_VERSION=3.12.16 \
+    PYTHON_SHA256=b5796915dc45ff745cfb4e990a7e7c93d6f546328a102ce31448d69ebc37575c \
+    TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    CLAMAV_DB_DIR=/opt/clamdb \
+    FOLIO_INSPECTOR_BIND=0.0.0.0
+WORKDIR /srv/folio-inspector
+USER 65534:65534
+EXPOSE 8789
+CMD ["python3", "-I", "/srv/folio-inspector/inspector.py"]
