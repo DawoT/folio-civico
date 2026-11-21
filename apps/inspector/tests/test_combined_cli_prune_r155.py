@@ -236,6 +236,10 @@ class CombinedResearchGateTests(unittest.TestCase):
         self.assertIn("--skip-db-update", scripts[1])
         self.assertIn("--cap-drop ALL", scripts[1])
         self.assertIn("combined_cli_prune_r155.py", scripts[1])
+        self.assertIn("trap 'error' ERR", scripts[1])
+        self.assertIn('result="$(python3 apps/inspector/combined_cli_prune_r155.py', scripts[1])
+        self.assertIn('[[ "$code" -eq 2 ]] || error', scripts[1])
+        self.assertIn('printf \'%s\\n\' "$result"', scripts[1])
         for code in scripts:
             for forbidden in ("docker push", "wrangler deploy", "--ignore-unfixed",
                               "release_authorized=true", "--ignorefile", "docker system prune"):

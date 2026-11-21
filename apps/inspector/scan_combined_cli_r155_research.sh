@@ -11,6 +11,8 @@ error() {
   exit 3
 }
 [[ "$#" -eq 0 ]] || error
+# An unreadable/failed collector always yields the same fail-closed outcome.
+trap 'error' ERR
 for cmd in docker trivy python3 timeout; do command -v "$cmd" >/dev/null || error; done
 if [[ -n "${DOCKER_HOST:-}" && "${DOCKER_HOST:-}" != unix://* ]]; then error; fi
 [[ "$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null)" == unix://* ]] || error
@@ -65,7 +67,8 @@ timeout 90s docker run --rm --pull never --network none --read-only \
 
 [[ "$(docker image inspect "$BASE" --format '{{.Id}}')" == "$BASE_PIN" ]] || error
 [[ "$(docker image inspect "$CAND" --format '{{.Id}}')" == "$NEW_PIN" ]] || error
-python3 apps/inspector/combined_cli_prune_r155.py \
+code=0
+result="$(python3 apps/inspector/combined_cli_prune_r155.py \
   --base-scan "$PRIVATE/base-scan.json" \
   --cand-scan "$PRIVATE/cand-scan.json" \
   --base-sbom "$PRIVATE/base-sbom.json" \
@@ -77,4 +80,8 @@ python3 apps/inspector/combined_cli_prune_r155.py \
   --base-fs "$PRIVATE/base-fs.json" \
   --cand-fs "$PRIVATE/cand-fs.json" \
   --base-clamav "$PRIVATE/base-clamav.json" \
-  --cand-clamav "$PRIVATE/cand-clamav.json"
+  --cand-clamav "$PRIVATE/cand-clamav.json")" || code=$?
+[[ "$code" -eq 2 ]] || error
+[[ -n "$result" && "$result" != *$'\n'* && ${#result} -lt 8192 ]] || error
+printf '%s\n' "$result"
+exit 2
