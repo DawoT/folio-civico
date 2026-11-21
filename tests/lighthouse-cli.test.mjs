@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -82,6 +82,50 @@ describe("PERF-003 Lighthouse CLI report integrity and safe process diagnostics"
     await expect(fixture(
       "setInterval(()=>{},1000)",300
     )).rejects.toThrow(/timed out/i);
+  });
+
+  it.each([
+    {label:"times out",tail:"setInterval(()=>{},1000);",timeout:500,error:/timed out/i},
+    {label:"exits 0 without writing JSON",tail:"process.exit(0);",
+      timeout:1500,error:/exit 0: missing JSON report/i},
+    {label:"exits 0 with a valid report",
+      tail:"require('node:fs').writeFileSync(process.argv[1],'{}');process.exit(0);",
+      timeout:1500,valid:true}
+  ])("terminates descendants when Lighthouse $label",async ({tail,timeout,error,valid})=>{
+    let outputPath;
+    const script=[
+      "const {spawn}=require('node:child_process');",
+      "const {writeFileSync}=require('node:fs');",
+      "const descendant=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});",
+      "writeFileSync(process.argv[1]+'.pid',String(descendant.pid));",
+      tail
+    ].join("");
+    const alive=(pid)=>{
+      try{process.kill(pid,0);}catch(error){
+        if(error?.code==="ESRCH")return false;
+        throw error;
+      }
+      // An unreaped Linux zombie cannot execute or retain Chrome resources.
+      try{
+        const state=readFileSync(`/proc/${pid}/stat`,"utf8").split(") ")[1]?.[0];
+        if(state==="Z" || state==="X")return false;
+      }catch(error){if(error?.code!=="ENOENT")throw error;}
+      return true;
+    };
+    try{
+      const invocation=fixture(script,timeout,path=>{outputPath=path;});
+      if(valid)await expect(invocation).resolves.toEqual({});
+      else await expect(invocation).rejects.toThrow(error);
+      const pid=Number(readFileSync(outputPath+".pid","utf8"));
+      expect(pid).toBeGreaterThan(0);
+      await expect.poll(()=>alive(pid),{timeout:900,intervals:[25,50,100]})
+        .toBe(false);
+    }finally{
+      if(outputPath && existsSync(outputPath+".pid")){
+        const pid=Number(readFileSync(outputPath+".pid","utf8"));
+        if(pid>0 && alive(pid))try{process.kill(pid,"SIGKILL");}catch{}
+      }
+    }
   });
 
   it("does not await inherited stdout pipes after its process timeout",async()=>{
