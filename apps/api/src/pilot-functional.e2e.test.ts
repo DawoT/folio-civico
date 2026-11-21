@@ -105,6 +105,11 @@ describe("F5 · complete local pilot journey through signed Worker routes",()=>{
         subject:"reviewer",role:"member",expectedRevision:null
       },"pilot-member-reviewer-001"),201);
       const reviewer=await p.token("reviewer");
+      const countPath=prefix+"/observations/reviewable-count";
+      const initialQueue=await p.typed<{commissionId:string;count:number}>(
+        await p.call(reviewer,countPath),200);
+      expect(initialQueue).toEqual({commissionId,count:0});
+      expect((await p.call(stranger,countPath)).status).toBe(404);
 
       const batch=await p.typed<{id:string}>(await p.call(president,prefix+"/batches","POST",{
         label:"Lote piloto de obras"
@@ -174,6 +179,17 @@ describe("F5 · complete local pilot journey through signed Worker routes",()=>{
           action:"submit"
         },"pilot-submit-001"),200);
       expect(submitted.status).toBe("in_review");
+
+      // A page-limited history is not an authoritative review queue count.
+      // Count uses the caller's signed JWT and must never count own submissions.
+      const auditBeforeCount=p.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get();
+      expect(await p.typed<{commissionId:string;count:number}>(
+        await p.call(reviewer,countPath),200)).toEqual({commissionId,count:1});
+      expect(await p.typed<{commissionId:string;count:number}>(
+        await p.call(author,countPath),200)).toEqual({commissionId,count:0});
+      expect(p.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get())
+        .toEqual(auditBeforeCount);
+
       expect((await p.typed<Array<{id:string;status:string}>>(
         await p.call(reviewer,prefix+"/checklist"),200)).find(item=>item.id===checklistItem.id)?.status)
         .toBe("pending");
@@ -183,6 +199,8 @@ describe("F5 · complete local pilot journey through signed Worker routes",()=>{
           action:"validate",note:RATIONALE
         },"pilot-review-001"),200);
       expect(validated).toMatchObject({status:"validated",reviewedBy:"reviewer"});
+      expect(await p.typed<{commissionId:string;count:number}>(
+        await p.call(reviewer,countPath),200)).toEqual({commissionId,count:0});
       const checklist=await p.typed<Array<{
         id:string;status:string;statusSource:string;validatedSearchObservationId:string
       }>>(await p.call(author,prefix+"/checklist"),200);
@@ -260,10 +278,16 @@ describe("F5 · complete local pilot journey through signed Worker routes",()=>{
       expect((await p.call(other,pathA+"/members")).status).toBe(404);
       expect((await p.call(member,`/api/commissions/${b.id}/summary`)).status).toBe(404);
       expect((await p.call(member,pathA+"/summary")).status).toBe(200);
+      expect(await p.typed<{commissionId:string;count:number}>(
+        await p.call(member,pathA+"/observations/reviewable-count"),200))
+        .toEqual({commissionId:a.id,count:0});
+      expect((await p.call(member,
+        `/api/commissions/${b.id}/observations/reviewable-count`)).status).toBe(404);
       await p.typed(await p.call(president,pathA+"/members/revoke","POST",{
         subject:"member",expectedRevision:1
       },"member-revocation-001"),200);
       expect((await p.call(member,pathA+"/summary")).status).toBe(404);
+      expect((await p.call(member,pathA+"/observations/reviewable-count")).status).toBe(404);
       expect((await p.call(member,pathA+"/checklist")).status).toBe(404);
       expect((await p.call(member,pathA+"/observations/export")).status).toBe(404);
       expect((await p.call(member,pathA+"/members")).status).toBe(404);
