@@ -87,7 +87,7 @@ Las dependencias son gates, no fechas. Si falta aprobación externa o el runtime
 
 - **S01-01:** revisar respuesta de reintentos PDF: `documentResult` fija `processingStatus=pending` incluso al reproducir una carga de versión ya procesada. RED: reintentar después de `ready` conserva id y SHA pero refleja estado correcto; GREEN: leer estado autorizado o declarar claramente contrato de `intakeStatus` versus estado actual, manteniendo compatibilidad.
 - **S01-02:** auditar exhaustivamente matrices de permisos por estado (president/member/advisor/observer; activo/revocado; cierre de comisión; autor/revisor; Access expirado/cambio JWKS) con pruebas de propiedades y carreras D1. Foco en SQL triggers y restauración de integridad, no solo UI.
-- **S01-03:** separar `/health` liveness de readiness autenticado y diagnóstico interno sin PII, y asegurar que dependencia fallida no produzca `ok` operativo.
+- **S01-03:** **implementado y verificado en local para el núcleo API/D1**: `/health` solo demuestra liveness; `/api/readiness/core` requiere JWT Access y sujeto operador explícito, comprueba siete tablas manuales y seis guardas SQL, falla con 503 genérico ante esquema incompleto y no divulga PII. No certifica R2, Queue, Container, MFA ni disponibilidad remota de Preview.
 - **S01-04:** export/consulta/miembros y paginación: contratos adversariales (JSON rehasheado, tampering, >=500, mismo cursor, revocación durante operaciones), límites explícitos y respuestas genéricas.
 - **Salida:** contratos reales completos y negativos verificables; ninguna ampliación de superficie de datos sin autorización.
 

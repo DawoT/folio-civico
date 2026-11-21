@@ -31,7 +31,7 @@ Se inspeccionaron las 14 referencias locales de archivo en `refs/archive/folio-h
 
 - Antes de retirar ramas y worktrees se verificaron los bundles Git históricos del repositorio. Las referencias de archivo locales son un paso temporal de custodia, **no ramas activas**.
 - Los cuatro trabajos históricos con remotos divergentes se conservaron mediante tags anotados en GitHub: `archive/folio-civico/2026-11-20/{ci-task-scroll-diagnostics,s01-api-storage-readiness,s05-ocr-media-preflight,ocr-minimal-cve}`. Un tag de archivo conserva el commit, pero **no implica que su código esté integrado en main**.
-- Conservar al menos **un bundle Git completo, verificado con `git bundle verify`**, que incluya los 14 commits antes de retirar las referencias locales de archivo. No publicar ese bundle, que es un respaldo operativo local; su pérdida junto con `.git` podría volver irrecuperables los prototipos sin tag remoto.
+- **Respaldo consolidado verificado:** `.git/folio-civico-recovery-2026-11-20.bundle`, que cubre los 150 commits raíz identificados entre los dos bundles históricos. Se retiraron las 14 referencias locales de archivo solo después de verificar sus SHA contra el respaldo; los bundles antiguos redundantes se eliminaron tras verificar la cobertura completa. El archivo no se publica y debe conservarse como respaldo operativo; su pérdida junto con `.git` podría volver irrecuperables los prototipos sin tag remoto.
 - No confundir eliminación de dependencias/artifacts de CI regenerables con borrado de D1 local, secretos, archivos institucionales o datos de investigación no publicados. La limpieza no toca `.mcp-gpt`, repositorios vecinos ni el almacén global pnpm.
 
 ## Puertas de calidad y riesgos que permanecen
