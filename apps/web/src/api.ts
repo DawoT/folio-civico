@@ -403,7 +403,7 @@ export async function loadReviewableCount(
   commissionId: string, fetcher: typeof fetch = fetch
 ): Promise<ReviewableCount> {
   const response = await fetcher(commissionPath(commissionId)+"/observations/reviewable-count",{
-    credentials:"same-origin",cache:"no-store"
+    credentials:"same-origin",cache:"no-store",signal:AbortSignal.timeout(10_000)
   });
   const body = await expectJson(response);
   if (!body || typeof body!=="object" || Array.isArray(body)) {

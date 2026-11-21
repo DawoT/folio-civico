@@ -11,7 +11,8 @@ describe("FE-04 authorized reviewable count contract",()=>{
     expect(await loadReviewableCount("c_a",fetcher)).toEqual({commissionId:"c_a",count});
     expect(fetcher).toHaveBeenCalledWith(
       "/api/commissions/c_a/observations/reviewable-count",
-      {credentials:"same-origin",cache:"no-store"}
+      expect.objectContaining({credentials:"same-origin",cache:"no-store",
+        signal:expect.any(AbortSignal)})
     );
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
@@ -34,6 +35,20 @@ describe("FE-04 authorized reviewable count contract",()=>{
   it.each([401,403,404,503])("never turns HTTP %i into a verified zero",async status=>{
     await expect(loadReviewableCount("c_a",async()=>json({count:0},status)))
       .rejects.toMatchObject({name:"ApiError",status});
+  });
+
+  it("bounds a stalled optional count request without turning timeout into zero",async()=>{
+    const signal=new AbortController().signal;
+    const timeout=vi.spyOn(AbortSignal,"timeout").mockReturnValue(signal);
+    try {
+      const fetcher=vi.fn(async(_url:RequestInfo|URL,options?:RequestInit)=>{
+        expect(options?.signal).toBe(signal);
+        throw new DOMException("The count request timed out","TimeoutError");
+      });
+      await expect(loadReviewableCount("c_a",fetcher))
+        .rejects.toMatchObject({name:"TimeoutError"});
+      expect(timeout).toHaveBeenCalledWith(10_000);
+    }finally{ timeout.mockRestore(); }
   });
 
   it("validates the commission identifier before accessing the network",async()=>{
