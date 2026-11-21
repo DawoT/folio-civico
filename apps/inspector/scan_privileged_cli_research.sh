@@ -66,13 +66,14 @@ for side in before after; do
 done
 
 # Compare every persistent filesystem inode and regular-file SHA-256.
-# UID 0 can READ root-owned files; all capabilities dropped, no-new-privs,
-# no egress, no writable root, and no privileged executable invocation.
+# Debian's _apt 0700 cache subtree is unreadable by uid 0 after cap-drop ALL.
+# This OFFLINE, read-only forensic process alone gets DAC_READ_SEARCH so that
+# os.walk never silently skips any subtree. Runtime smokes retain cap-drop ALL.
 INVENTORY_SCRIPT="$(cat apps/inspector/runtime_executable_surface_inventory.py)"
 for side in before after; do
   if [[ "$side" == "before" ]]; then ID="$BEFORE_ID"; else ID="$AFTER_ID"; fi
   docker run --rm --pull never --network none --read-only \
-    --user 0:0 --cap-drop ALL --security-opt no-new-privileges \
+    --user 0:0 --cap-drop ALL --cap-add DAC_READ_SEARCH --security-opt no-new-privileges \
     --pids-limit 64 --cpus 1 --memory 4g --memory-swap 4g \
     --entrypoint python3 "$ID" -I -c "$INVENTORY_SCRIPT" \
     > "$PRIVATE/$side-fs.json"

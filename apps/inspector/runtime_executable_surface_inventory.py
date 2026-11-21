@@ -48,7 +48,15 @@ def snapshot(root: Path = Path("/")) -> dict:
         records[relative] = row
 
     add(root)
-    for current, dirs, files in os.walk(root, topdown=True, followlinks=False):
+
+    def fail_on_walk_error(error: OSError) -> None:
+        # os.walk normally skips unreadable subtrees without raising. Such a
+        # snapshot would falsely claim that all persistent paths were hashed.
+        raise error
+
+    for current, dirs, files in os.walk(
+        root, topdown=True, followlinks=False, onerror=fail_on_walk_error
+    ):
         current_path = Path(current)
         if current_path == root:
             dirs[:] = [d for d in dirs if ("/" + d) not in EXCLUDED_TOP_LEVEL]

@@ -240,6 +240,38 @@ class PrivilegedCLIReductionTests(unittest.TestCase):
             )
             self.assertEqual(invalid.returncode, 3)
 
+    def test_snapshot_fails_closed_when_subdirectory_cannot_be_scanned(self):
+        import os
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            blocked = root / "unreadable"
+            blocked.mkdir()
+            (blocked / "uninspected-file").write_text("synthetic")
+            real_scandir = os.scandir
+
+            def deny_subtree(path):
+                if Path(path) == blocked:
+                    raise PermissionError("synthetic denied directory")
+                return real_scandir(path)
+
+            with patch("runtime_executable_surface_inventory.os.scandir",
+                       side_effect=deny_subtree):
+                with self.assertRaises(PermissionError):
+                    snapshot(root)
+
+    def test_read_only_inventory_has_single_dac_read_capability(self):
+        # A root container with cap-drop ALL cannot traverse Debian's
+        # _apt-owned 0700 directory. The research scanner must hash it,
+        # without granting that capability to runtime smoke processes.
+        scanner = (ROOT / "apps/inspector/scan_privileged_cli_research.sh").read_text()
+        self.assertIn("--user 0:0 --cap-drop ALL --cap-add DAC_READ_SEARCH", scanner)
+        self.assertIn("--network none --read-only", scanner)
+        self.assertNotIn("--privileged", scanner)
+        builder = (ROOT / "apps/inspector/build_privileged_cli_research.sh").read_text()
+        self.assertNotIn("--cap-add", builder)
+
     def test_snapshot_rejects_a_symlink_as_root(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "not-root"
