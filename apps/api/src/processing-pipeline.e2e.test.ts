@@ -68,7 +68,9 @@ async function fixture(){
     .setProtectedHeader({alg:"RS256",kid:jwk.kid})
     .setIssuer(ISSUER).setAudience(AUDIENCE).setSubject(subject)
     .setIssuedAt().setExpirationTime("10m").sign(privateKey);
-  const apiEnv:ApiEnv={DB:f.db,DOCUMENTS:bucket,ACCESS_TEAM_DOMAIN:ISSUER,ACCESS_AUD:AUDIENCE};
+  const apiEnv:ApiEnv={DB:f.db,DOCUMENTS:bucket,ACCESS_TEAM_DOMAIN:ISSUER,ACCESS_AUD:AUDIENCE,
+    DOCUMENT_UPLOADS_ENABLED:"true" // Synthetic pipeline test, not runtime permission.
+  };
   const call=async(subjectToken:string,path:string,method="GET",body?:Uint8Array|object,key?:string)=>{
     const pdf=body instanceof Uint8Array;
     return handleApiRequest(new Request("https://folio.local"+path,{

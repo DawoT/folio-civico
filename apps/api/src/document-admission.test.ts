@@ -98,6 +98,24 @@ describe("S04 manual-only Preview must deny PDF intake by default",()=>{
     }finally{f.close();}
   });
 
+  it("blocks a replay when document intake is disabled after an earlier successful upload",async()=>{
+    const f=await fixture();
+    try {
+      const enabled={...f.env,DOCUMENT_UPLOADS_ENABLED:"true"};
+      const first=await handleApiRequest(await f.request("author"),enabled);
+      expect(first.status).toBe(201);
+      const audit=f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get();
+      const replay=await handleApiRequest(await f.request("author"),f.env);
+      expect(replay.status).toBe(503);
+      expect(await replay.json()).toEqual({error:"Document intake unavailable"});
+      expect(f.put).toHaveBeenCalledTimes(1);
+      expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual(audit);
+      const list=await handleApiRequest(await f.request("author","GET"),f.env);
+      expect(list.status).toBe(200);
+      expect(await list.json()).toHaveLength(1);
+    }finally{f.close();}
+  });
+
   it("preserves signed authentication, commission isolation, and read-only access",async()=>{
     const f=await fixture();
     try{

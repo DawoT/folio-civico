@@ -21,7 +21,10 @@ function fixture() {
   });
   const del = vi.fn(async (key:string) => { objects.delete(key); });
   const bucket = { put, delete:del };
-  return {...f, objects, put, del, env: { DB:f.db, DOCUMENTS:bucket as unknown as R2Bucket }};
+  return {...f, objects, put, del, env: {
+    DB:f.db, DOCUMENTS:bucket as unknown as R2Bucket,
+    DOCUMENT_UPLOADS_ENABLED:"true" // Synthetic route-unit fixture only.
+  }};
 }
 function post(key = "upload_req_123", data: Uint8Array = bytes, extras: Record<string,string> = {}) {
   return new Request(url, { method:"POST", headers:{

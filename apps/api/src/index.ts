@@ -17,6 +17,8 @@ export interface ApiEnv extends AccessConfig {
   COMMISSION_BOOTSTRAP_OPERATOR_SUBJECT?: string;
   DB?: D1Database;
   DOCUMENTS?: R2Bucket;
+  /** Default-deny PDF intake until independently authorized for Release B. */
+  DOCUMENT_UPLOADS_ENABLED?: string;
   /** Optional until operator configures an isolated Folio Cívico Queue. */
   PROCESSING_QUEUE?: Queue<ProcessingQueueMessage>;
 }
@@ -120,7 +122,10 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
     } catch { return json({ error: "Request could not be completed" }, 503); }
   }
   if (documents) {
-    return handleDocumentRequest(request, { DB: env.DB, DOCUMENTS: env.DOCUMENTS }, subject,
+    return handleDocumentRequest(request, {
+      DB: env.DB, DOCUMENTS: env.DOCUMENTS,
+      DOCUMENT_UPLOADS_ENABLED: env.DOCUMENT_UPLOADS_ENABLED
+    }, subject,
       documents[1]!, documents[2]!);
   }
   if (textPages) return handleTextRequest(request,{DB:env.DB},subject,textPages[1]!,textPages[2]!);

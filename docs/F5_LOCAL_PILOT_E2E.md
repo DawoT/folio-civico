@@ -13,7 +13,7 @@ pnpm exec vitest run apps/api/src/pilot-functional.e2e.test.ts
 sh scripts/ci.sh
 ```
 
-**Fixture:** `apps/api/src/pilot-functional.e2e.test.ts`. Los datos no salen de memoria ni contienen documentos institucionales: D1 en memoria creado por `makeD1`, bucket R2 sustituido por un `Map` y un PDF mínimo artificial. Los tokens de operador, presidencia, autor, revisor y externo se firman con la **misma** clave temporal RS256; el endpoint JWKS de prueba anuncia esa clave, conservando la verificación real de firma, emisor y audiencia. No se usa mock de `authenticateAccess`.
+**Fixture:** `apps/api/src/pilot-functional.e2e.test.ts`. Los datos no salen de memoria ni contienen documentos institucionales: D1 en memoria creado por `makeD1`, bucket R2 sustituido por un `Map` y un PDF mínimo artificial. El fixture fija explícitamente `DOCUMENT_UPLOADS_ENABLED:"true"` para probar cuarentena sintética; en el despliegue manual Release A el backend conserva `DOCUMENT_UPLOADS_ENABLED:"false"` y rechaza POST de PDF con 503. Este opt-in de laboratorio no es aprobación del scanner ni autorización de ingesta real. Los tokens de operador, presidencia, autor, revisor y externo se firman con la **misma** clave temporal RS256; el endpoint JWKS de prueba anuncia esa clave, conservando la verificación real de firma, emisor y audiencia. No se usa mock de `authenticateAccess`.
 
 ## Criterios de aceptación cubiertos
 
