@@ -108,6 +108,7 @@ test("slow response for old commission never leaks into newly opened commission"
     await openLot(page);
     // A delayed optional aggregate must not block the authorized checklist or history.
     await expect(page.locator("#checklist").getByText("Expediente de obra")).toBeVisible();
+    await expect(reviewMetric(page)).toContainText("Consultando total autorizado de la comisión");
     await expect(reviewMetric(page).locator("dd")).toHaveText(/^—/);
     await page.getByLabel("Identificador de comisión").selectOption("c_b");
     await expect(page.getByRole("region",{name:"Resumen de comisión"})).toHaveCount(0);

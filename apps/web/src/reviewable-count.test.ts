@@ -31,7 +31,7 @@ describe("FE-04 authorized reviewable count contract",()=>{
       .rejects.toMatchObject({name:"ApiError",status:502});
   });
 
-  it.each([404,503])("never turns HTTP %i into a verified zero",async status=>{
+  it.each([401,403,404,503])("never turns HTTP %i into a verified zero",async status=>{
     await expect(loadReviewableCount("c_a",async()=>json({count:0},status)))
       .rejects.toMatchObject({name:"ApiError",status});
   });
