@@ -65,15 +65,14 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
     }
     if (!env.DB) return json({ error: "Service unavailable" }, 503);
     try {
-      // A check of the initial five tables alone can return a false positive
-      // on D1 schemas that have not applied the later admission/revocation
-      // migrations. Require the critical guard objects as a fail-closed
-      // compatibility fence. This is NOT a full migration or integrity audit.
+      // Require manual pilot tables alongside the later admission/revocation
+      // guard objects: a D1 schema without checklist or observation storage
+      // is not ready for core work. This is NOT a full migration or integrity audit.
       const result = await env.DB.prepare(`
         SELECT COUNT(*) AS found FROM sqlite_master
         WHERE (type='table' AND name IN (
           'commissions','commission_members','document_batches',
-          'document_versions','audit_events'
+          'document_versions','checklist_items','observations','audit_events'
         )) OR (type='view' AND name='processing_redrive_consumer_denials')
           OR (type='trigger' AND name IN (
             'processing_outbox_verified_completion',
@@ -83,7 +82,7 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
             'processing_status_active_commission_guard'
           ))
       `).first<{found:number}>();
-      if (result?.found !== 11) return json({ error: "Service unavailable" }, 503);
+      if (result?.found !== 13) return json({ error: "Service unavailable" }, 503);
       return json({ status: "ready", scope: "api-core" }, 200);
     } catch {
       return json({ error: "Service unavailable" }, 503);

@@ -88,6 +88,42 @@ describe("authenticated API-core readiness contract", () => {
     }finally{f.close();}
   });
 
+  it("does not expose a second readiness endpoint from archived prototypes", async () => {
+    const f = await signedFixture();
+    try {
+      const operator = await f.token("operator");
+      const duplicate = await handleApiRequest(
+        new Request("https://folio.test/api/internal/readiness", {
+          headers: { "Cf-Access-Jwt-Assertion": operator }
+        }), f.env
+      );
+      expect(duplicate.status).toBe(404);
+      expect(await duplicate.json()).toEqual({ error: "Not found" });
+    } finally {
+      f.close();
+    }
+  });
+
+  // The manual pilot cannot be ready when its review/checklist tables
+  // are absent, even if the audit and admission guards are still present.
+  it.each(["checklist_items", "observations"] as const)(
+    "fails closed when the manual-flow table %s is absent", async (table) => {
+      const f = await signedFixture();
+      try {
+        const operator = await f.token("operator");
+        expect((await handleApiRequest(f.request(operator), f.env)).status).toBe(200);
+        // Identifiers come from this fixed test list, never request parameters.
+        f.sqlite.exec(`DROP TABLE "${table}"`);
+        const missing = await handleApiRequest(f.request(operator), f.env);
+        expect(missing.status).toBe(503);
+        expect(missing.headers.get("Cache-Control")).toBe("no-store");
+        expect(await missing.json()).toEqual({ error: "Service unavailable" });
+      } finally {
+        f.close();
+      }
+    }
+  );
+
   // Critical D1 write fences are introduced in migrations after 0001.
   // A schema with the five initial tables but no admission guards must NOT be ready.
   it.each([
