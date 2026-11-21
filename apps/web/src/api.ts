@@ -12,6 +12,30 @@ export interface DocumentTextView {
   pageCount:number;
   pages:DocumentTextPage[];
 }
+const forbiddenInspectedTextChars = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u202a-\u202e\u2066-\u2069]/u;
+
+/** Match the inspected-text contract before it reaches React or citation controls. */
+function isDocumentTextView(value:unknown, requestedVersionId:string):value is DocumentTextView {
+  if(!value || typeof value!=="object" || Array.isArray(value)) return false;
+  const record=value as Record<string,unknown>;
+  if(Object.keys(record).sort().join(",")!=="pageCount,pages,sha256,versionId"
+    || record.versionId!==requestedVersionId
+    || typeof record.versionId!=="string" || !validId.test(record.versionId)
+    || typeof record.sha256!=="string" || !/^[a-f0-9]{64}$/.test(record.sha256)
+    || !Number.isSafeInteger(record.pageCount)
+    || (record.pageCount as number)<1 || (record.pageCount as number)>100
+    || !Array.isArray(record.pages) || record.pages.length!==record.pageCount) return false;
+  return record.pages.every((page:unknown,index:number)=>{
+    if(!page || typeof page!=="object" || Array.isArray(page)) return false;
+    const entry=page as Record<string,unknown>;
+    return Object.keys(entry).sort().join(",")==="page,text"
+      && entry.page===index+1
+      && typeof entry.text==="string"
+      && entry.text.trim().length>0 && entry.text.length<=8000
+      && !forbiddenInspectedTextChars.test(entry.text);
+  });
+}
+
 export async function loadDocumentText(
   commissionId:string,versionId:string,fetcher:typeof fetch=fetch
 ):Promise<DocumentTextView> {
@@ -22,10 +46,10 @@ export async function loadDocumentText(
     credentials:"same-origin",cache:"no-store"
   });
   const body=await expectJson(response);
-  if(!body || typeof body!=="object" || !Array.isArray((body as DocumentTextView).pages)) {
-    throw new ApiError(502,"Respuesta de páginas inválida.");
+  if(!isDocumentTextView(body,versionId)) {
+    throw new ApiError(502,"El texto inspeccionado no supera la verificación de integridad y páginas.");
   }
-  return body as DocumentTextView;
+  return body;
 }
 
 export interface DocumentRow {

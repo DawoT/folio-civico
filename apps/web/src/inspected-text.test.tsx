@@ -18,6 +18,49 @@ describe("inspected text client and passive rendering",()=>{
     await expect(loadDocumentText("../c_b","ver_a",fetcher)).rejects.toThrow();
     await expect(loadDocumentText("c_a","../../secret",fetcher)).rejects.toThrow();
   });
+  it("accepts a complete, ordered and bounded inspected text response",async()=>{
+    const payload={versionId:"ver_a",sha256:"a".repeat(64),pageCount:2,
+      pages:[{page:1,text:"Primera página."},{page:2,text:"Segundo documento.\nLínea adicional."}]};
+    const fetcher=vi.fn(async()=>Response.json(payload));
+    expect(await loadDocumentText("c_a","ver_a",fetcher)).toEqual(payload);
+  });
+
+  it("accepts the exact upper bounds admitted by the signed inspector contract",async()=>{
+    const pages=Array.from({length:100},(_,index)=>({
+      page:index+1,text:index===99?"x".repeat(8000):"Texto inspeccionado."
+    }));
+    const payload={versionId:"ver_a",sha256:"a".repeat(64),pageCount:100,pages};
+    const response=await loadDocumentText("c_a","ver_a",async()=>Response.json(payload));
+    expect(response.pages).toHaveLength(100);
+    expect(response.pages.at(-1)?.text).toHaveLength(8000);
+  });
+
+  it.each([
+    null,
+    [],
+    {versionId:"ver_a",sha256:"a".repeat(64),pageCount:1,pages:[null]},
+    {versionId:"ver_a",sha256:"a".repeat(64),pageCount:1,pages:[{page:"1",text:"texto"}]},
+    {versionId:"ver_a",sha256:"a".repeat(64),pageCount:1,pages:[{page:1,text:null}]},
+    {versionId:"ver_a",sha256:"a".repeat(64),pageCount:2,pages:[{page:1,text:"uno"},{page:1,text:"dos"}]},
+    {versionId:"ver_a",sha256:"a".repeat(64),pageCount:2,pages:[{page:2,text:"dos"},{page:1,text:"uno"}]},
+    {versionId:"ver_a",sha256:"a".repeat(64),pageCount:1,pages:[]},
+    {versionId:"ver_b",sha256:"a".repeat(64),pageCount:1,pages:[{page:1,text:"texto"}]},
+    {versionId:"ver_a",sha256:"A".repeat(64),pageCount:1,pages:[{page:1,text:"texto"}]},
+    {versionId:"ver_a",sha256:"a".repeat(64),pageCount:0,pages:[]},
+    {versionId:"ver_a",sha256:"a".repeat(64),pageCount:101,pages:[{page:1,text:"texto"}]},
+    {versionId:"ver_a",sha256:"a".repeat(64),pageCount:1,pages:[{page:1,text:"  "}]},
+    {versionId:"ver_a",sha256:"a".repeat(64),pageCount:1,pages:[{page:1,text:"a".repeat(8001)}]},
+    {versionId:"ver_a",sha256:"a".repeat(64),pageCount:1,pages:[{page:1,text:"control\u0000"}]},
+    {versionId:"ver_a",sha256:"a".repeat(64),pageCount:1,pages:[{page:1,text:"texto\u202eoculto"}]},
+    {versionId:"ver_a",sha256:"a".repeat(64),pageCount:1,pages:[{page:1,text:"texto",unexpected:"extra"}]},
+    {versionId:"ver_a",sha256:"a".repeat(64),pageCount:1,
+      pages:[{page:1,text:"texto"}],r2Key:"quarantine/private.pdf"}
+  ])("rejects malformed page text rather than exposing ambiguous evidence: %#",async payload=>{
+    const fetcher=vi.fn(async()=>Response.json(payload));
+    await expect(loadDocumentText("c_a","ver_a",fetcher))
+      .rejects.toMatchObject({name:"ApiError",status:502});
+  });
+
   it("creates an idempotent citation with no browser-controlled hash or reviewer",async()=>{
     const fetcher=vi.fn(async(_url:RequestInfo|URL,_init?:RequestInit)=>Response.json({
       id:"obs_1",status:"draft"
