@@ -40,7 +40,8 @@ def _image(before: dict, after: dict) -> None:
             raise ValueError("Unsupported image architecture")
         root = record.get("RootFS")
         layers = root.get("Layers") if isinstance(root, dict) else None
-        if (not isinstance(layers, list) or len(layers) != 2
+        if (not isinstance(root, dict) or root.get("Type") != "layers"
+                or not isinstance(layers, list) or len(layers) != 2
                 or layers.count(EMPTY_LAYER) != 1
                 or not all(isinstance(v, str) and DIGEST.fullmatch(v)
                            for v in layers)):

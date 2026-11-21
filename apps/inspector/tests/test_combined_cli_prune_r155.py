@@ -166,6 +166,7 @@ class CombinedResearchGateTests(unittest.TestCase):
             lambda v: v[5].update(Architecture="arm64"),
             lambda v: v[5].update(Id=BASE_ID),
             lambda v: v[5]["RootFS"]["Layers"].append("sha256:" + "d"*64),
+            lambda v: v[5]["RootFS"].update(Type="unknown"),
         ]
         for index, change in enumerate(changes):
             values = fixture()
