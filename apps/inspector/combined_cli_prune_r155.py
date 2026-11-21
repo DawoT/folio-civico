@@ -148,6 +148,7 @@ def compare(
         "clamav_retained_code_after": kept_code_count,
         "retained_clamav_native_sha256_equal": True,
         "same_sbom": True, "same_trivy_records": True,
+        "main_inspector_code_parity": "not_verified",
         "cve_counts": {key: counts[key] for key in EXPECTED_BLOCKERS},
         "scanner_gate": "blocked", "release_authorized": False,
         "vex": "not_issued",

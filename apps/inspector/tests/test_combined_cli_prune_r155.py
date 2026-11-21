@@ -140,6 +140,7 @@ class CombinedResearchGateTests(unittest.TestCase):
         self.assertTrue(result["native_model_inventory_equal"])
         self.assertTrue(result["same_trivy_records"])
         self.assertTrue(result["same_sbom"])
+        self.assertEqual(result["main_inspector_code_parity"], "not_verified")
         self.assertEqual(result["scanner_gate"], "blocked")
         self.assertFalse(result["release_authorized"])
 
