@@ -11,6 +11,36 @@ fi
 ROOT_DIR=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT_DIR"
 
+# Every worktree of a repository shares one Git common directory.
+# Reserve the whole local CI run atomically before installs, ports or D1 writes.
+# Keep fd 9 open until this shell and its CI descendants have exited; flock
+# releases the lock automatically, including after an interrupted CI.
+if ! command -v git >/dev/null 2>&1 || ! command -v flock >/dev/null 2>&1; then
+  printf 'CI FAILED: git and flock are required for exclusive CI\n' >&2
+  exit 127
+fi
+if ! COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
+  printf 'CI FAILED: cannot resolve the shared Git directory\n' >&2
+  exit 78
+fi
+if [ ! -d "$COMMON_DIR" ] || [ -L "$COMMON_DIR" ]; then
+  printf 'CI FAILED: invalid Git common directory\n' >&2
+  exit 78
+fi
+LOCK_FILE="$COMMON_DIR/folio-ci.lock"
+if [ -L "$LOCK_FILE" ] || { [ -e "$LOCK_FILE" ] && [ ! -f "$LOCK_FILE" ]; }; then
+  printf 'CI FAILED: invalid CI lockfile type or symlink\n' >&2
+  exit 127
+fi
+original_umask=$(umask)
+umask 077
+exec 9>>"$LOCK_FILE"
+umask "$original_umask"
+if ! flock -n 9; then
+  printf 'CI BUSY: another worktree holds the shared CI lock (exit 75)\n' >&2
+  exit 75
+fi
+
 if ! command -v pnpm >/dev/null 2>&1; then
   printf 'CI FAILED: pnpm is required\n' >&2
   exit 127

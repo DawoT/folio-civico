@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import shutil
+import signal
 import subprocess
 import tempfile
+import time
 import unittest
 
 
@@ -35,6 +38,19 @@ class LocalCiContractTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory(prefix="folio-ci-test-")
         self.addCleanup(self.directory.cleanup)
         self.temp = Path(self.directory.name)
+        # Contract subprocesses must never acquire the caller's real CI lock.
+        # A miniature repository gives them an independent Git common dir.
+        self.repo = self.temp / "repo"
+        self.repo.mkdir()
+        (self.repo / "scripts").mkdir()
+        self.ci_script = self.repo / "scripts" / "ci.sh"
+        shutil.copy2(CI_SCRIPT, self.ci_script)
+        subprocess.run(["git", "init", "--quiet", str(self.repo)], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "add", "scripts/ci.sh"], check=True)
+        subprocess.run([
+            "git", "-C", str(self.repo), "-c", "user.name=CI Contract",
+            "-c", "user.email=ci-contract@example.invalid", "commit", "-qm", "fixture"
+        ], check=True)
         bindir = self.temp / "bin"
         bindir.mkdir()
         fake_pnpm = bindir / "pnpm"
@@ -42,16 +58,32 @@ class LocalCiContractTests(unittest.TestCase):
             '#!/bin/sh\n'
             'printf "%s\\n" "$*" >> "$CI_FAKE_LOG"\n'
             'if [ "${CI_FAIL_STEP:-}" = "$*" ]; then exit 47; fi\n'
+            'if [ "${CI_TEST_WAIT_FIFO:-}" != "" ] && '
+            '[ "$*" = "install --frozen-lockfile" ]; then\n'
+            '  : > "$CI_TEST_READY_MARKER"\n'
+            '  IFS= read -r unused < "$CI_TEST_WAIT_FIFO" || :\n'
+            'fi\n'
         )
         fake_pnpm.chmod(0o755)
+        # The only directly invoked Python gate is UX-5; keep the fixture
+        # synthetic rather than running tests outside this temporary repo.
+        fake_python = bindir / "python3"
+        fake_python.write_text(
+            '#!/bin/sh\n'
+            'if [ "$1" = "-m" ] && [ "$2" = "unittest" ] && '
+            '[ "$7" = "test_ux5_study.py" ]; then exit 0; fi\n'
+            'printf "unexpected Python CI fixture invocation\\n" >&2\n'
+            'exit 77\n'
+        )
+        fake_python.chmod(0o755)
         self.log = self.temp / "calls.log"
         self.env = os.environ.copy()
         self.env["PATH"] = f"{bindir}:{self.env['PATH']}"
         self.env["CI_FAKE_LOG"] = str(self.log)
 
-    def run_ci(self, *args):
+    def run_ci(self, *args, script=None):
         return subprocess.run(
-            ["sh", str(CI_SCRIPT), *args],
+            ["sh", str(script or self.ci_script), *args],
             cwd=self.temp,
             env=self.env,
             capture_output=True,
@@ -61,6 +93,124 @@ class LocalCiContractTests(unittest.TestCase):
 
     def calls(self):
         return self.log.read_text().splitlines() if self.log.exists() else []
+
+    def test_atomic_lock_excludes_another_git_worktree_and_releases(self):
+        """A second worktree fails before the first gate; third succeeds."""
+        peer = self.temp / "peer"
+        subprocess.run(["git", "-C", str(self.repo), "worktree",
+                        "add", "--quiet", "--detach", str(peer)], check=True)
+        self.assertEqual(
+            subprocess.check_output(["git", "-C", str(peer), "rev-parse",
+                                     "--git-common-dir"], text=True).strip(),
+            str(self.repo / ".git"),
+        )
+        fifo = self.temp / "release.fifo"
+        os.mkfifo(fifo)
+        marker = self.temp / "entered-install"
+        first_env = dict(self.env, CI_TEST_WAIT_FIFO=str(fifo),
+                         CI_TEST_READY_MARKER=str(marker))
+        first = subprocess.Popen(
+            ["sh", str(self.ci_script)], cwd=self.temp, env=first_env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            start_new_session=True,
+        )
+        try:
+            deadline = time.monotonic() + 5
+            while not marker.exists() and first.poll() is None:
+                self.assertLess(time.monotonic(), deadline, "first runner never started")
+                time.sleep(0.02)
+            self.assertIsNone(first.poll(), "first CI ended before contention test")
+            self.assertEqual(self.calls(), EXPECTED[:1])
+
+            blocked = self.run_ci(script=peer / "scripts" / "ci.sh")
+            self.assertEqual(blocked.returncode, 75, blocked.stderr)
+            self.assertIn("CI BUSY", blocked.stderr)
+            self.assertEqual(self.calls(), EXPECTED[:1],
+                             "blocked runner must not enter any gate")
+            self.assertNotIn("CI PASSED", blocked.stdout)
+
+            with fifo.open("w") as release:
+                release.write("go\n")
+            out, err = first.communicate(timeout=5)
+            self.assertEqual(first.returncode, 0, err)
+            self.assertIn("CI PASSED", out)
+            self.assertEqual(self.calls(), EXPECTED)
+
+            recovered = self.run_ci(script=peer / "scripts" / "ci.sh")
+            self.assertEqual(recovered.returncode, 0, recovered.stderr)
+            self.assertEqual(self.calls(), EXPECTED + EXPECTED)
+        finally:
+            if first.poll() is None:
+                os.killpg(first.pid, signal.SIGKILL)
+                first.communicate(timeout=5)
+
+    def test_symlinked_lock_file_fails_closed_without_touching_target(self):
+        target = self.temp / "must-remain-absent"
+        (self.repo / ".git" / "folio-ci.lock").symlink_to(target)
+        result = self.run_ci()
+        self.assertEqual(result.returncode, 127, result.stderr)
+        self.assertIn("invalid CI lockfile", result.stderr)
+        self.assertFalse(target.exists())
+        self.assertEqual(self.calls(), [])
+
+    def test_directory_used_as_lock_file_fails_closed(self):
+        (self.repo / ".git" / "folio-ci.lock").mkdir()
+        result = self.run_ci()
+        self.assertEqual(result.returncode, 127, result.stderr)
+        self.assertIn("invalid CI lockfile", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_missing_flock_dependency_fails_closed(self):
+        restricted_bin = self.temp / "without-flock"
+        restricted_bin.mkdir()
+        git_binary = shutil.which("git")
+        self.assertIsNotNone(git_binary)
+        (restricted_bin / "git").symlink_to(git_binary)
+        env = dict(self.env, PATH=str(restricted_bin))
+        result = subprocess.run(
+            ["/bin/sh", str(self.ci_script)], cwd=self.temp, env=env,
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 127)
+        self.assertIn("git and flock are required", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_ci_without_git_common_dir_fails_before_all_gates(self):
+        outside = self.temp / "outside-repository"
+        (outside / "scripts").mkdir(parents=True)
+        shutil.copy2(CI_SCRIPT, outside / "scripts" / "ci.sh")
+        result = self.run_ci(script=outside / "scripts" / "ci.sh")
+        self.assertEqual(result.returncode, 78, result.stderr)
+        self.assertIn("cannot resolve the shared Git directory", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_atomic_lock_releases_after_interrupt(self):
+        fifo = self.temp / "interrupted.fifo"
+        os.mkfifo(fifo)
+        marker = self.temp / "entered-install"
+        env = dict(self.env, CI_TEST_WAIT_FIFO=str(fifo),
+                   CI_TEST_READY_MARKER=str(marker))
+        first = subprocess.Popen(
+            ["sh", str(self.ci_script)], cwd=self.temp, env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            start_new_session=True,
+        )
+        try:
+            deadline = time.monotonic() + 5
+            while not marker.exists() and first.poll() is None:
+                self.assertLess(time.monotonic(), deadline, "runner never started")
+                time.sleep(0.02)
+            self.assertIsNone(first.poll())
+            os.killpg(first.pid, signal.SIGTERM)
+            first.communicate(timeout=5)
+            self.assertNotEqual(first.returncode, 0)
+            recovered = self.run_ci()
+            self.assertEqual(recovered.returncode, 0, recovered.stderr)
+            self.assertIn("CI PASSED", recovered.stdout)
+        finally:
+            if first.poll() is None:
+                os.killpg(first.pid, signal.SIGKILL)
+                first.communicate(timeout=5)
 
     def test_runs_all_gates_in_order_from_any_cwd(self):
         result = self.run_ci()
