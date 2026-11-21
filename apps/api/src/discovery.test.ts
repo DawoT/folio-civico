@@ -6,6 +6,31 @@ import { authenticateAccess } from "@folio/auth";
 vi.mock("@folio/auth", () => ({ authenticateAccess: vi.fn() }));
 const mockAuth = vi.mocked(authenticateAccess);
 
+/** Reuse actual D1/SQLite rows, then interleave a membership change before discovery responds. */
+function afterDiscoveryRows(db:D1Database, afterFirst:()=>void, failSecond=false):D1Database {
+  let reads=0;
+  return {
+    prepare(sql:string){
+      const prepared=db.prepare(sql);
+      if(!sql.includes("ORDER BY CASE c.status WHEN 'active' THEN 0 ELSE 1 END")) return prepared;
+      return {
+        bind(...params:unknown[]){
+          const bound=prepared.bind(...params);
+          return {
+            async all<T>(){
+              reads++;
+              if(reads===2 && failSecond) throw new Error("PRIVATE_D1_DISCOVERY_FENCE_FAILURE");
+              const rows=await bound.all<T>();
+              if(reads===1) afterFirst();
+              return rows;
+            }
+          };
+        }
+      } as unknown as D1PreparedStatement;
+    }
+  } as D1Database;
+}
+
 describe("API authenticated discovery", () => {
   beforeEach(() => mockAuth.mockReset());
 
@@ -44,6 +69,59 @@ describe("API authenticated discovery", () => {
       const blocked=await handleApiRequest(new Request("https://folio.test/api/commissions/c_b/batches"),env);
       expect(blocked.status).toBe(404);
       expect(blocked.headers.get("Cache-Control")).toBe("no-store");
+    } finally {f.close();}
+  });
+
+  it("does not disclose a revoked commission after a discovery read, while retaining other authorized commissions",async()=>{
+    mockAuth.mockResolvedValue("alice");
+    const f=fixture();
+    try {
+      f.sqlite.exec("INSERT INTO commission_members(commission_id,subject,role,active) VALUES('c_b','alice','advisor',1)");
+      const raced=afterDiscoveryRows(f.db,()=>{
+        f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='c_a' AND subject='alice'");
+      });
+      const response=await handleApiRequest(new Request("https://folio.test/api/commissions"),{DB:raced});
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual([{id:"c_b",name:"Comisión B",status:"active",role:"advisor"}]);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+    } finally {f.close();}
+  });
+
+  it("does not disclose any commission after the subject loses the only membership",async()=>{
+    mockAuth.mockResolvedValue("alice");
+    const f=fixture();
+    try {
+      const raced=afterDiscoveryRows(f.db,()=>{
+        f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='c_a' AND subject='alice'");
+      });
+      const response=await handleApiRequest(new Request("https://folio.test/api/commissions"),{DB:raced});
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual([]);
+    } finally {f.close();}
+  });
+
+  it("returns the current role rather than an obsolete capability after discovery",async()=>{
+    mockAuth.mockResolvedValue("alice");
+    const f=fixture();
+    try {
+      const raced=afterDiscoveryRows(f.db,()=>{
+        f.sqlite.exec("UPDATE commission_members SET role='observer' WHERE commission_id='c_a' AND subject='alice'");
+      });
+      const response=await handleApiRequest(new Request("https://folio.test/api/commissions"),{DB:raced});
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject([{id:"c_a",role:"observer"}]);
+    } finally {f.close();}
+  });
+
+  it("fails closed if the final discovery authority read cannot complete",async()=>{
+    mockAuth.mockResolvedValue("alice");
+    const f=fixture();
+    try {
+      const raced=afterDiscoveryRows(f.db,()=>{},true);
+      const response=await handleApiRequest(new Request("https://folio.test/api/commissions"),{DB:raced});
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({error:"Request could not be completed"});
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
     } finally {f.close();}
   });
 
