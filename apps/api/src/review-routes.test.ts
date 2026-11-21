@@ -48,6 +48,104 @@ function afterReviewList(
 
 describe("human review endpoints", () => {
   it.each([
+    ["observations","FROM (SELECT id FROM observations","observations"],
+    ["history","WITH chosen AS (","observations/history"]
+  ] as const)(
+    "refreshes %s action flags when the authorization context changes after the D1 list",
+    async(action,marker,route) => {
+      for (const change of ["observer","advisor","closed"] as const) {
+        const f=fixture();
+        try {
+          f.sqlite.exec(`
+            INSERT INTO commission_members(commission_id,subject,role,active)
+              VALUES('c_a','reviewer','president',1);
+            INSERT INTO observations(id,commission_id,author_subject,title,description)
+              VALUES('other_review','c_a','alice','Revisión ajena','Evidencia sintética'),
+                ('own_draft','c_a','reviewer','Borrador propio','Evidencia sintética');
+            INSERT INTO observation_evidence(id,observation_id,type,reference_json)
+              VALUES('e_other','other_review','SEARCH_SCOPE',
+                '{"type":"SEARCH_SCOPE","commissionId":"c_a","checklistItemId":"item_a","batchId":"b_a","reviewerId":"alice","searchedAt":"2026-11-20T12:00:00.000Z"}');
+            UPDATE observations SET status='in_review', submitted_by='alice',
+              submitted_at=CURRENT_TIMESTAMP, submit_request_key='submit_be02_other'
+              WHERE id='other_review';
+          `);
+          const auditBefore=f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get();
+          const raced=afterReviewList(f.db,marker,()=>{
+            if (change==="closed") {
+              f.sqlite.exec("UPDATE commissions SET status='closed' WHERE id='c_a'");
+            } else {
+              f.sqlite.prepare("UPDATE commission_members SET role=? WHERE commission_id='c_a' AND subject='reviewer'")
+                .run(change);
+            }
+          });
+          const response=await handleReviewRequest(
+            new Request(base+"/"+route),{DB:raced},"reviewer","c_a",action
+          );
+          expect(response.status).toBe(200);
+          expect(response.headers.get("Cache-Control")).toBe("no-store");
+          const body=await response.json() as
+            Array<{id:string;canSubmit:boolean;canReview:boolean}>
+            | {items:Array<{id:string;canSubmit:boolean;canReview:boolean}>};
+          const records=Array.isArray(body)?body:body.items;
+          const other=records.find(item=>item.id==="other_review");
+          const own=records.find(item=>item.id==="own_draft");
+          expect(other?.canReview).toBe(false);
+          expect(other?.canSubmit).toBe(false);
+          expect(own?.canSubmit).toBe(change==="advisor");
+          expect(own?.canReview).toBe(false);
+          expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual(auditBefore);
+        } finally {f.close();}
+      }
+    }
+  );
+
+  it.each([
+    ["observations","FROM (SELECT id FROM observations","observations"],
+    ["history","WITH chosen AS (","observations/history"]
+  ] as const)(
+    "does not disclose %s rows if the final D1 authorization check fails",
+    async(action,marker,route) => {
+      const f=fixture();
+      try {
+        f.sqlite.exec(`
+          INSERT INTO observations(id,commission_id,author_subject,title,description)
+            VALUES('private_review','c_a','alice','Sensitive review','Synthetic evidence');
+        `);
+        let dataRead=false;
+        const db={
+          prepare(sql:string) {
+            if (dataRead && sql.includes("SELECT c.id, c.name, c.status, m.role")) {
+              throw new Error("PRIVATE_FINAL_D1_FAILURE");
+            }
+            const statement=f.db.prepare(sql);
+            if(!sql.includes(marker)) return statement;
+            return {
+              bind(...params:unknown[]) {
+                const bound=statement.bind(...params);
+                return {
+                  async all<T>() {
+                    const result=await bound.all<T>();
+                    dataRead=true;
+                    return result;
+                  }
+                };
+              }
+            } as unknown as D1PreparedStatement;
+          }
+        } as D1Database;
+        const response=await handleReviewRequest(
+          new Request(base+"/"+route),{DB:db},"alice","c_a",action
+        );
+        expect(dataRead).toBe(true);
+        expect(response.status).toBe(503);
+        expect(await response.json()).toEqual({error:"Request could not be completed"});
+        expect(response.headers.get("Cache-Control")).toBe("no-store");
+        expect(f.sqlite.prepare("SELECT count(*) AS n FROM audit_events").get()).toEqual({n:0});
+      } finally {f.close();}
+    }
+  );
+
+  it.each([
     ["checklist","FROM checklist_items i","checklist"],
     ["observations","FROM (SELECT id FROM observations","observations"],
     ["history","WITH chosen AS (","observations/history"]
