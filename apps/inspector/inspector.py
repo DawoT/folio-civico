@@ -19,12 +19,25 @@ import shutil
 import stat
 import struct
 import subprocess
+import sys
 import tempfile
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Callable
 import zlib
+
+# The runtime starts as python3 -I /srv/folio-inspector/inspector.py.
+# Isolated mode discards both PYTHONPATH and the script directory. Restore
+# ONLY the directory of this image-owned script so the mandatory sibling
+# QPDF visual admission modules can load; never use cwd or caller PYTHONPATH.
+_TRUSTED_INSPECTOR_MODULE_PATH = str(Path(__file__).resolve().parent)
+if _TRUSTED_INSPECTOR_MODULE_PATH not in sys.path:
+    sys.path.insert(0, _TRUSTED_INSPECTOR_MODULE_PATH)
+# Avoid creating a second instance of this module when a sibling imports
+# its strict QPDF JSON parser from the entrypoint running as __main__.
+if __name__ == "__main__":
+    sys.modules.setdefault("inspector", sys.modules[__name__])
 
 MAX_PDF_BYTES = 8 * 1024 * 1024
 MAX_PAGES = 100
@@ -509,6 +522,9 @@ def inspect_pdf(
                 raise ReviewRequired("Unsupported number of pages")
             pages: list[dict] = []
             qpdf_page_objects: tuple[tuple[int, int], ...] | None = None
+            qpdf_pages_json: str | None = None
+            visual_object_cache: dict[tuple[str, bool], dict] = {}
+            visual_object_calls = [0]
             for page in range(1, count + 1):
                 if time.monotonic() - started > MAX_TOTAL_SECONDS:
                     raise ScannerUnavailable("PDF processing exceeded total time budget")
@@ -531,15 +547,53 @@ def inspect_pdf(
                         raise ReviewRequired(
                             "Mixed digital text and raster evidence requires review"
                         )
+                    # R1.55: raster-free pages can still carry visual-only
+                    # evidence through PDF vector operators, Type3 glyphs,
+                    # form/annotation appearances and other resources.
+                    # Resolve bounded QPDF objects, not raw PDF byte strings.
+                    if qpdf_pages_json is None:
+                        qpdf_pages_json = run([
+                            "qpdf", "--json", "--json-key=pages", str(source),
+                        ], directory)
+                        qpdf_page_objects = parse_qpdf_page_inventory(
+                            qpdf_pages_json, count=count,
+                        )
+                    try:
+                        from qpdf_scoped_gate_r155 import scoped_page_has_uncovered_paint
+                    except ImportError as error:
+                        raise ScannerUnavailable(
+                            "PDF visual evidence gate not installed"
+                        ) from error
+                    try:
+                        uncovered = scoped_page_has_uncovered_paint(
+                            pages_json=qpdf_pages_json, page=page, count=count,
+                            run=run, source=source, directory=directory,
+                            cache=visual_object_cache, calls=visual_object_calls,
+                        )
+                    except ScannerUnavailable:
+                        raise
+                    except Exception as error:
+                        # All unexpected parser/shape failure states are
+                        # indeterminate, never reasons to certify 'clean'.
+                        raise ReviewRequired(
+                            "PDF visual evidence cannot be verified"
+                        ) from error
+                    if uncovered:
+                        raise ReviewRequired(
+                            "Digital text and additional PDF visual evidence require review"
+                        )
                 if not text:
                     # QPDF resolves page dictionaries including object streams.
                     # pdfinfo -box does NOT expose UserUnit. Obtain page IDs
                     # once, then read only this exact page's dictionary JSON.
                     if qpdf_page_objects is None:
+                        if qpdf_pages_json is None:
+                            qpdf_pages_json = run([
+                                "qpdf", "--json", "--json-key=pages",
+                                str(source),
+                            ], directory)
                         qpdf_page_objects = parse_qpdf_page_inventory(
-                            run(["qpdf", "--json", "--json-key=pages",
-                                 str(source)], directory),
-                            count=count,
+                            qpdf_pages_json, count=count,
                         )
                     object_number, generation = qpdf_page_objects[page - 1]
                     user_unit = parse_qpdf_user_unit(
