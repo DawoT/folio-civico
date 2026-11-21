@@ -1,5 +1,7 @@
 # NON-DEPLOYABLE Expat 2.10.0 Trixie rebuild research, NOT a release/VEX.
 # Pinned Debian accepted-source artifacts; no sid APT entries or binary packages.
+# Missing explicit source fails closed (scratch cannot satisfy runtime RUN).
+ARG EXPAT_BASE_IMAGE=scratch
 FROM debian:trixie-slim AS expat_builder
 ARG EXPAT_VERSION=2.10.0
 ARG EXPAT_DEBIAN_VERSION=2.10.0-1
@@ -69,7 +71,7 @@ RUN set -eux; \
     > /opt/folio-expat-package/source-provenance.json
 
 # Retain the experimental Poppler base and preserve its original tag.
-FROM folio-civico-inspector:poppler-experiment
+FROM ${EXPAT_BASE_IMAGE}
 USER root
 COPY --from=expat_builder /opt/folio-expat-package /opt/folio-expat-package
 RUN set -eux; \
