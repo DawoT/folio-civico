@@ -94,7 +94,7 @@ def fixture():
                  "cve_assessment": "required",
                  "model_sha256": {},
                  "tool_sha256": dict.fromkeys((
-                     "pdfinfo", "pdftotext", "pdfimages", "pdftoppm", "pdfdetach", "pdfattach",
+                     "pdfinfo", "pdftotext", "pdftoppm", "pdfdetach", "pdfattach",
                  ), h)},
             ],
         }

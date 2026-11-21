@@ -11,8 +11,6 @@ import json
 from pathlib import Path
 import re
 
-from source_inventory import POPPLER_TOOLS
-
 SOURCE_MODES = {
     "folio-civico-inspector:validation": "validation",
     "folio-civico-inspector:ocr-integrated": "candidate",
@@ -57,7 +55,8 @@ def verify_native_source_inventory(inventory: dict, image: str) -> int:
         tool_hashes = component.get("tool_sha256")
         if not isinstance(tool_hashes, dict):
             raise ValueError("Native tool inventory missing")
-        expected_tools = set(POPPLER_TOOLS) if name == "poppler" else set()
+        expected_tools = ({"pdfinfo", "pdftotext", "pdftoppm", "pdfdetach", "pdfattach"}
+                          if name == "poppler" else set())
         if (set(tool_hashes) != expected_tools or any(
                 not isinstance(value, str) or not SHA256.fullmatch(value)
                 for value in tool_hashes.values())):

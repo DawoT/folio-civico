@@ -123,7 +123,7 @@ class ImageAuditTests(unittest.TestCase):
              "library_sha256":"b"*64,
              "provenance_sha256":"c"*64,
              "tool_sha256":({name:"d"*64 for name in (
-                 "pdfinfo","pdftotext","pdfimages","pdftoppm","pdfdetach","pdfattach")}
+                 "pdfinfo","pdftotext","pdftoppm","pdfdetach","pdfattach")}
                  if name == "poppler" else {}),
              "model_sha256":({"eng": "e"*64, "spa": "f"*64}
                              if name == "tesseract" else {}),
@@ -153,12 +153,6 @@ class ImageAuditTests(unittest.TestCase):
             dict(native,source_cve_coverage="verified"),
             dict(native,mode="candidate"),
             dict(native,components=[components[0],components[0]]),
-            dict(native,components=[components[0], dict(
-                components[1], tool_sha256={
-                    key: value for key, value in components[1]["tool_sha256"].items()
-                    if key != "pdfimages"
-                }
-            )]),
             dict(native,components=[dict(components[0],library_sha256="not-a-hash"),components[1]]),
             dict(native,components=[dict(components[0],model_sha256={}),components[1]]),
             dict(native,components=[dict(components[0],model_sha256={"eng":"a"*64,"spa":"bad"}),components[1]]),

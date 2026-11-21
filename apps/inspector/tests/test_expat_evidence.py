@@ -46,7 +46,7 @@ def fixtures():
             "name": name, "version": version,
             "executable_sha256": "a" * 64, "library_sha256": "b" * 64,
             "provenance_sha256": "c" * 64,
-            "tool_sha256": {x: "d" * 64 for x in (*TOOLS, "pdfimages")} if name == "poppler" else {},
+            "tool_sha256": {x: "d" * 64 for x in TOOLS} if name == "poppler" else {},
             "model_sha256": {"eng": "e" * 64, "spa": "f" * 64} if name == "tesseract" else {},
             "cve_assessment": "required", "automated_cve_coverage": "not_verified",
         })

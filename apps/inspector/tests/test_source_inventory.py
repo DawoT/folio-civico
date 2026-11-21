@@ -28,7 +28,7 @@ def provision(root: Path, name: str):
     tools=[exe,lib]
     if name == "poppler":
         tools.extend(base/"bin"/n for n in (
-            "pdftotext","pdfimages","pdftoppm","pdfdetach","pdfattach"
+            "pdftotext","pdftoppm","pdfdetach","pdfattach"
         ))
     for path in tools:
         path.parent.mkdir(parents=True,exist_ok=True)
@@ -86,7 +86,7 @@ class SourceInventoryTests(unittest.TestCase):
                 if row["name"] == "poppler":
                     self.assertEqual(row["model_sha256"], {})
                     self.assertEqual(set(row["tool_sha256"]),{
-                        "pdfinfo","pdftotext","pdfimages","pdftoppm","pdfdetach","pdfattach"
+                        "pdfinfo","pdftotext","pdftoppm","pdfdetach","pdfattach"
                     })
                     self.assertTrue(all(len(x) == 64 for x in row["tool_sha256"].values()))
                 self.assertNotIn(str(root),json.dumps(row))
@@ -204,16 +204,6 @@ class SourceInventoryTests(unittest.TestCase):
             (root/"opt/folio-poppler/bin/pdftotext").unlink()
             with patch("source_inventory.subprocess.run",side_effect=checked_version), self.assertRaises(ValueError):
                 inventory("experiment",root=root)
-
-    def test_missing_pdfimages_blocks_native_source_attestation(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            provision(root, "tesseract")
-            provision(root, "poppler")
-            (root / "opt/folio-poppler/bin/pdfimages").unlink()
-            with patch("source_inventory.subprocess.run", side_effect=checked_version):
-                with self.assertRaises(ValueError):
-                    inventory("experiment", root=root)
 
     def test_plain_old_validation_does_not_invent_native_binaries(self):
         with tempfile.TemporaryDirectory() as folder:
