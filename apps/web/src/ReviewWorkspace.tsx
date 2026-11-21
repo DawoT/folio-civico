@@ -99,6 +99,8 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
   const [attested,setAttested] = useState(false);
   const [busy,setBusy] = useState(false);
   const [loading,setLoading] = useState(true);
+  const [checklistLoadError,setChecklistLoadError] = useState("");
+  const [observationLoadError,setObservationLoadError] = useState("");
   const [error,setError] = useState("");
   const [notice,setNotice] = useState("");
   const [reload,setReload] = useState(0);
@@ -133,22 +135,41 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
     ++linkedRequest.current;
     setLinkedRecord(null);setFocusedPage(null);setLinkedLoading(false);setLinkedError("");
     setLoading(true); setError("");
+    setChecklistLoadError("");setObservationLoadError("");
     onSummaryChange?.(null);
     setHistoryCursor(null);setHistoryBusy(false);setHistoryError("");
     setChecklist([]); setObservations([]); setItemId("");
-    Promise.all([
+    Promise.allSettled([
       loadChecklist(scope.commissionId),
       loadObservationHistory(scope.commissionId)
-    ]).then(([items,page]) => {
+    ]).then(([checklistResult,historyResult]) => {
       if (!active) return;
-      setChecklist(items);
-      setObservations(page.items);
-      setHistoryCursor(page.nextCursor);
-      onSummaryChange?.(makeReviewSummary(scope, items, page.items, page.nextCursor !== null));
-      const eligible = items.filter((item) => item.status === "pending" || item.status === "not_located");
-      setItemId((current) => eligible.some((item) => item.id === current) ? current : (eligible[0]?.id ?? ""));
+      if (checklistResult.status === "fulfilled") {
+        const items = checklistResult.value;
+        setChecklist(items);
+        const eligible = items.filter((item) => item.status === "pending" || item.status === "not_located");
+        setItemId((current) => eligible.some((item) => item.id === current) ? current : (eligible[0]?.id ?? ""));
+      } else {
+        const problem = checklistResult.reason as unknown;
+        setChecklistLoadError(problem instanceof Error ? problem.message : "La consulta no está disponible.");
+      }
+      if (historyResult.status === "fulfilled") {
+        setObservations(historyResult.value.items);
+        setHistoryCursor(historyResult.value.nextCursor);
+      } else {
+        const problem = historyResult.reason as unknown;
+        setObservationLoadError(problem instanceof Error ? problem.message : "La consulta no está disponible.");
+      }
+      if (checklistResult.status === "fulfilled" && historyResult.status === "fulfilled") {
+        const page = historyResult.value;
+        onSummaryChange?.(makeReviewSummary(scope, checklistResult.value, page.items, page.nextCursor !== null));
+      }
     }).catch((problem: unknown) => {
-      if (active) setError(problem instanceof Error ? problem.message : "No se pudo cargar la revisión.");
+      if (active) {
+        const message = problem instanceof Error ? problem.message : "No se pudo cargar la revisión.";
+        setChecklistLoadError(message);
+        setObservationLoadError(message);
+      }
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [scope.commissionId, scope.batchId, reload, onSummaryChange]);
@@ -180,7 +201,7 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
 
   async function addChecklistItem(event:FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if(!canManage||checklistCreating||loading) return;
+    if(!canManage||checklistCreating||loading||checklistLoadError) return;
     setChecklistCreating(true);setError("");setNotice("");
     try {
       const fingerprint=JSON.stringify([scope.commissionId,checklistArea,expectedDocument.trim()]);
@@ -323,7 +344,7 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
               aria-label="Incorporar ítem al checklist">
               <label htmlFor="checklist-area-input">Área del checklist</label>
               <select id="checklist-area-input" value={checklistArea}
-                disabled={checklistCreating||loading}
+                disabled={checklistCreating||loading||Boolean(checklistLoadError)}
                 onChange={event=>setChecklistArea(event.target.value as "works"|"procurement")}>
                 <option value="works">Obras</option>
                 <option value="procurement">Contrataciones</option>
@@ -332,9 +353,9 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
               <input id="checklist-expected-document" value={expectedDocument}
                 onChange={event=>setExpectedDocument(event.target.value)}
                 placeholder="Documento o expediente a constatar" maxLength={160}
-                disabled={checklistCreating||loading} required/>
+                disabled={checklistCreating||loading||Boolean(checklistLoadError)} required/>
               <button type="submit" className="button secondary"
-                disabled={checklistCreating||loading||expectedDocument.trim().length<3}>
+                disabled={checklistCreating||loading||Boolean(checklistLoadError)||expectedDocument.trim().length<3}>
                 {checklistCreating?"Incorporando…":"Incorporar ítem"}
               </button>
             </form>
@@ -345,6 +366,13 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
               onAreaChange={setChecklistFilterArea}/>
           )}
           {loading ? <p>Consultando ítems…</p> :
+            checklistLoadError ? (
+              <div>
+                <p role="alert" className="message error">No se pudo consultar el checklist. {checklistLoadError} No se puede confirmar si hay ítems configurados.</p>
+                <button type="button" className="button secondary"
+                  onClick={() => setReload(value => value + 1)}>Reintentar checklist</button>
+              </div>
+            ) :
             checklist.length === 0 ? <p>No hay ítems configurados para esta comisión.</p> :
             visibleChecklist.length === 0 ? <EmptyState>No hay ítems que coincidan con los filtros actuales. Cambia el área o el estado.</EmptyState> :
             <ul className="checklist-items">
@@ -453,6 +481,13 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
             }}/>
         )}
         {loading ? <p>Consultando observaciones…</p> :
+          observationLoadError ? (
+            <div>
+              <p role="alert" className="message error">No se pudo consultar el historial. {observationLoadError} No se puede confirmar si existen observaciones registradas.</p>
+              <button type="button" className="button secondary"
+                onClick={() => setReload(value => value + 1)}>Reintentar historial</button>
+            </div>
+          ) :
           observations.length === 0 ? <p>La comisión todavía no tiene observaciones registradas.</p> :
           visibleObservations.length === 0 ? <EmptyState>{inboxEmptyText(observationFilter)}{historyCursor !== null ? " Pueden existir registros coincidentes en páginas anteriores." : ""}</EmptyState> :
           <ul className="observation-items">
