@@ -10,6 +10,7 @@ import tempfile
 import unittest
 
 from png_fixtures import rgb_png
+from qpdf_visual_fixtures import visual_qpdf_report
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("folio_ocr_unit", ROOT / "inspector.py")
@@ -157,11 +158,7 @@ class UserUnitPipelineTests(unittest.TestCase):
         if args[:2] == ["qpdf", "--is-encrypted"]:
             return inspector.QPDF_UNENCRYPTED
         if args[:2] == ["qpdf", "--json"]:
-            if "--json-key=pages" in args:
-                return inventory()
-            if "--json-key=qpdf" in args:
-                return page_json(3, unit)
-            self.fail("Unexpected qpdf JSON mode")
+            return visual_qpdf_report(args, count=2, user_unit=unit)
         if args[0] == "pdfdetach":
             return "0 embedded files"
         if args[0] == "pdfinfo":
@@ -202,13 +199,15 @@ class UserUnitPipelineTests(unittest.TestCase):
         self.assertEqual(sum(a[0] == "pdftoppm" for a in self.calls), 1)
         self.assertEqual(sum("--json-key=pages" in a for a in self.calls), 1)
 
-    def test_text_only_document_skips_qpdf_json_preflight(self):
+    def test_text_only_document_checks_scoped_visual_objects_without_ocr(self):
         result = inspector.inspect_pdf(
             PDF, "ver_1", SHA, signatures=self.signatures,
             run=lambda args, cwd: self.runner(args, cwd, only_text=True),
         )
         self.assertEqual(result["scanVerdict"], "clean")
-        self.assertFalse(any("--json" in a for a in self.calls))
+        self.assertTrue(any("--json-key=pages" in a for a in self.calls))
+        self.assertTrue(any("--json-stream-data=inline" in a for a in self.calls))
+        self.assertFalse(any(a[0] in ("pdftoppm", "tesseract") for a in self.calls))
 
     def test_qpdf_userunit_json_failure_fails_closed(self):
         for bad in ("", "not json", page_json(3, "9 0 R")):

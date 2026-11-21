@@ -111,20 +111,38 @@ export async function runLighthouseCli({
     let stderr="";
     let timedOut=false;
     let settled=false;
-    const child=spawn(command,args,{cwd,env,stdio:["ignore","pipe","pipe"]});
+    // Lighthouse launches Chrome descendants. A timeout must terminate the
+    // process group, not just the Lighthouse parent, or orphaned browsers can
+    // contaminate later CI steps. Windows retains the prior child-only kill.
+    const useProcessGroup=process.platform!=="win32";
+    const child=spawn(command,args,{
+      cwd,env,stdio:["ignore","pipe","pipe"],detached:useProcessGroup
+    });
+    const terminate=()=>{
+      if(useProcessGroup && Number.isSafeInteger(child.pid) && child.pid>0){
+        try{
+          process.kill(-child.pid,"SIGKILL");
+          return;
+        }catch{/* Fall back if the process group has already exited. */}
+      }
+      child.kill("SIGKILL");
+    };
     const diagnostic=()=> "stdout="+diagnosticMarkers(stdout)+
       "; stderr="+diagnosticMarkers(stderr);
     const finish=(error,report)=>{
       if(settled)return;
       settled=true;
       clearTimeout(timer);
+      // Even an exit-0 process can leave a detached Chrome descendant behind.
+      // On POSIX the spawned Lighthouse process owns its own process group.
+      if(!timedOut)terminate();
       if(error)reject(error);
       else resolve(report);
     };
     const timer=setTimeout(()=>{
       timedOut=true;
-      child.kill("SIGKILL");
-      // A descendant may inherit these pipes after pnpm has exited; waiting
+      terminate();
+      // A descendant may inherit these pipes after the parent has exited; waiting
       // for 'close' can then exceed the deadline. Stop observing them now.
       child.stdout.destroy();
       child.stderr.destroy();

@@ -56,7 +56,7 @@ export function CommissionOverview({
   const current = review?.scopeKey === summaryScopeKey(scope) ? review : null;
   const readableDocuments = documentsFailed ? null : documents;
   const documentCount = readableDocuments?.length;
-  const pendingInspection = readableDocuments?.filter(
+  const pendingProcessing = readableDocuments?.filter(
     item => item.extractionStatus === "pending"
   ).length;
   const hasUnavailable = documentsFailed || current === null;
@@ -97,9 +97,9 @@ export function CommissionOverview({
           </dd>
         </div>
         <div className="overview-metric">
-          <dt>En cuarentena</dt>
-          <dd>{documentsFailed ? "No disponible" : metric(pendingInspection)}
-            <small>Con estado pendiente; no inspeccionados</small>
+          <dt>Pendientes de procesamiento</dt>
+          <dd>{documentsFailed ? "No disponible" : metric(pendingProcessing)}
+            <small>Sin extracción iniciada. Los PDF originales permanecen en cuarentena en todos los estados.</small>
           </dd>
         </div>
         <div className="overview-metric">

@@ -112,7 +112,7 @@ test("forced-colors preserves visible selected records, pressed filters and keyb
   await page.getByRole("button",{name:"Registrar PDF"}).click();
   await expect(page.getByText("PDF recibido en cuarentena")).toBeVisible();
   const selected=page.locator(".document-item.selected");
-  await expect(selected).toContainText("En cuarentena");
+  await expect(selected).toContainText("Pendiente de procesamiento");
   const selectedStyle=await selected.evaluate(el=>{
     const s=getComputedStyle(el);
     return {width:parseFloat(s.borderInlineStartWidth),style:s.borderInlineStartStyle};

@@ -10,6 +10,7 @@ import tempfile
 import unittest
 
 from png_fixtures import rgb_png
+from qpdf_visual_fixtures import visual_qpdf_report
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("folio_inspector_ocr_geometry", ROOT / "inspector.py")
@@ -196,24 +197,7 @@ class PipelineTests(unittest.TestCase):
         if op == "qpdf" and argv[1] == "--is-encrypted":
             return "not_encrypted"
         if op == "qpdf" and argv[1] == "--json":
-            if "--json-key=pages" in argv:
-                return json.dumps({
-                    "version": 2, "pages": [
-                        {"object": "3 0 R", "pageposfrom1": 1},
-                        {"object": "4 0 R", "pageposfrom1": 2},
-                    ],
-                })
-            number = int(next(
-                arg.split("=", 1)[1].split(",")[0]
-                for arg in argv if arg.startswith("--json-object=")
-            ))
-            return json.dumps({
-                "version": 2,
-                "qpdf": [
-                    {"jsonversion": 2},
-                    {f"obj:{number} 0 R": {"value": {"/Type": "/Page"}}},
-                ],
-            })
+            return visual_qpdf_report(argv, count=2)
         if op == "pdfdetach":
             return "0 embedded files\n"
         if op == "pdfinfo":
