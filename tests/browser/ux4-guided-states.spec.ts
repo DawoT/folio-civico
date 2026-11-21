@@ -89,7 +89,7 @@ test("a failed list never claims an empty lot, and retry obtains the authenticat
   await expect(page.getByRole("heading",{name:"Listado no disponible"})).toHaveCount(0);
   await expect(page.locator(".documents-panel .count")).toHaveText("1");
   await expect(page.getByRole("heading",{name:"Documento sintético.pdf"})).toBeVisible();
-  await expect(page.getByText("En cuarentena").first()).toBeVisible();
+  await expect(page.getByText("Pendiente de procesamiento").first()).toBeVisible();
   await audit(page);
 });
 

@@ -10,12 +10,14 @@ import { StatusBadge } from "./ui/StatusBadge";
 import { SelectField } from "./ui/Fields";
 import { Card } from "./ui/Card";
 import { DocumentListState } from "./ui/DocumentListState";
+import { DocumentProcessingGuidance } from "./ui/DocumentProcessingGuidance";
 import { TaskNavigation } from "./layout/TaskNavigation";
 import { CommissionOverview, summaryScopeKey, type ReviewSummary } from "./layout/CommissionOverview";
 
 const statusText: Record<DocumentRow["extractionStatus"], string> = {
-  pending: "En cuarentena", processing: "Procesando", ready: "Texto disponible",
-  needs_review: "Revisión manual", failed: "Extracción fallida"
+  pending: "Pendiente de procesamiento", processing: "Procesamiento técnico en curso",
+  ready: "Texto inspeccionado disponible", needs_review: "Revisión técnica requerida",
+  failed: "Procesamiento fallido"
 };
 
 function initialScope(): Scope | null {
@@ -398,6 +400,7 @@ export function App() {
                   <div><dt>SHA-256</dt><dd className="mono hash">{selected.sha256}</dd></div>
                   <div><dt>Páginas</dt><dd>{selected.pageCount ?? "Pendiente de extracción"}</dd></div>
                 </dl>
+                <DocumentProcessingGuidance status={selected.extractionStatus}/>
                 {selected.extractionStatus==="ready" && scope
                   ? <InspectedTextViewer key={selected.versionId} scope={scope}
                       versionId={selected.versionId} sha256={selected.sha256}
