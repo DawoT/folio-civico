@@ -144,7 +144,7 @@ RUN set -eux; \
   chmod -R a+rX /opt/clamdb
 
 WORKDIR /srv/folio-inspector
-COPY --chown=65534:65534 inspector.py fixtures.py preflight.py smoke_real_engines.py smoke_http_real.py /srv/folio-inspector/
+COPY --chown=65534:65534 inspector.py qpdf_paint_triage_r154.py qpdf_scoped_gate_r155.py fixtures.py preflight.py smoke_real_engines.py smoke_http_real.py /srv/folio-inspector/
 
 # Harden both build and runtime admission against an outdated scanner.
 RUN python3 -c "from inspector import verify_clamav_version; import subprocess; verify_clamav_version(subprocess.check_output(['clamscan','--version'], text=True))"

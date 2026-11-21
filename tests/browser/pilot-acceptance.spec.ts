@@ -45,7 +45,7 @@ test("UX-5.1: complete synthetic multi-role pilot acceptance and evidence receip
       await author.getByRole("button", { name: "Registrar PDF" }).click();
       await expect(author.getByText("PDF recibido en cuarentena")).toBeVisible();
       await expect(author.getByRole("heading", { name: "piloto-sintetico.pdf" })).toBeVisible();
-      await expect(author.getByText("En cuarentena").first()).toBeVisible();
+      await expect(author.getByText("Pendiente de procesamiento").first()).toBeVisible();
       expect(await author.locator("iframe, embed, object").count()).toBe(0);
       expect(api.documents).toHaveLength(1);
       expect(api.documents[0]?.extractionStatus).toBe("pending");

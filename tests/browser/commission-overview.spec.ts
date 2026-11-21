@@ -21,7 +21,14 @@ test("summary uses authoritative source counts and distinguishes quarantine from
   const summary = page.getByRole("region", { name: "Resumen de comisión" });
   await expect(summary).toBeVisible();
   await expect(summary.getByText("Documentos del lote")).toBeVisible();
-  await expect(summary.getByText("En cuarentena")).toBeVisible();
+  await expect(summary.getByText("Pendientes de procesamiento")).toBeVisible();
+  await expect(summary.getByText(/Los PDF originales permanecen en cuarentena/)).toBeVisible();
+  await expect(summary.locator(".overview-metric").filter({hasText:"Pendientes de procesamiento"}))
+    .toContainText("1");
+  const guidance = page.locator(".evidence-panel .document-processing-guidance");
+  await expect(guidance).toContainText("El PDF original permanece en cuarentena");
+  await expect(guidance).toContainText("Siguiente paso: Esperar la inspección técnica autorizada");
+  await expect(page.locator(".evidence-panel iframe")).toHaveCount(0);
   await expect(summary.getByText("Checklist pendiente")).toBeVisible();
   await expect(summary.getByText("Para tu revisión")).toBeVisible();
   await expect(summary.locator(".overview-metric").filter({ hasText: "Checklist pendiente" })

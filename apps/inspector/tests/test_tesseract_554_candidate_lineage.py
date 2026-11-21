@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 import os
@@ -65,6 +66,32 @@ def fixture():
 
 
 class CandidateLineageTDD(unittest.TestCase):
+    def test_historical_R140_inventory_implementation_remains_sha_pinned(self):
+        original_v1 = "6effc14e9267f507e1d54b6fab71b2709737414eba952e812133c460de772d2c"
+        actual = hashlib.sha256((ROOT / "apps/inspector/source_inventory.py").read_bytes()).hexdigest()
+        self.assertEqual(actual, original_v1, "R1.40 inventory v1 cannot be mutated in place")
+
+    def test_R140_R142_synthetic_historical_snapshot_replay(self):
+        previous, evidence = fixture()
+        manifest = {
+            "immutable_local_image_id": previous["image_id"],
+            "native_inspector_sha256": evidence.get("native_inspector_sha256"),
+        }
+        manifest["native_inspector_sha256"] = hashlib.sha256(
+            (ROOT / "apps/inspector/source_inventory.py").read_bytes()
+        ).hexdigest()
+
+        def private_file(path):
+            return manifest if path.name == m.SNAPSHOT_MANIFEST else evidence["saved"]
+
+        with patch.object(m, "verify_snapshot", return_value=previous), \
+             patch.object(m, "private_report", return_value=evidence["source"]), \
+             patch.object(m, "_json_private", side_effect=private_file):
+            snapshot, actual = m.validated_context(SNAP, SOURCE)
+        self.assertEqual(snapshot["image_id"], IMAGE_SHA)
+        self.assertEqual(actual["native_inspector_sha256"], manifest["native_inspector_sha256"])
+        self.assertEqual(actual["saved"], evidence["saved"])
+
     def _capture(self, *, tag_sha=IMAGE_SHA, returned_native=None):
         prior, evidence = fixture()
         seen = []
