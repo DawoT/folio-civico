@@ -221,6 +221,9 @@ class PipelineTests(unittest.TestCase):
                 p = int(argv[argv.index("-f") + 1])
                 return box_report(p, media=box or "0 0 595 842")
             return "Pages: 2\nEncrypted: no\n"
+        if op == "pdfimages":
+            from pdfimages_fixtures import EMPTY_REPORT
+            return EMPTY_REPORT
         if op == "pdftotext":
             return "" if no_text else "Texto documental nativo"
         if op == "pdftoppm":
