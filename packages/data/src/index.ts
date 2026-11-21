@@ -5,6 +5,7 @@ export * from "./bootstrap";
 export * from "./documents";
 export * from "./review";
 export * from "./review-pagination";
+export * from "./reviewable-count";
 export * from "./review-export";
 export * from "./transitions";
 export * from "./quarantine-audit";
