@@ -17,6 +17,38 @@ El directorio general `test-results/` también recibe fallos de performance y la
 - No cargar `.dev.vars`, `.env`, datos institucionales, `playwright-report/`, trazas de la demo firmada ni archivos fuera de los patrones `test-results/task-navigation-*`. La carpeta permanece ignorada por Git y no se publica en releases.
 - El job continúa fallando cuando falla `scripts/ci.sh`. Esta mejora es **observabilidad**, no permiso para fusionar PR, saltar gates o desplegar recursos.
 
+## R1.48 — muestreo de geometría durante el clic (21-11-2026)
+
+La incidencia histórica `#87` no se reprodujo de manera aislada: **12/12**
+recorridos de navegación con anclas nativas en Chromium desktop y **12/12**
+en reflow 320 px, usando `--repeat-each=12` y el `actionTimeout` de 8 s
+sin modificaciones. El run original `44782865732` acabó en verde en su
+segundo intento y no publica artefactos de diagnóstico. Esta ausencia de
+fallos **no demuestra** una causa raíz resuelta; no se alteraron React, CSS,
+timeouts, reintentos, ni la semántica del clic nativo.
+
+La instrumentación sintética de `task-navigation-diagnostics.ts` conserva
+las muestras previas de scroll y layout shift y añade **hasta 32** muestras
+de geometría *durante* cada `locator.click()` real. Captura una posición
+inicial síncrona y, cuando Chromium permite animación, una muestra como
+máximo cada 80 ms: tiempo monotónico, `scrollY`, coordenadas verticales
+de navegación/enlace/sección. La observación se desactiva al completar o
+fallar la acción; ninguna muestra se sube en el camino verde.
+
+Solo el fallo origina un adjunto JSON sintético; no se leen ni conservan
+texto DOM, identificadores de usuarios, cookies, URLs completas ni cabeceras.
+El buffer numérico es acotado y no toca el estado del producto. Una página
+en segundo plano puede limitar los callbacks de `requestAnimationFrame`;
+la muestra inicial sigue existiendo, pero su ausencia de cambios **no prueba**
+que el navegador estuviera inmóvil. Sigue siendo necesario correlacionar
+el registro con una traza real para atribuir causas.
+
+TDD: el test de fallo intencionado de clic nativo se volvió rojo al exigir
+`geometrySamples` ausentes, y pasó al instalar la captura acotada. Otra
+prueba verifica que aparecen mediciones durante el scroll y que las muestras
+no contienen sentinelas privadas. El issue permanece abierto hasta reproducir
+la anomalía real o acumular evidencia que justifique su cierre.
+
 ## Próximo incidente #87
 
 Si reaparece el timeout en `task-navigation.spec.ts`, guardar el SHA/run y consultar el artefacto durante los tres días siguientes. Contrastar `task-anchor-diagnostics.json` (scroll, rectángulos y layout shift) con la traza de Chromium desktop: elemento estable, desplazamiento, posición y cambios de layout durante el clic. Contrastar con Chromium móvil y reflow 320, y reproducir con datos sintéticos antes de corregir código. No cerrar el issue por una corrida posterior verde sin explicar la causa o documentar la incertidumbre.

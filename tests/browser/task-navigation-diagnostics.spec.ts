@@ -33,6 +33,14 @@ test("a real blocked anchor click produces sanitized evidence and keeps its orig
     after:{landmarkId:"registrar-busqueda"}
   });
   expect(report.elapsedMs).toBeGreaterThan(0);
+  expect(report.after.geometrySamples).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      atMs:expect.any(Number),scrollY:expect.any(Number),
+      navTop:expect.any(Number),anchorTop:expect.any(Number),
+      anchorBottom:expect.any(Number),sectionTop:expect.any(Number)
+    })
+  ]));
+  expect(report.after.geometrySamples.length).toBeLessThanOrEqual(32);
   expect(JSON.stringify(report)).not.toContain(marker);
   expect(testInfo.attachments.some(item=>
     item.name==="task-anchor-diagnostics"&&item.contentType==="application/json"
@@ -46,7 +54,7 @@ test("synthetic navigation diagnostic captures geometry and scroll without DOM t
     <section id="registrar-busqueda">PRIVATE_SECTION_SENTINEL</section>
   `);
   await installTaskNavigationProbe(page);
-  const initial=await snapshotTaskNavigation(page,"registrar-busqueda");
+  const initial=await snapshotTaskNavigation(page,"registrar-busqueda","start");
   expect(initial).toMatchObject({
     landmarkId:"registrar-busqueda",scrollBehavior:"auto",
     nav:expect.objectContaining({height:expect.any(Number)}),
@@ -59,7 +67,14 @@ test("synthetic navigation diagnostic captures geometry and scroll without DOM t
     const snapshot=await snapshotTaskNavigation(page,"registrar-busqueda");
     return snapshot.scrollSamples.length;
   }).toBeGreaterThan(0);
-  const shifted=await snapshotTaskNavigation(page,"registrar-busqueda");
+  await expect.poll(async()=>{
+    const snapshot=await snapshotTaskNavigation(page,"registrar-busqueda");
+    return snapshot.geometrySamples.length;
+  }).toBeGreaterThan(1);
+  const shifted=await snapshotTaskNavigation(page,"registrar-busqueda","stop");
   expect(shifted.page.scrollY).toBeGreaterThan(0);
   expect(shifted.scrollSamples.at(-1)?.scrollY).toBeGreaterThan(0);
+  expect(shifted.geometrySamples.length).toBeLessThanOrEqual(32);
+  expect(shifted.geometrySamples.some(sample=>sample.scrollY>0)).toBe(true);
+  expect(JSON.stringify(shifted)).not.toMatch(/PRIVATE_NAV_SENTINEL|PRIVATE_SECTION_SENTINEL/);
 });
