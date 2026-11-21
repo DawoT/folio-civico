@@ -168,6 +168,9 @@ class UserUnitPipelineTests(unittest.TestCase):
             if "-box" in args:
                 return page_info()
             return "Pages: 2\nEncrypted: no\n"
+        if args[0] == "pdfimages":
+            from pdfimages_fixtures import EMPTY_REPORT
+            return EMPTY_REPORT
         if args[0] == "pdftotext":
             page = int(args[args.index("-f") + 1])
             return "Native page text" if only_text or page == 2 else ""

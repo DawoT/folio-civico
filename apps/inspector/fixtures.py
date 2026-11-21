@@ -118,6 +118,32 @@ def scanned_pdf(*, raster: tuple[int, int, bytes] | None = None) -> bytes:
     ])
 
 
+def mixed_pdf() -> bytes:
+    """One page with selectable PDF text AND a separate image XObject.
+
+    A scanner that runs OCR only for *empty* pdftotext output would silently
+    omit this synthetic raster. No external or institutional PDF is used.
+    """
+    width, height, pixels = _image_bitmap("2026 OBRA")
+    native = ("BT\n/F1 24 Tf\n70 720 Td\n(" + _NATIVE_TEXT + ") Tj\nET\n").encode("ascii")
+    content = native + b"q\n450 0 0 120 75 520 cm\n/Im0 Do\nQ\n"
+    image = _stream(
+        zlib.compress(pixels, level=9),
+        (f"/Type /XObject /Subtype /Image /Width {width} /Height {height} "
+         "/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode").encode("ascii"),
+    )
+    return _pdf([
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+         b"/Contents 4 0 R /Resources << /Font << /F1 6 0 R >> "
+         b"/XObject << /Im0 5 0 R >> >> >>"),
+        _stream(content),
+        image,
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ])
+
+
 def malformed_pdf() -> bytes:
     """Clearly truncated synthetic PDF: fails structural validation."""
     return native_pdf()[:90]

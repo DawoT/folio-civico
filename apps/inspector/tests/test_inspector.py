@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from png_fixtures import rgb_png
+from pdfimages_fixtures import EMPTY_REPORT
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("folio_inspector", ROOT / "inspector.py")
@@ -72,6 +73,8 @@ class ScannerTests(unittest.TestCase):
                         f"Page {page} MediaBox: 0 0 595 842\n"
                         f"Page {page} CropBox: 0 0 595 842\n")
             return "Pages: 2\nEncrypted: no\n"
+        if command == "pdfimages":
+            return EMPTY_REPORT
         if command == "pdftotext":
             page = int(argv[argv.index("-f") + 1])
             return f"Expediente de obras página {page}"
@@ -121,7 +124,7 @@ class ScannerTests(unittest.TestCase):
             invocations.append(tuple(argv))
             if argv[:2] == ["qpdf", "--is-encrypted"]:
                 raise inspector.ReviewRequired("Encrypted PDF is not supported")
-            if argv[0] in {"pdfdetach", "pdfinfo", "pdftotext", "pdftoppm"}:
+            if argv[0] in {"pdfdetach", "pdfinfo", "pdftotext", "pdfimages", "pdftoppm"}:
                 self.fail("Poppler must never inspect an encrypted document")
             return self.fake_runner(argv, cwd)
         invocations.clear()
@@ -136,7 +139,7 @@ class ScannerTests(unittest.TestCase):
             def unreliable(argv, cwd):
                 if argv[:2] == ["qpdf", "--is-encrypted"]:
                     return unexpected
-                if argv[0] in ("pdfdetach", "pdfinfo", "pdftotext", "pdftoppm"):
+                if argv[0] in ("pdfdetach", "pdfinfo", "pdftotext", "pdfimages", "pdftoppm"):
                     self.fail("No Poppler calls without exact qpdf verdict")
                 return self.fake_runner(argv, cwd)
             with self.subTest(verdict=unexpected), self.assertRaises(
@@ -441,6 +444,18 @@ class ScannerTests(unittest.TestCase):
                 (self.signatures / "daily.cld").unlink()
                 with self.assertRaises(inspector.ScannerUnavailable):
                     inspector.inspection_ready()
+
+    def test_missing_pdfimages_blocks_readiness_before_document_admission(self):
+        with patch.dict(os.environ, {
+            "FOLIO_INSPECTOR_SERVICE_TOKEN": "synthetic" * 6,
+            "FOLIO_INSPECTOR_HMAC_KEY": "synthetic-hmac" * 4,
+            "CLAMAV_DB_DIR": str(self.signatures),
+        }), patch.object(
+            inspector.shutil, "which",
+            side_effect=lambda binary: None if binary == "pdfimages" else "/synthetic/bin",
+        ), patch.object(inspector, "command", return_value="ClamAV 1.5.5"):
+            with self.assertRaises(inspector.ScannerUnavailable):
+                inspector.inspection_ready()
 
     def test_readiness_and_direct_admission_reject_vulnerable_scanner(self):
         with patch.dict(os.environ, {

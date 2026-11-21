@@ -20,7 +20,7 @@ MIN_SMOKE_FREE_BYTES = 1 * GIB
 MIN_SMOKE_SCRATCH_BYTES = 128 * 1024 * 1024
 MIN_AVAILABLE_RAM_BYTES = 4 * GIB
 ENGINE_TOOLS = ("clamscan", "qpdf", "pdfdetach", "pdfattach", "pdfinfo", "pdftotext",
-                "pdftoppm", "tesseract")
+                "pdfimages", "pdftoppm", "tesseract")
 
 
 def evaluate_requirements(mode: str, free_bytes: int,

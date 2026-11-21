@@ -367,6 +367,52 @@ def require_ocr_raster_geometry(
     return width_px, height_px
 
 
+MAX_PDFIMAGE_LIST_BYTES = 256 * 1024
+_PDFIMAGE_COLUMNS = (
+    "page", "num", "type", "width", "height", "color", "comp", "bpc",
+    "enc", "interp", "object", "ID", "x-ppi", "y-ppi", "size", "ratio",
+)
+
+
+def has_pdf_page_raster(raw: str, *, page: int, count: int) -> bool:
+    """Admit only a complete Poppler pdfimages -list page-specific report.
+
+    A raster XObject beside digital text may contain evidence pdftotext never
+    extracted. Route to human review; this is not proof that image-free pages
+    contain no other visual-only content (e.g. vector graphics or patterns).
+    """
+    if (type(page) is not int or type(count) is not int
+            or not 1 <= page <= count <= MAX_PAGES or not isinstance(raw, str)
+            or len(raw.encode("utf-8")) > MAX_PDFIMAGE_LIST_BYTES
+            or CONTROL.search(raw)):
+        raise ReviewRequired("PDF page raster inventory unavailable")
+    lines = raw.splitlines()
+    if (len(lines) < 2 or tuple(lines[0].split()) != _PDFIMAGE_COLUMNS
+            or re.fullmatch(r"-{60,}", lines[1].strip()) is None):
+        raise ReviewRequired("PDF page raster inventory malformed")
+    seen: set[int] = set()
+    for line in lines[2:]:
+        fields = line.split()
+        if len(fields) != len(_PDFIMAGE_COLUMNS):
+            raise ReviewRequired("PDF page raster inventory row malformed")
+        # Metadata is data, not a command or a path. Never interpret an
+        # unfamiliar row as evidence of a page without raster content.
+        if (any(not field.isascii() for field in fields)
+                or any(not fields[i].isdigit()
+                       for i in (0, 1, 3, 4, 6, 7, 10, 11, 12, 13))
+                or not re.fullmatch(r"[a-zA-Z0-9._+-]{1,16}", fields[2])
+                or fields[9] not in ("yes", "no")
+                or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?[BKMG]?", fields[14])
+                or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)?%", fields[15])):
+            raise ReviewRequired("PDF page raster inventory row unsupported")
+        image_page, image_index = int(fields[0]), int(fields[1])
+        if (image_page != page or image_index in seen
+                or int(fields[3]) < 1 or int(fields[4]) < 1):
+            raise ReviewRequired("Unexpected PDF page image identity")
+        seen.add(image_index)
+    return bool(seen)
+
+
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _PNG_END = b"\x00\x00\x00\x00IEND\xaeB\x60\x82"
 
@@ -471,6 +517,20 @@ def inspect_pdf(
                     "-layout", "-nopgbrk", "-enc", "UTF-8", str(source), "-"
                 ], directory)
                 text = raw.strip()
+                if text and (len(text) > MAX_PAGE_TEXT or CONTROL.search(text)):
+                    raise ReviewRequired("Unsafe or oversized digital page text")
+                if text:
+                    # Presence of a raster XObject on a text-bearing page
+                    # makes text-only extraction evidentially incomplete.
+                    # Review rather than minting a signed 'clean' manifest.
+                    image_report = run([
+                        "pdfimages", "-f", str(page), "-l", str(page),
+                        "-list", str(source),
+                    ], directory)
+                    if has_pdf_page_raster(image_report, page=page, count=count):
+                        raise ReviewRequired(
+                            "Mixed digital text and raster evidence requires review"
+                        )
                 if not text:
                     # QPDF resolves page dictionaries including object streams.
                     # pdfinfo -box does NOT expose UserUnit. Obtain page IDs
@@ -575,7 +635,7 @@ def inspection_ready() -> None:
         secret_file("FOLIO_INSPECTOR_HMAC_FILE")
     require_fresh_signatures(Path(os.environ.get("CLAMAV_DB_DIR", "/opt/clamdb")))
     engines = ("clamscan", "qpdf", "pdfinfo", "pdfdetach",
-               "pdftotext", "pdftoppm", "tesseract")
+               "pdftotext", "pdfimages", "pdftoppm", "tesseract")
     if any(shutil.which(engine) is None for engine in engines):
         raise ScannerUnavailable("One or more mandatory scanner engines are unavailable")
     verify_clamav_version(command(["clamscan", "--version"], Path(tempfile.gettempdir())))
