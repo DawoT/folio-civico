@@ -31,6 +31,9 @@ test("UX-5.1: initial guidance and authorized commission summary visual baseline
   const summary = page.getByRole("region", { name: "Resumen de comisión" });
   await expect(summary.getByText("Checklist pendiente")).toBeVisible();
   await expect(summary.getByText("Para tu revisión")).toBeVisible();
+  // The authorized total loads independently; snapshot only its settled state.
+  await expect(summary.locator(".overview-metric").filter({hasText:"Para tu revisión"})
+    .locator("dd")).toHaveText(/^0/);
   await expect(summary).toHaveScreenshot("pilot-authorized-summary.png", screenshot);
 
   const empty = page.getByRole("group", { name: "Estado del listado de documentos" });
