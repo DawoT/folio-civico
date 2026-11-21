@@ -31,6 +31,31 @@ function afterDiscoveryRows(db:D1Database, afterFirst:()=>void, failSecond=false
   } as D1Database;
 }
 
+/** Interleave a real SQLite revocation after the scoped commission summary row is read. */
+function afterSummaryRow(db:D1Database, afterFirst:()=>void, failSecond=false):D1Database {
+  let reads=0;
+  return {
+    prepare(sql:string){
+      const prepared=db.prepare(sql);
+      if(!sql.includes("SELECT c.id, c.name, c.status, m.role")) return prepared;
+      return {
+        bind(...params:unknown[]){
+          const bound=prepared.bind(...params);
+          return {
+            async first<T>(){
+              reads++;
+              if(reads===2 && failSecond) throw new Error("PRIVATE_D1_SUMMARY_FENCE_FAILURE");
+              const row=await bound.first<T>();
+              if(reads===1) afterFirst();
+              return row;
+            }
+          };
+        }
+      } as unknown as D1PreparedStatement;
+    }
+  } as D1Database;
+}
+
 describe("API authenticated discovery", () => {
   beforeEach(() => mockAuth.mockReset());
 
@@ -122,6 +147,44 @@ describe("API authenticated discovery", () => {
       expect(response.status).toBe(503);
       expect(await response.json()).toEqual({error:"Request could not be completed"});
       expect(response.headers.get("Cache-Control")).toBe("no-store");
+    } finally {f.close();}
+  });
+
+  it("does not disclose a commission summary after its membership is revoked during D1",async()=>{
+    mockAuth.mockResolvedValue("alice");
+    const f=fixture();
+    try {
+      const raced=afterSummaryRow(f.db,()=>{
+        f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='c_a' AND subject='alice'");
+      });
+      const response=await handleApiRequest(new Request("https://folio.test/api/commissions/c_a/summary"),{DB:raced});
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({error:"Not found"});
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+    } finally {f.close();}
+  });
+
+  it("does not return a stale commission summary role after membership demotion",async()=>{
+    mockAuth.mockResolvedValue("alice");
+    const f=fixture();
+    try {
+      const raced=afterSummaryRow(f.db,()=>{
+        f.sqlite.exec("UPDATE commission_members SET role='observer' WHERE commission_id='c_a' AND subject='alice'");
+      });
+      const response=await handleApiRequest(new Request("https://folio.test/api/commissions/c_a/summary"),{DB:raced});
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({id:"c_a",role:"observer"});
+    } finally {f.close();}
+  });
+
+  it("returns a generic 503 if the last commission summary fence fails",async()=>{
+    mockAuth.mockResolvedValue("alice");
+    const f=fixture();
+    try {
+      const raced=afterSummaryRow(f.db,()=>{},true);
+      const response=await handleApiRequest(new Request("https://folio.test/api/commissions/c_a/summary"),{DB:raced});
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({error:"Request could not be completed"});
     } finally {f.close();}
   });
 

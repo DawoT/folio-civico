@@ -135,8 +135,11 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
   if (!route) return json({ error: "Not found" }, 404);
   try {
     const summary = await getCommissionSummary(env.DB, subject, route[1]!);
-    // Same response for nonexistent and unauthorized resources.
-    return summary ? json(summary, 200) : json({ error: "Not found" }, 404);
+    if (!summary) return json({ error: "Not found" }, 404);
+    // A scoped row may have been read before a revocation or role change.
+    // Return only the current authorized row, without stale capabilities.
+    const current = await getCommissionSummary(env.DB, subject, route[1]!);
+    return current ? json(current, 200) : json({ error: "Not found" }, 404);
   } catch {
     return json({ error: "Request could not be completed" }, 503);
   }
