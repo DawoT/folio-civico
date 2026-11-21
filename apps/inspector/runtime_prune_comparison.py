@@ -15,11 +15,21 @@ OLD = "folio-civico-inspector:expat-experiment"
 NEW = "folio-civico-inspector:runtime-pruned-experiment"
 FLAT_OLD = "folio-civico-inspector:poppler-flat-research"
 FLAT_NEW = "folio-civico-inspector:gnupg-pruned-research-r145"
-ALLOWED_PAIRS = frozenset(((OLD, NEW), (FLAT_OLD, FLAT_NEW)))
+SURFACE_OLD = FLAT_NEW
+SURFACE_NEW = "folio-civico-inspector:surface-pruned-research-r146"
+SURFACE_REMOVED_PACKAGES = frozenset((
+    "libcairo2", "pinentry-curses", "libncursesw6", "libxext6",
+    "libxrender1", "libx11-6", "libx11-data", "mount",
+))
 REMOVED_PACKAGES = frozenset((
     "dirmngr", "gnupg", "gnupg-l10n", "gpg", "gpg-agent", "gpgconf",
     "gpgsm", "libgpgme11t64", "libgpgmepp6t64",
 ))
+APPROVED_REMOVALS = {
+    (OLD, NEW): REMOVED_PACKAGES,
+    (FLAT_OLD, FLAT_NEW): REMOVED_PACKAGES,
+    (SURFACE_OLD, SURFACE_NEW): SURFACE_REMOVED_PACKAGES,
+}
 SEVERITIES = frozenset(("CRITICAL", "HIGH", "UNKNOWN", "MEDIUM", "LOW"))
 DIGEST = re.compile(r"^sha256:[a-f0-9]{64}$")
 
@@ -103,7 +113,8 @@ def compare_images(
     before_id: str, after_id: str, *, before_image: str = OLD,
     after_image: str = NEW,
 ) -> dict:
-    if (before_image, after_image) not in ALLOWED_PAIRS:
+    allowed_removed = APPROVED_REMOVALS.get((before_image, after_image))
+    if allowed_removed is None:
         raise ValueError("Unapproved research image comparison")
     if (not isinstance(before_id, str) or not isinstance(after_id, str)
             or not DIGEST.fullmatch(before_id) or not DIGEST.fullmatch(after_id)
@@ -119,20 +130,20 @@ def compare_images(
     if introduced_components:
         raise ValueError("New SBOM package in reduced runtime")
     removed_names = {key[1] for key in deleted_components}
-    if removed_names != REMOVED_PACKAGES or any(
-        key[1] not in REMOVED_PACKAGES for key in deleted_components
+    if removed_names != allowed_removed or any(
+        key[1] not in allowed_removed for key in deleted_components
     ):
         raise ValueError("Pruning deleted unexpected packages or missed the intended set")
-    if any(key[1] in REMOVED_PACKAGES for key in sbom_b):
+    if any(key[1] in allowed_removed for key in sbom_b):
         raise ValueError("Disallowed GnuPG package remains in runtime")
 
     eliminated = a - b
     created = b - a
     if created:
         raise ValueError("New or altered CVE entries in pruned runtime")
-    if any(key[1] not in REMOVED_PACKAGES for key in eliminated):
+    if any(key[1] not in allowed_removed for key in eliminated):
         raise ValueError("An unrelated CVE entry vanished from runtime")
-    if any(key[1] in REMOVED_PACKAGES for key in b):
+    if any(key[1] in allowed_removed for key in b):
         raise ValueError("Removed package still has CVE entries")
 
     # Count remains explicit; no allowed alerts are automatically considered
