@@ -1,26 +1,13 @@
 import { defineConfig, devices } from "@playwright/test";
-import { createServer } from "node:net";
+import { createHash } from "node:crypto";
 
-// Standalone browser runs must not contend with another worktree's Vite
-// server. Ask the OS for an available loopback port rather than hardcoding
-// 4175. The explicit override remains available for reproducible runs.
-async function availableLoopbackPort():Promise<number>{
-  const probe=createServer();
-  return new Promise<number>((resolve,reject)=>{
-    probe.once("error",reject);
-    probe.listen(0,"127.0.0.1",()=>{
-      const address=probe.address();
-      probe.close(error=>{
-        if(error)return reject(error);
-        if(!address || typeof address==="string"){
-          return reject(new Error("Cannot resolve an ephemeral E2E port"));
-        }
-        resolve(address.port);
-      });
-    });
-  });
-}
-const rawPort = process.env.FOLIO_E2E_PORT ?? String(await availableLoopbackPort());
+// Playwright reloads config in separate runner and worker processes. A fresh
+// ephemeral port per import would give the browser a different baseURL from
+// the server. Derive a stable per-worktree port instead of hardcoding 4175.
+// A rare hash/port collision still fails closed via Vite --strictPort.
+const fingerprint=createHash("sha256").update(process.cwd()).digest();
+const defaultPort=20000+(fingerprint.readUInt32BE(0)%40000);
+const rawPort = process.env.FOLIO_E2E_PORT ?? String(defaultPort);
 if (!/^[0-9]{4,5}$/.test(rawPort) || Number(rawPort) < 1024
   || Number(rawPort) > 65535) {
   throw new Error("FOLIO_E2E_PORT must be a valid unprivileged TCP port");
