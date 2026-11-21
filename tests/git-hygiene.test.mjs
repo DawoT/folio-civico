@@ -50,10 +50,51 @@ describe("read-only Git hygiene inventory", () => {
       mergedCleanWorktrees: 1
     });
     expect(report.divergentBranches).toEqual(["pending-feature"]);
+    expect(report.summary.divergentBranchTreeMatches).toBe(0);
+    expect(report.divergentBranchSnapshots).toEqual([expect.objectContaining({
+      branch: "pending-feature", matchingBaseCommit: null
+    })]);
     expect(report.mainBehindCount).toBe(0);
     expect(formatReport(report)).toContain("No branch or worktree is removed");
     expect(git(root, "status", "--porcelain")).toBe(before);
     expect(git(other, "branch", "--show-current")).toBe("pending-feature");
+  });
+
+  it("recognizes divergent branch snapshots already present in main history without declaring them removable", () => {
+    const root = fixture();
+    const other = join(root, "feature-tree");
+    git(root, "worktree", "add", "-qb", "equivalent-branch", other, "main");
+    writeFileSync(join(other, "equivalent.txt"), "same result\n");
+    git(other, "add", "equivalent.txt");
+    git(other, "commit", "-qm", "candidate snapshot");
+    const candidateHead = git(other, "rev-parse", "HEAD");
+
+    // Two distinct commits yield identical trees; main then advances further.
+    writeFileSync(join(root, "equivalent.txt"), "same result\n");
+    git(root, "add", "equivalent.txt");
+    git(root, "commit", "-qm", "integrate equivalent snapshot");
+    const integratedHead = git(root, "rev-parse", "HEAD");
+    expect(candidateHead).not.toBe(integratedHead);
+    expect(git(other, "rev-parse", "HEAD^{tree}"))
+      .toBe(git(root, "rev-parse", "HEAD^{tree}"));
+    writeFileSync(join(root, "later.txt"), "other subsequent work\n");
+    git(root, "add", "later.txt");
+    git(root, "commit", "-qm", "later main changes");
+    git(root, "update-ref", "refs/remotes/origin/main", "HEAD");
+
+    const report = auditRepository(root);
+    expect(report.divergentBranches).toEqual(["equivalent-branch"]);
+    expect(report.summary.divergentBranches).toBe(1);
+    expect(report.summary.divergentBranchTreeMatches).toBe(1);
+    expect(report.divergentBranchSnapshots).toEqual([{
+      branch: "equivalent-branch",
+      head: candidateHead,
+      tree: git(other, "rev-parse", "HEAD^{tree}"),
+      matchingBaseCommit: integratedHead
+    }]);
+    expect(formatReport(report)).toContain("still require PR/history review");
+    expect(git(root, "status", "--porcelain")).toBe("");
+    expect(git(other, "status", "--porcelain")).toBe("");
   });
 
   it("flags tracked and untracked work in linked trees, without deleting or staging", () => {

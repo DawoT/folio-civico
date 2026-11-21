@@ -58,6 +58,22 @@ export function auditRepository(root = DEFAULT_ROOT, base = "origin/main") {
     };
   });
   const diverged = locals.filter((branch) => !merged.has(branch));
+  // A merge or cherry-pick can preserve an identical file tree under a
+  // different commit SHA. Compare snapshots against the complete reachable
+  // base history, not just the current tip; this is evidence, NOT permission
+  // to delete branches or discard their separate commit history.
+  const baseTrees = new Map();
+  if (diverged.length) {
+    for (const line of git(repo, ["log", "--format=%H %T", base]).split("\n")) {
+      const [commit, tree] = line.split(" ");
+      if (commit && tree && !baseTrees.has(tree)) baseTrees.set(tree, commit);
+    }
+  }
+  const divergentBranchSnapshots = diverged.map((branch) => {
+    const head = git(repo, ["rev-parse", "--verify", "refs/heads/" + branch + "^{commit}"]);
+    const tree = git(repo, ["rev-parse", "--verify", "refs/heads/" + branch + "^{tree}"]);
+    return { branch, head, tree, matchingBaseCommit: baseTrees.get(tree) ?? null };
+  });
   return {
     base,
     baseSha,
@@ -69,6 +85,7 @@ export function auditRepository(root = DEFAULT_ROOT, base = "origin/main") {
       localBranches: locals.length,
       ancestorBranches: merged.size,
       divergentBranches: diverged.length,
+      divergentBranchTreeMatches: divergentBranchSnapshots.filter((branch) => branch.matchingBaseCommit).length,
       remoteBranches: remote.length,
       worktrees: items.length,
       cleanWorktrees: items.filter((item) => !item.dirty && !item.prunable).length,
@@ -77,6 +94,7 @@ export function auditRepository(root = DEFAULT_ROOT, base = "origin/main") {
       prunableWorktrees: items.filter((item) => item.prunable).length
     },
     divergentBranches: diverged,
+    divergentBranchSnapshots,
     dirtyWorktrees: items.filter((item) => item.dirty),
     worktrees: items
   };
@@ -91,6 +109,7 @@ export function formatReport(report) {
     `local branches: ${s.localBranches} (${s.ancestorBranches} ancestor; ${s.divergentBranches} divergent)`,
     `remote branches: ${s.remoteBranches}`,
     `worktrees: ${s.worktrees} (${s.cleanWorktrees} clean; ${s.dirtyWorktrees} dirty; ${s.mergedCleanWorktrees} merged + clean; ${s.prunableWorktrees} prunable)`,
+    `divergent snapshots present in base history: ${s.divergentBranchTreeMatches} (still require PR/history review)`,
     "Divergent branches are not proof of unmerged changes: inspect PR history and patch equivalence first.",
     "No branch or worktree is removed by this command."
   ];

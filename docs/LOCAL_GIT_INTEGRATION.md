@@ -25,7 +25,7 @@ node scripts/git-hygiene.mjs --json
 
 El comando es **solo lectura** y no necesita GitHub Actions, `gh`, red, credenciales ni una rama `main` activa en el checkout actual. Compara las ramas locales con `origin/main`, muestra la divergencia de `main` y revisa el estado de cada worktree registrado. La referencia remota debe actualizarse aparte con `git fetch origin` cuando exista autorización y conectividad.
 
-**Precaución:** *antecesora de origin/main* no prueba que un worktree sea prescindible. *No antecesora* tampoco demuestra trabajo sin fusionar: los PR con squash, cherry-pick, merge u otros commits de sincronización pueden producir SHA distintos. Para esas ramas, cotejar PR, diff efectivo y equivalencia de parches (`git cherry`) antes de decidir.
+**Precaución:** *antecesora de origin/main* no prueba que un worktree sea prescindible. *No antecesora* tampoco demuestra trabajo sin fusionar: los PR con squash, cherry-pick, merge u otros commits de sincronización pueden producir SHA distintos. Para esas ramas, cotejar PR, diff efectivo y equivalencia de parches (`git cherry`) antes de decidir. El campo `divergentBranchSnapshots[].matchingBaseCommit` identifica una coincidencia **exacta de árbol** con algún commit accesible desde `origin/main`, incluso si `main` avanzó después. `null` solo indica que no hay coincidencia en la historia local disponible; una coincidencia tampoco autoriza eliminar la rama ni acredita que sus commits individuales estén compartidos. La clasificación es exclusivamente de lectura y no realiza limpieza.
 
 ## Política de limpieza
 
