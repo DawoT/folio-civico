@@ -27,13 +27,15 @@ export async function handleReviewableCountRequest(
   try {
     const initial=await getCommissionSummary(env.DB,subject,commissionId);
     if(!initial) return json({error:"Not found"},404);
-    if(!eligible(initial)) return json({commissionId,count:0},200);
-    const count=await countReviewableObservations(env.DB,subject,commissionId);
-    // Do not promote an old COUNT to a valid capability when the role changes
-    // or the commission is closed while SQL executes.
+    const initiallyEligible=eligible(initial);
+    const count=initiallyEligible
+      ? await countReviewableObservations(env.DB,subject,commissionId)
+      : 0;
+    // Even an empty queue must not acknowledge a commission after membership
+    // revocation. Never grant capabilities on a concurrent promotion.
     const current=await getCommissionSummary(env.DB,subject,commissionId);
     if(!current) return json({error:"Not found"},404);
-    return json({commissionId,count:eligible(current)?count:0},200);
+    return json({commissionId,count:initiallyEligible && eligible(current)?count:0},200);
   }catch {
     return json({error:"Request could not be completed"},503);
   }
