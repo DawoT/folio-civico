@@ -189,7 +189,7 @@ test("only PDF files reach quarantine, never a browser preview of the original",
   });
   await page.getByRole("button",{name:"Registrar PDF"}).click();
   await expect(page.getByText("PDF recibido en cuarentena")).toBeVisible();
-  await expect(page.getByRole("button",{name:"synthetic.pdf En cuarentena"})).toBeVisible();
+  await expect(page.getByRole("button",{name:"synthetic.pdf Pendiente de procesamiento"})).toBeVisible();
   expect(api.documents).toHaveLength(1);
   expect(api.calls.filter(c=>c.method==="POST"&&c.path.endsWith("/documents"))).toHaveLength(1);
   expect(await page.locator("iframe,embed,object").count()).toBe(0);

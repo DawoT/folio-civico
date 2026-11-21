@@ -57,6 +57,13 @@ describe("IA-001.2 authorized commission summary", () => {
     expect(html).not.toContain("100 %");
   });
 
+  it("labels the pending extraction subset precisely without implying that other PDFs left quarantine", () => {
+    const html = render();
+    expect(html).toMatch(/<dt>Pendientes de procesamiento<\/dt>\s*<dd>1/);
+    expect(html).toContain("Los PDF originales permanecen en cuarentena");
+    expect(html).not.toContain("<dt>En cuarentena</dt>");
+  });
+
   it("never displays zero for unknown counts, failures, or data from another scope", () => {
     const html = render({
       documents: null, documentsFailed: true,
