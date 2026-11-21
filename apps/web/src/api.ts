@@ -390,6 +390,33 @@ export async function loadChecklist(commissionId: string, fetcher: typeof fetch 
   return body as ChecklistRow[];
 }
 
+export interface ReviewableCount {
+  commissionId: string;
+  count: number;
+}
+
+/**
+ * Exact, authorized commission-wide count. No pagination inference or zero
+ * substitution on 404/503/malformed responses. Subject comes from Access JWT.
+ */
+export async function loadReviewableCount(
+  commissionId: string, fetcher: typeof fetch = fetch
+): Promise<ReviewableCount> {
+  const response = await fetcher(commissionPath(commissionId)+"/observations/reviewable-count",{
+    credentials:"same-origin",cache:"no-store",signal:AbortSignal.timeout(10_000)
+  });
+  const body = await expectJson(response);
+  if (!body || typeof body!=="object" || Array.isArray(body)) {
+    throw new ApiError(502,"Respuesta inválida del total de revisiones.");
+  }
+  const value = body as Partial<ReviewableCount>;
+  if (value.commissionId!==commissionId || !Number.isSafeInteger(value.count)
+    || (value.count as number)<0) {
+    throw new ApiError(502,"El total autorizado de revisiones no pudo verificarse.");
+  }
+  return {commissionId,count:value.count as number};
+}
+
 export interface ObservationHistoryPage {
   items: ObservationRow[];
   nextCursor: string | null;
