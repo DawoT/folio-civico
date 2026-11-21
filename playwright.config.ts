@@ -1,7 +1,13 @@
 import { defineConfig, devices } from "@playwright/test";
+import { createHash } from "node:crypto";
 
-// Concurrent local worktrees must not share an occupied test server port.
-const rawPort = process.env.FOLIO_E2E_PORT ?? "4175";
+// Playwright reloads config in separate runner and worker processes. A fresh
+// ephemeral port per import would give the browser a different baseURL from
+// the server. Derive a stable per-worktree port instead of hardcoding 4175.
+// A rare hash/port collision still fails closed via Vite --strictPort.
+const fingerprint=createHash("sha256").update(process.cwd()).digest();
+const defaultPort=20000+(fingerprint.readUInt32BE(0)%40000);
+const rawPort = process.env.FOLIO_E2E_PORT ?? String(defaultPort);
 if (!/^[0-9]{4,5}$/.test(rawPort) || Number(rawPort) < 1024
   || Number(rawPort) > 65535) {
   throw new Error("FOLIO_E2E_PORT must be a valid unprivileged TCP port");
