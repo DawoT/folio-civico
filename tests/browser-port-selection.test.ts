@@ -6,11 +6,17 @@ const readConfiguredPort = (override?:string):number => {
   const env={...process.env};
   delete env.FOLIO_E2E_PORT;
   if(override!==undefined)env.FOLIO_E2E_PORT=override;
-  const script="import config from './playwright.config.ts'; console.log(new URL(config.use.baseURL).port)";
+  const script="import config from './playwright.config.ts'; console.log(JSON.stringify({baseURL:config.use.baseURL,webServerURL:config.webServer.url,command:config.webServer.command}))";
   const output=execFileSync(process.execPath,[
     "--input-type=module","-e",script
   ],{cwd:process.cwd(),env,encoding:"utf8",stdio:["ignore","pipe","pipe"]});
-  return Number(output.trim());
+  const settings=JSON.parse(output.trim()) as {
+    baseURL:string;webServerURL:string;command:string
+  };
+  const port=Number(new URL(settings.baseURL).port);
+  expect(new URL(settings.webServerURL).port).toBe(String(port));
+  expect(settings.command).toContain(`--port ${port} --strictPort`);
+  return port;
 };
 
 it("selects a nondefault port for standalone E2E when none is configured",()=>{
