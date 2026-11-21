@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -10,10 +10,11 @@ const directories=[];
 afterEach(()=>{
   for(const path of directories.splice(0))rmSync(path,{recursive:true,force:true});
 });
-function fixture(script, timeoutMs=1500) {
+function fixture(script, timeoutMs=1500, prepare=()=>{}) {
   const dir=mkdtempSync(join(tmpdir(),"folio-lh-cli-test-"));
   directories.push(dir);
   const outputPath=join(dir,"result.json");
+  prepare(outputPath);
   return runLighthouseCli({
     command:process.execPath,args:["-e",script,outputPath],
     cwd:dir,env:process.env,outputPath,timeoutMs
@@ -91,6 +92,43 @@ describe("PERF-003 Lighthouse CLI report integrity and safe process diagnostics"
       "{stdio:['ignore','inherit','inherit']});process.exit(0);",200
     )).rejects.toThrow(/timed out/i);
     expect(Date.now()-started).toBeLessThan(1200);
+  });
+
+  it("rejects an existing report even when the child exits successfully",async()=>{
+    const stale={
+      lighthouseVersion:"13.6.0",
+      requestedUrl:"http://127.0.0.1:4181/"
+    };
+    await expect(fixture(
+      "process.exit(0)",1500,
+      path=>writeFileSync(path,JSON.stringify(stale))
+    )).rejects.toThrow(/pre-existing|already exists/i);
+  });
+
+  it("rejects a report symlink created by the CLI, not its target JSON",async()=>{
+    await expect(fixture(
+      "const fs=require('node:fs');"+
+      "fs.writeFileSync(process.argv[1]+'.target','{}');"+
+      "fs.symlinkSync(process.argv[1]+'.target',process.argv[1]);"
+    )).rejects.toThrow(/unsafe|unreadable/i);
+  });
+
+  it("rejects a hard-linked report even if its JSON is valid",async()=>{
+    await expect(fixture(
+      "const fs=require('node:fs');"+
+      "fs.writeFileSync(process.argv[1]+'.target','{}');"+
+      "fs.linkSync(process.argv[1]+'.target',process.argv[1]);"
+    )).rejects.toThrow(/non-regular/i);
+  });
+
+  it("rejects oversized or non-regular reports before parsing",async()=>{
+    await expect(fixture(
+      "const fs=require('node:fs');fs.writeFileSync(process.argv[1],'');"+
+      "fs.truncateSync(process.argv[1],67108865);"
+    )).rejects.toThrow(/oversized/i);
+    await expect(fixture(
+      "require('node:fs').mkdirSync(process.argv[1]);"
+    )).rejects.toThrow(/not a regular|non-regular/i);
   });
 
   it("returns the actual valid JSON when every child requirement was met",async()=>{

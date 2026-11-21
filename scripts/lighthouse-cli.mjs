@@ -4,7 +4,7 @@
  * output (which could contain URLs, tokens, or environment secrets).
  */
 import { spawn } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -27,6 +27,7 @@ export function localLighthouseInvocation(root, flags) {
 }
 
 const MAX_OUTPUT_BYTES = 7000;
+const MAX_JSON_REPORT_BYTES = 64 * 1024 * 1024;
 const ERROR_CODES = /\b(?:ENOENT|EACCES|EPERM|EADDRINUSE|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|EPIPE)\b/g;
 
 /** A safe diagnostic summary: only allowlisted error codes and failure classes. */
@@ -49,13 +50,43 @@ function safeErrorCode(error) {
     ? code : "UNKNOWN";
 }
 
+function requireFreshOutputPath(path) {
+  // A child that exits 0 without writing must NEVER pass via a report left by
+  // an earlier run. The caller also supplies a new private temp directory.
+  try {
+    lstatSync(path);
+  } catch(error) {
+    if(error?.code==="ENOENT")return;
+    throw new Error("Lighthouse report output path cannot be checked");
+  }
+  throw new Error("Lighthouse report path is pre-existing before launch");
+}
+
 function readReport(path, diagnostics) {
   let contents;
+  let fd;
   try {
-    contents=readFileSync(path,"utf8");
+    // O_NONBLOCK avoids a hang on a substituted FIFO; O_NOFOLLOW refuses a
+    // symlink even when it is created after the initial path check.
+    fd=openSync(path,constants.O_RDONLY | constants.O_NOFOLLOW |
+      constants.O_NONBLOCK | constants.O_CLOEXEC);
+    const info=fstatSync(fd);
+    if(!info.isFile() || info.nlink!==1){
+      throw new Error("non-regular JSON report");
+    }
+    if(info.size>MAX_JSON_REPORT_BYTES){
+      throw new Error("oversized JSON report");
+    }
+    contents=readFileSync(fd,"utf8");
   }catch(error){
-    const reason=error?.code==="ENOENT" ? "missing JSON report" : "unreadable JSON report";
+    const reason=error?.message==="non-regular JSON report"
+      || error?.message==="oversized JSON report" ? error.message
+      : error?.code==="ENOENT" ? "missing JSON report"
+      : error?.code==="ELOOP" ? "unsafe JSON report"
+      : "unreadable JSON report";
     throw new Error("Lighthouse CLI exit 0: " + reason + " (" + diagnostics + ")");
+  }finally{
+    if(fd!==undefined)closeSync(fd);
   }
   if(contents.trim().length===0){
     throw new Error("Lighthouse CLI exit 0: empty JSON report (" + diagnostics + ")");
@@ -74,6 +105,7 @@ function readReport(path, diagnostics) {
 export async function runLighthouseCli({
   command,args,cwd,env,outputPath,timeoutMs=90_000
 }) {
+  requireFreshOutputPath(outputPath);
   return new Promise((resolve,reject)=>{
     let stdout="";
     let stderr="";
