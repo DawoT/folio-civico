@@ -144,6 +144,22 @@ class LocalCiContractTests(unittest.TestCase):
                 os.killpg(first.pid, signal.SIGKILL)
                 first.communicate(timeout=5)
 
+    def test_symlinked_lock_file_fails_closed_without_touching_target(self):
+        target = self.temp / "must-remain-absent"
+        (self.repo / ".git" / "folio-ci.lock").symlink_to(target)
+        result = self.run_ci()
+        self.assertEqual(result.returncode, 127, result.stderr)
+        self.assertIn("invalid CI lockfile", result.stderr)
+        self.assertFalse(target.exists())
+        self.assertEqual(self.calls(), [])
+
+    def test_directory_used_as_lock_file_fails_closed(self):
+        (self.repo / ".git" / "folio-ci.lock").mkdir()
+        result = self.run_ci()
+        self.assertEqual(result.returncode, 127, result.stderr)
+        self.assertIn("invalid CI lockfile", result.stderr)
+        self.assertEqual(self.calls(), [])
+
     def test_missing_flock_dependency_fails_closed(self):
         restricted_bin = self.temp / "without-flock"
         restricted_bin.mkdir()

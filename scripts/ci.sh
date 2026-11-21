@@ -23,9 +23,18 @@ if ! COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/n
   printf 'CI FAILED: cannot resolve the shared Git directory\n' >&2
   exit 78
 fi
+if [ ! -d "$COMMON_DIR" ] || [ -L "$COMMON_DIR" ]; then
+  printf 'CI FAILED: invalid Git common directory\n' >&2
+  exit 78
+fi
+LOCK_FILE="$COMMON_DIR/folio-ci.lock"
+if [ -L "$LOCK_FILE" ] || { [ -e "$LOCK_FILE" ] && [ ! -f "$LOCK_FILE" ]; }; then
+  printf 'CI FAILED: invalid CI lockfile type or symlink\n' >&2
+  exit 127
+fi
 original_umask=$(umask)
 umask 077
-exec 9>>"$COMMON_DIR/folio-ci.lock"
+exec 9>>"$LOCK_FILE"
 umask "$original_umask"
 if ! flock -n 9; then
   printf 'CI BUSY: another worktree holds the shared CI lock (exit 75)\n' >&2
