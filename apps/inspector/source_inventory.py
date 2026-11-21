@@ -17,7 +17,7 @@ import stat
 import subprocess
 
 SOURCE = "folio-local-elf-provenance-v1"
-POPPLER_TOOLS = ("pdfinfo", "pdftotext", "pdftoppm", "pdfdetach", "pdfattach")
+POPPLER_TOOLS = ("pdfinfo", "pdftotext", "pdfimages", "pdftoppm", "pdfdetach", "pdfattach")
 TESSERACT_MODELS = ("eng", "spa")
 MAX_MODEL_BYTES = 32 * 1024 * 1024
 TESSERACT_SOURCE_SHA256 = "a8dbf8b8c8ee427ff6ad1d99116502feaf59440af1adb893caf60a6576826cf4"

@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 
 from runtime_prune_comparison import _scan, _sbom
+from source_inventory import POPPLER_TOOLS
 
 SOURCE = "folio-civico-inspector:poppler-experiment"
 FLAT = "folio-civico-inspector:poppler-flat-research"
@@ -86,9 +87,8 @@ def _native(provenance: dict) -> None:
             raise ValueError("Cannot assume source CVE coverage")
         if item["name"] == "poppler":
             tools = item.get("tool_sha256")
-            if (not isinstance(tools, dict) or set(tools) != {
-                "pdfinfo", "pdftotext", "pdftoppm", "pdfdetach", "pdfattach"
-            } or any(not isinstance(x, str) or not HEX.fullmatch(x)
+            if (not isinstance(tools, dict) or set(tools) != set(POPPLER_TOOLS)
+                or any(not isinstance(x, str) or not HEX.fullmatch(x)
                      for x in tools.values())):
                 raise ValueError("Poppler tool fingerprints incomplete")
         if item["name"] == "tesseract":
