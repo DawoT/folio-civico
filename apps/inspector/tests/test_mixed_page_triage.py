@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from fixtures import native_pdf, scanned_pdf, mixed_pdf
 from pdfimages_fixtures import EMPTY_REPORT as HEADER, SINGLE_IMAGE_ROW as ROW
+from qpdf_visual_fixtures import visual_qpdf_report
 
 SPEC = importlib.util.spec_from_file_location("folio_inspector_mixed", ROOT / "inspector.py")
 assert SPEC is not None and SPEC.loader is not None
@@ -32,6 +33,8 @@ class MixedRasterTriageTests(unittest.TestCase):
             return "ClamAV 1.5.5"
         if args[:2] == ["qpdf", "--is-encrypted"]:
             return inspector.QPDF_UNENCRYPTED
+        if args[:2] == ["qpdf", "--json"]:
+            return visual_qpdf_report(args, count=1)
         if args[0] == "pdfdetach":
             return "0 embedded files"
         if args[0] == "pdfinfo":

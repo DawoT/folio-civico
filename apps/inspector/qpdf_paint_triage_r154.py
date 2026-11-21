@@ -10,7 +10,9 @@ from __future__ import annotations
 import base64
 import binascii
 from decimal import Decimal
+from pathlib import Path
 import re
+from typing import Callable
 
 from inspector import ReviewRequired, _parse_qpdf_json, _OCR_PAGE_REF, MAX_PAGES
 
@@ -180,15 +182,10 @@ def has_uncovered_paint(data: bytes) -> bool:
     return False
 
 
-def qpdf_page_has_uncovered_paint(raw: str, *, page: int, count: int) -> bool:
-    """Consume a strict QPDF v2 JSON report of resolved decoded streams.
-
-    Caller must have validated AV, encryption and structural qpdf --check.
-    A false return has RESEARCH-ONLY significance, not release approval.
-    """
+def _inspect_qpdf_parsed(doc: dict, *, page: int, count: int) -> bool:
+    """Check a structurally validated page and its selected decoded objects."""
     if type(page) is not int or type(count) is not int or not 1 <= page <= count <= MAX_PAGES:
         raise ReviewRequired("Invalid QPDF visual page identity")
-    doc = _parse_qpdf_json(raw)
     pages = doc.get("pages")
     qpdf = doc.get("qpdf")
     if (not isinstance(pages, list) or len(pages) != count
@@ -273,3 +270,11 @@ def qpdf_page_has_uncovered_paint(raw: str, *, page: int, count: int) -> bool:
             raise ReviewRequired("Decoded PDF page content exceeds budget")
         painted = has_uncovered_paint(decoded) or painted
     return painted
+
+
+def qpdf_page_has_uncovered_paint(raw: str, *, page: int, count: int) -> bool:
+    """Read an already-decoded QPDF report in the bounded laboratory API.
+
+    False does not certify transcription coverage or authorize publication.
+    """
+    return _inspect_qpdf_parsed(_parse_qpdf_json(raw), page=page, count=count)
