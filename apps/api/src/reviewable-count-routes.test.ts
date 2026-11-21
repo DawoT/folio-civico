@@ -85,6 +85,37 @@ describe("complete authorized reviewable count API",()=>{
     }finally{f.close();}
   });
 
+  it("does not acknowledge an empty queue after membership revocation during the first authorization read",async()=>{
+    const f=fixture();
+    try{
+      let changed=false;
+      const db={
+        prepare(sql:string){
+          const stmt=f.db.prepare(sql);
+          if(!sql.includes("SELECT c.id, c.name, c.status, m.role")) return stmt;
+          return {
+            bind(...args:unknown[]){
+              const bound=stmt.bind(...args);
+              return {async first<T>(){
+                const result=await bound.first<T>();
+                if(!changed){
+                  changed=true;
+                  f.sqlite.exec("UPDATE commission_members SET active=0 WHERE commission_id='a' AND subject='observer'");
+                }
+                return result;
+              }};
+            }
+          } as unknown as D1PreparedStatement;
+        }
+      } as D1Database;
+      const response=await handleReviewableCountRequest(request(),{DB:db},"observer","a");
+      expect(changed).toBe(true);
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({error:"Not found"});
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+    }finally{f.close();}
+  });
+
   it("rejects unsupported methods and query filters before querying D1",async()=>{
     const f=fixture();
     try{
