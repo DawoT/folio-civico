@@ -6,7 +6,7 @@
 
 The R1.55 experimental image physically removed ten unnecessary ClamAV tools and fifteen privileged CLIs, but ran a historical version of `inspector.py`. Its embedded `inspector.py` SHA-256 `dda871954d8cf2ba7a0c8054a472fd7b37d36e784f83bf3c9fd41b800edf4eea` (30,907 bytes) differs from the actual `main` source SHA-256 `1da9a2d04b4c5f1add849d3ec66e3208bdd42876d80bfb252f47e650de52bf5d` (37,066 bytes). Moreover, the production Dockerfile now copies seven Python modules, not five.
 
-This experiment is based on `main@cb5ed0c747e87d3c346814ec28fdb126e26bdf46` with a **pinned immutable local** R1.55 base ID `sha256:767e28efb6607eb74dc0ef24114583a0ba74c057a6ae7978509f82cf9ce2b327`. The Dockerfile retains the runtime config, UID 65534, disabled network, ClamAV and OCR native dependencies; the complete filesystem is re-flattened from `scratch`, not layered on top of removed binaries.
+The image was built from source files in `main@cb5ed0c747e87d3c346814ec28fdb126e26bdf46`; after incorporating `main@8cbf6b6bb9707d7697b84e06aa5565d6d0b9fc24` by an ordinary merge, `git diff origin/main HEAD --` **all seven actual inspector source files was empty**, so the very same source hashes remain current. The experiment uses a **pinned immutable local** R1.55 base ID `sha256:767e28efb6607eb74dc0ef24114583a0ba74c057a6ae7978509f82cf9ce2b327`. The Dockerfile retains the runtime config, UID 65534, disabled network, ClamAV and OCR native dependencies; the complete filesystem is re-flattened from `scratch`, not layered on top of removed binaries.
 
 ## Adversarial RED → GREEN
 
