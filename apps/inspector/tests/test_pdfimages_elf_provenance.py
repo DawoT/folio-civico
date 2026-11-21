@@ -66,6 +66,17 @@ class SixthPopplerCliProvenanceTests(unittest.TestCase):
             self.assertFalse(result["release_authorized"])
             self.assertFalse(result["source_to_elf_reproducible_build_attested"])
 
+    def test_tampered_historical_inventory_script_is_not_accepted_as_v1(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "image"
+            root.mkdir()
+            base_fixture(root)
+            (Path(folder) / "source_inventory.py").write_text("tampered legacy inventory")
+            with patch.object(audit, "__file__", str(Path(folder) / "pdfimages_elf_provenance.py")), \
+                 patch.object(audit.subprocess, "run", side_effect=subprocess_fixture):
+                with self.assertRaisesRegex(ValueError, "Legacy inventory script SHA mismatch"):
+                    audit.inspect(root, image_id=VALID_ID)
+
     def test_missing_mutable_symlink_or_non_elf_sixth_cli_cannot_pass(self):
         for defect in ("missing", "world_writable", "symlink", "non_elf", "multiple_links"):
             with tempfile.TemporaryDirectory() as folder:

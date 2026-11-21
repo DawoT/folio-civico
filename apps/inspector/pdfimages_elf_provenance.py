@@ -21,6 +21,9 @@ from source_inventory import (
 )
 
 SOURCE = "folio-r151-pdfimages-elf-provenance-v1"
+# R1.40/R1.42 receipts bind to these exact legacy script bytes.
+# New native tools require additive evidence; never silently redefine v1.
+LEGACY_V1_SCRIPT_SHA256 = "6effc14e9267f507e1d54b6fab71b2709737414eba952e812133c460de772d2c"
 PINNED_IMAGE_ID = (
     "sha256:089a9fdd23ca5d8ca6274c546ff4f249ecfb4c6713b5f5135dcf0b888f8c882a"
 )
@@ -62,6 +65,8 @@ def inspect(root: Path = Path("/"), *, image_id: str) -> dict:
     if not legacy_source_path.is_file() or legacy_source_path.is_symlink():
         raise ValueError("Untrusted legacy inventory implementation")
     legacy_script_sha256 = hashlib.sha256(legacy_source_path.read_bytes()).hexdigest()
+    if legacy_script_sha256 != LEGACY_V1_SCRIPT_SHA256:
+        raise ValueError("Legacy inventory script SHA mismatch")
     native = original_inventory("experiment", root=root)
     if verify_native_source_inventory(native, EXPERIMENT_IMAGE) != 2:
         raise ValueError("Legacy native provenance is incomplete")
