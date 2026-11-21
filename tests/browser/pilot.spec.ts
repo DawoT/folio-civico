@@ -3,6 +3,10 @@ import AxeBuilder from "@axe-core/playwright";
 import { readFile } from "node:fs/promises";
 import { SyntheticPilotApi } from "./synthetic-api";
 
+// Playwright 1.65.1 reproducibly loses a retained trace in this Axe pilot flow.
+// Record the entire pilot spec instead of disabling tracing or a11y assertions.
+test.use({ trace: "on" });
+
 async function selectPilot(page: import("@playwright/test").Page) {
   await page.getByLabel("Identificador de comisión").selectOption("c_a");
   await page.getByLabel("Identificador de lote").selectOption("b_a");
