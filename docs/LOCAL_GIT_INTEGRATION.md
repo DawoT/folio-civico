@@ -6,6 +6,12 @@
 
 El gate **obligatorio** es `sh scripts/ci.sh`, ejecutado en el **árbol exacto que se pretende integrar** (rama actualizada o integración temporal con `origin/main`). GitHub Actions no es una dependencia operativa: sus checks pueden ser orientativos, estar deshabilitados o no estar disponibles. Ni un check remoto verde sustituye al exit code 0 del script ni un check remoto ausente justifica omitir el gate.
 
+### Exclusión automática entre worktrees (G0 / #155)
+
+El propio `sh scripts/ci.sh` adquiere **antes de instalar paquetes o abrir puertos** un `flock -n` atómico sobre el archivo `folio-ci.lock` ubicado en el directorio Git **común** del repositorio (`git rev-parse --path-format=absolute --git-common-dir`). Todos los worktrees del mismo repositorio comparten este lock; otro `sh scripts/ci.sh` sale inmediatamente con **exit 75** y `CI BUSY`, sin ejecutar ni un gate. Un error al localizar Git, `flock` o el common dir falla cerrado. En Linux es obligatorio disponer de `git` y `flock`.
+
+El descriptor se conserva abierto durante la CI y se libera al terminar los procesos que lo heredan, incluidos errores o interrupciones; **no borrar ni reemplazar manualmente el archivo de lock** (cambiar el inodo rompe la exclusión). No hay PID/stale lock que limpiar ni necesidad de reservar turnos mediante comentarios. Esto serializa `scripts/ci.sh`, **no** protege comandos `playwright` o servidores iniciados fuera del script: esos usos siguen requiriendo coordinación o puertos separados. La prueba `tests/test_local_ci.py` construye dos worktrees sintéticos reales y verifica contención, exit 75, reingreso posterior e interrupción, sin lanzar Chromium.
+
 Antes de fusionar:
 
 1. `git fetch origin`; comprobar HEAD, `origin/main` y la divergencia. No reescribir historia ni hacer push forzado.
