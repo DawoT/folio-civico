@@ -33,8 +33,8 @@ El inspector de R1.50 usa `pdftotext` y `pdfimages -list`; un PDF con texto digi
 
 - RED inicial focalizado: **5/5 fallos** contra el inspector anterior, por omisión de la verificación.
 - GREEN posterior: **5/5** de regresión inicial; corrección de simuladores existentes de QPDF para exponer exclusivamente objetos y streams que el nuevo contrato necesita, preservando sus tests previos.
-- Regresión ampliada (9 casos R1.55): streams y fuentes corruptos, identificadores de página adulterados, ausencia del motor, Type3, selectividad `--json-object` y presencia de módulos en Dockerfile.
-- Suite Python completa del inspector: **605/605** después de armonizar fixtures; se revalidará sobre commit exacto tras cualquier edición adicional.
+- Regresión ampliada (10 casos R1.55): streams y fuentes corruptos, identificadores de página adulterados, ausencia del motor, Type3, selectividad `--json-object` y presencia de módulos en Dockerfile.
+- Suite Python completa del inspector: **610/610** tras la corrección del arranque aislado; `py_compile` y `git diff --check` exit 0. El CI shell integral **exit 0** previo corresponde a `8d16c06` (609/609) y **no se atribuye** al HEAD con el fix de `python3 -I`. El gate completo del commit definitivo permanece pendiente de ejecución exclusiva.
 - **Motores reales, imagen local inmutable** `sha256:089a9fdd23ca5d8ca6274c546ff4f249ecfb4c6713b5f5135dcf0b888f8c882a` (`--pull never --network none --read-only --user 65534:65534 --cap-drop ALL --security-opt no-new-privileges`, módulos candidatos montados readonly, ningún dato institucional):
   - Muestra de control texto puro: `inspect_pdf` devuelve `clean` esperado.
   - Muestra texto+valor vectorial `6002`: `inspect_pdf` ahora emite **`ReviewRequired`**.
