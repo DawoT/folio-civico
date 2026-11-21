@@ -10,7 +10,7 @@ import { ChecklistFilters, countChecklistByStatus, filterChecklistRows, isIntern
 import { ObservationInboxFilters, countLoadedObservations, filterLoadedObservations, inboxEmptyText, type InboxFilter } from "./ui/ObservationInbox";
 import { makeReviewSummary, type ReviewSummary } from "./layout/CommissionOverview";
 import {
-  loadChecklist, loadObservationHistory, loadObservationDetail, loadVerifiedReviewReport, createCommissionChecklistItem, submitSearchScopeDraft,
+  ApiError, loadChecklist, loadObservationHistory, loadReviewableCount, loadObservationDetail, loadVerifiedReviewReport, createCommissionChecklistItem, submitSearchScopeDraft,
   transitionObservation as requestTransition,
   type ChecklistRow, type ObservationRow, type ObservationEvidence, type Scope
 } from "./api";
@@ -162,7 +162,22 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
       }
       if (checklistResult.status === "fulfilled" && historyResult.status === "fulfilled") {
         const page = historyResult.value;
-        onSummaryChange?.(makeReviewSummary(scope, checklistResult.value, page.items, page.nextCursor !== null));
+        const summary = makeReviewSummary(
+          scope, checklistResult.value, page.items, page.nextCursor !== null,
+          null, true
+        );
+        onSummaryChange?.(summary);
+        // The optional aggregate must never delay the authorized history/checklist.
+        // An unavailable request is distinct from a pending request and a real zero.
+        void loadReviewableCount(scope.commissionId).then(result => {
+          if(active) onSummaryChange?.({...summary,reviewableTotal:result.count,
+            reviewableTotalLoading:false});
+        }).catch((problem:unknown) => {
+          if (!active) return;
+          const denied = problem instanceof ApiError && [401,403,404].includes(problem.status);
+          onSummaryChange?.({...summary,reviewableTotalLoading:false,
+            reviewableTotalError:denied?"access-denied":"unavailable"});
+        });
       }
     }).catch((problem: unknown) => {
       if (active) {

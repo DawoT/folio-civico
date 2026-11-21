@@ -34,7 +34,7 @@ test("summary uses authoritative source counts and distinguishes quarantine from
   await expect(summary.locator(".overview-metric").filter({ hasText: "Checklist pendiente" })
     .getByText("0 con Validación interna")).toBeVisible();
   await expect(summary.getByRole("link", { name: "Registrar búsqueda" })).toBeVisible();
-  await expect(summary.getByText("No es un total de la comisión")).toBeVisible();
+  await expect(summary.getByText(/El total de revisiones corresponde a la comisión autorizada/)).toBeVisible();
   const violations = await new AxeBuilder({ page }).withTags([
     "wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"
   ]).analyze();
@@ -102,5 +102,5 @@ test("observer sees read-only next action and no mutation shortcuts", async ({ p
   await expect(summary.getByRole("link", { name: "Consultar checklist" })).toBeVisible();
   await expect(summary.getByRole("link", { name: "Registrar búsqueda" })).toHaveCount(0);
   await expect(summary.getByRole("link", { name: "Revisar solicitudes" })).toHaveCount(0);
-  await expect(summary.getByText("No es un total de la comisión")).toBeVisible();
+  await expect(summary.getByText(/El total de revisiones corresponde a la comisión autorizada/)).toBeVisible();
 });
