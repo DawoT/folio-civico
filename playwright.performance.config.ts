@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// Isolated from the dev E2E (4175) and guided API demo (4176).
+// Distinct from the standalone browser E2E auto-selected port and guided demo (4176).
 const rawPort = process.env.FOLIO_PERF_PORT ?? "4178";
 if (!/^[1-9][0-9]{3,4}$/.test(rawPort) || Number(rawPort) < 1024 || Number(rawPort) > 65535) {
   throw new Error("FOLIO_PERF_PORT must be a valid unprivileged TCP port");

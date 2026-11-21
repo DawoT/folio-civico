@@ -15,7 +15,7 @@ pnpm test:browser                  # solo navegador / API sintética
 sh scripts/ci.sh                   # gate completo, incluido Chromium
 ```
 
-La suite usa `playwright.config.ts`, arranca temporalmente Vite en `127.0.0.1:4175` y cierra el servidor al terminar. `tests/browser/synthetic-api.ts` intercepta íntegramente las rutas `/api/**`: ningún request API va a Cloudflare ni al proxy por defecto. El `Idempotency-Key` enviado por React puede comprobarse desde el fixture. Chromium y axe están fijados en `pnpm-lock.yaml`. El artefacto `test-results/` (capturas y trazas **solo en error**) está excluido de Git.
+La suite usa `playwright.config.ts`, selecciona automáticamente un puerto TCP disponible en `127.0.0.1` para Vite (evitando el antiguo puerto fijo `4175`) y cierra el servidor al terminar. Se puede fijar un puerto explícito mediante `FOLIO_E2E_PORT` cuando sea necesario; Playwright mantiene `--strictPort` y rechaza reutilizar otro servidor. La selección por puerto efímero reduce colisiones entre worktrees, pero el puerto se libera antes de iniciar Vite: no es una reserva atómica, y otras suites pesadas siguen sujetas al lock del CI local. `tests/browser/synthetic-api.ts` intercepta íntegramente las rutas `/api/**`: ningún request API va a Cloudflare ni al proxy por defecto. El `Idempotency-Key` enviado por React puede comprobarse desde el fixture. Chromium y axe están fijados en `pnpm-lock.yaml`. El artefacto `test-results/` (capturas y trazas **solo en error**) está excluido de Git.
 
 **La presencia de Chromium es obligatoria para `sh scripts/ci.sh`; si falta, el gate falla.** La instalación del navegador es un paso explícito de preparación del host, no un despliegue.
 
