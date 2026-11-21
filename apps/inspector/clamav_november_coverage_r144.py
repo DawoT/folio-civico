@@ -104,12 +104,27 @@ def review_clamav_coverage(
     if not set(NATIVE_REQUIRED).issubset({x["path"] for x in vendor_files}):
         raise ValueError("Vendor package lacks ClamAV scanner/core native code")
 
-    nov_reported = sorted(
-        [{"id": id_, "severity": scanner_entries[id_]}
-         for id_ in NOVEMBER_CVES if id_ in scanner_entries],
-        key=lambda x: x["id"],
+    # The seven historical July findings are tied to Debian's clamav package,
+    # but visibility of a November CVE must be checked across the WHOLE image.
+    # Trivy may attribute the same advisory to a different package/ecosystem.
+    nov_locations = sorted(
+        [
+            {"id": cve, "severity": severity, "kind": kind,
+             "package": package, "version": version, "occurrences": count}
+            for (kind, package, version, cve, severity), count in scan_rows.items()
+            if cve in NOVEMBER_CVES
+        ],
+        key=lambda row: (row["id"], row["kind"], row["package"],
+                         row["version"], row["severity"]),
     )
-    nov_absent = sorted(set(NOVEMBER_CVES) - set(scanner_entries))
+    nov_reported = [
+        {"id": cve, "severity": severity}
+        for cve, severity in sorted({
+            (row["id"], row["severity"]) for row in nov_locations
+        })
+    ]
+    nov_absent = sorted(set(NOVEMBER_CVES) -
+                        {row["id"] for row in nov_locations})
     return {
         "status": "talos_november_coverage_measured_release_blocked",
         "image_id": image_id,
@@ -119,6 +134,7 @@ def review_clamav_coverage(
         "vendor_advisory_ids": list(NOVEMBER_CVES),
         "november_vendor_cve_total": len(NOVEMBER_CVES),
         "november_reported_by_trivy": nov_reported,
+        "november_reported_locations": nov_locations,
         "november_not_reported_by_trivy": nov_absent,
         "july_still_reported_high": sorted(JULY_CVES),
         "vendor_signed_file_hashes_match": True,
