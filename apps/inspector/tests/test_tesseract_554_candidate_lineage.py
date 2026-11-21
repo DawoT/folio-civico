@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 import os
@@ -65,6 +66,11 @@ def fixture():
 
 
 class CandidateLineageTDD(unittest.TestCase):
+    def test_historical_R140_inventory_implementation_remains_sha_pinned(self):
+        original_v1 = "6effc14e9267f507e1d54b6fab71b2709737414eba952e812133c460de772d2c"
+        actual = hashlib.sha256((ROOT / "apps/inspector/source_inventory.py").read_bytes()).hexdigest()
+        self.assertEqual(actual, original_v1, "R1.40 inventory v1 cannot be mutated in place")
+
     def _capture(self, *, tag_sha=IMAGE_SHA, returned_native=None):
         prior, evidence = fixture()
         seen = []
