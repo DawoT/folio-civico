@@ -55,3 +55,13 @@ Permanece pendiente la revisión funcional de los diez CVE y su procedencia por 
 `trivy_release_gate_passed=false`, `clamav_cve_applicability_approved=false`, `vex_issued=false`, `release_authorized=false`.
 
 **Issue #68 abierto. Sin OCI publicado, despliegue Cloudflare/Preview/producción, cambios D1 remotos, VEX ni documentos institucionales.**
+
+## Adenda R1.45 · Cobertura transversal de paquetes (2026-11-20)
+
+La revisión posterior identificó una limitación en el **comparador** R1.44: para los CVE de noviembre consultaba solo registros Trivy cuyo paquete Debian era `clamav`. Una entrada del mismo CVE asociada a otro paquete/ecosistema podía quedar incorrectamente marcada como ausente. Este error afectaba a la **interpretación de visibilidad**, no a los hashes verificados, el flujo de documentos ni al gate de publicación.
+
+Una prueba sintética RED demostró el falso negativo con `CVE-2026-76411` asignado a `libclamav12` y a un paquete Python, ambos presentes en el JSON de Trivy. El comparador corregido busca los diez IDs en **todos los resultados de la imagen** y publica `november_reported_locations` con paquete, ecosistema, versión, severidad y multiplicidad, preservando el reporte resumido previo y los controles estrictos sobre los siete HIGH/seis MEDIUM históricos del paquete `clamav`.
+
+**Regresión GREEN:** seis pruebas del comparador y **544 pruebas de inspector** aprobadas. Reejecución real contra el mismo Docker ID R1.43, paquete Talos firmado y Trivy actualizado: **0/10 presentes en cualquier resultado del scan**, `november_reported_locations=[]`, **16/16 hashes nativos iguales, 0 CRITICAL / 70 HIGH / 15 UNKNOWN**, `exit 2 / BLOCKED`. La comprobación de visibilidad ya no depende de que Trivy utilice exactamente el nombre `clamav`.
+
+Esta adenda no demuestra parches de función, inalcanzabilidad o una evaluación VEX. Se mantiene **NO RELEASE**, sin modificar el motor OCR, el Dockerfile operativo ni los controles de seguridad del runtime.

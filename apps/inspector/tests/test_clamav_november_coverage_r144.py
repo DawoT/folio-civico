@@ -39,6 +39,7 @@ class ClamAVNovemberCoverageTests(unittest.TestCase):
         self.assertEqual(result["november_not_reported_by_trivy"], sorted(NOVEMBER_CVES))
         self.assertEqual(result["july_still_reported_high"], sorted(JULY_CVES))
         self.assertEqual(result["november_reported_by_trivy"], [])
+        self.assertEqual(result["november_reported_locations"], [])
         self.assertEqual(result["clamav_package_version"], "1.5.5-1")
         self.assertEqual(result["scanner_critical"], 0)
         self.assertEqual(result["scanner_high"], 7)
@@ -61,6 +62,34 @@ class ClamAVNovemberCoverageTests(unittest.TestCase):
         ])
         self.assertEqual(len(report["november_not_reported_by_trivy"]), 9)
         self.assertEqual(report["scanner_high"], 8)
+        self.assertFalse(report["release_authorized"])
+
+    def test_november_cve_reported_under_other_packages_is_not_called_absent(self):
+        case = evidence()
+        cve = NOVEMBER_CVES[0]
+        case[0]["Results"][0]["Vulnerabilities"].append({
+            "PkgName": "libclamav12", "InstalledVersion": "1.5.5-1",
+            "VulnerabilityID": cve, "Severity": "HIGH",
+        })
+        case[0]["Results"].append({
+            "Target": "Python", "Type": "python-pkg",
+            "Vulnerabilities": [{
+                "PkgName": "third-party", "InstalledVersion": "1.0",
+                "VulnerabilityID": cve, "Severity": "MEDIUM",
+            }],
+        })
+        report = review_clamav_coverage(*case)
+        self.assertNotIn(cve, report["november_not_reported_by_trivy"])
+        self.assertEqual(report["november_reported_by_trivy"], [
+            {"id": cve, "severity": "HIGH"},
+            {"id": cve, "severity": "MEDIUM"},
+        ])
+        self.assertEqual(report["november_reported_locations"], [
+            {"id": cve, "severity": "HIGH", "kind": "debian",
+             "package": "libclamav12", "version": "1.5.5-1", "occurrences": 1},
+            {"id": cve, "severity": "MEDIUM", "kind": "python-pkg",
+             "package": "third-party", "version": "1.0", "occurrences": 1},
+        ])
         self.assertFalse(report["release_authorized"])
 
     def test_fail_closed_for_tampered_scanner_sbom_vendor_runtime_or_id(self):
