@@ -1,0 +1,62 @@
+# R1.48: remove unnecessary privileged / namespace command entrypoints.
+# Research-only, not a Debian patch, VEX, scanner exception or release image.
+ARG RESEARCH_BASE=scratch
+FROM ${RESEARCH_BASE} AS pruner
+USER root
+
+# Fail if the pinned base's file/privilege inventory differs. Debian usrmerge
+# makes /bin and /sbin symlinks to /usr/bin and /usr/sbin respectively.
+RUN set -eu; \
+    for cmd in chfn chsh gpasswd newgrp passwd su; do \
+      test -f "/usr/bin/$cmd"; test "$(stat -c '%a' "/usr/bin/$cmd")" = 4755; \
+    done; \
+    for cmd in chage expiry; do \
+      test -f "/usr/bin/$cmd"; test "$(stat -c '%a' "/usr/bin/$cmd")" = 2755; \
+    done; \
+    test -f /usr/sbin/unix_chkpwd; \
+    test "$(stat -c '%a' /usr/sbin/unix_chkpwd)" = 2755; \
+    test -L /usr/bin/sg; \
+    test "$(readlink /usr/bin/sg)" = newgrp; \
+    for cmd in nsenter unshare login setpriv; do \
+      test -f "/usr/bin/$cmd"; test "$(stat -c '%a' "/usr/bin/$cmd")" = 755; \
+    done; \
+    test -f /usr/sbin/runuser; \
+    test "$(stat -c '%a' /usr/sbin/runuser)" = 755; \
+    test ! -e /usr/bin/mount; \
+    rm -- \
+      /usr/bin/chage /usr/bin/chfn /usr/bin/chsh /usr/bin/expiry \
+      /usr/bin/gpasswd /usr/bin/newgrp /usr/bin/passwd /usr/bin/sg \
+      /usr/bin/su /usr/sbin/unix_chkpwd /usr/bin/nsenter /usr/bin/unshare \
+      /usr/bin/login /usr/sbin/runuser /usr/bin/setpriv; \
+    for entry in \
+      /usr/bin/chage /usr/bin/chfn /usr/bin/chsh /usr/bin/expiry \
+      /usr/bin/gpasswd /usr/bin/newgrp /usr/bin/passwd /usr/bin/sg \
+      /usr/bin/su /usr/sbin/unix_chkpwd /usr/bin/nsenter /usr/bin/unshare \
+      /usr/bin/login /usr/sbin/runuser /usr/bin/setpriv; do \
+      test ! -e "$entry" && test ! -L "$entry"; \
+    done; \
+    for p in util-linux bsdutils login libblkid1 liblastlog2-2 libmount1 libsmartcols1 libuuid1; do \
+      test "$(dpkg-query -W -f='${Status}' "$p")" = "install ok installed"; \
+    done; \
+    for path in /opt/folio-poppler/bin/pdfinfo /opt/folio-poppler/bin/pdftoppm /opt/folio-ocr/bin/tesseract /usr/bin/qpdf; do \
+      test -x "$path"; ! ldd "$path" | grep -q 'not found'; \
+    done; \
+    test -x /usr/local/bin/python3; \
+    clamscan --version | grep -F 'ClamAV 1.5.5'
+
+# Prevent recovery of removed privileged executables from historical OCI layers.
+FROM scratch
+COPY --from=pruner / /
+ENV PATH=/opt/folio-poppler/bin:/opt/folio-ocr/bin:/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    LANG=C.UTF-8 \
+    PYTHON_VERSION=3.12.16 \
+    PYTHON_SHA256=b5796915dc45ff745cfb4e990a7e7c93d6f546328a102ce31448d69ebc37575c \
+    TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    CLAMAV_DB_DIR=/opt/clamdb \
+    FOLIO_INSPECTOR_BIND=0.0.0.0
+WORKDIR /srv/folio-inspector
+USER 65534:65534
+EXPOSE 8789
+CMD ["python3", "-I", "/srv/folio-inspector/inspector.py"]
