@@ -39,7 +39,8 @@ describe("IA-001.2 authorized commission summary", () => {
       scopeKey: "c_a:b_a",
       checklistTotal: 3, checklistPending: 1, internallyValidated: 1,
       reviewableRecent: 1, recentRecordCount: 3, hasOlderRecords: true,
-      reviewableTotal: null, reviewableTotalLoading: false
+      reviewableTotal: null, reviewableTotalLoading: false,
+      reviewableTotalError: null
     });
   });
 
@@ -114,6 +115,14 @@ describe("IA-001.2 authorized commission summary", () => {
     expect(loading).toContain("Consultando total autorizado de la comisión");
     expect(loading).not.toContain("Total de la comisión no disponible");
     expect(loading).not.toContain("Total autorizado de revisión no disponible");
+  });
+
+  it("describes a denied count as missing permission, not an infrastructure outage", () => {
+    const denied = render({ review: { ...makeReviewSummary(scope, [], [], false),
+      reviewableTotalError: "access-denied" } });
+    expect(denied).toContain("Acceso no concedido para consultar el total");
+    expect(denied).not.toContain("Total de la comisión no disponible");
+    expect(denied).toMatch(/<dt>Para tu revisión<\/dt>\s*<dd>—/);
   });
 
   it("never substitutes a verified zero for an unknown or failed total", () => {

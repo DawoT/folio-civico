@@ -10,6 +10,8 @@ export interface ReviewSummary {
   /** Verified via authorized endpoint, null when missing/denied/unavailable. */
   reviewableTotal: number | null;
   reviewableTotalLoading: boolean;
+  /** Fail-closed reason for unavailable aggregate, distinct from an in-flight query. */
+  reviewableTotalError: "access-denied" | "unavailable" | null;
   recentRecordCount: number;
   hasOlderRecords: boolean;
 }
@@ -29,7 +31,8 @@ export function makeReviewSummary(
   history: ReadonlyArray<Pick<ObservationRow, "status" | "canReview">>,
   hasOlderRecords: boolean,
   reviewableTotal: number | null = null,
-  reviewableTotalLoading = false
+  reviewableTotalLoading = false,
+  reviewableTotalError: ReviewSummary["reviewableTotalError"] = null
 ): ReviewSummary {
   return {
     scopeKey: summaryScopeKey(scope),
@@ -41,6 +44,7 @@ export function makeReviewSummary(
     ).length,
     reviewableTotal,
     reviewableTotalLoading,
+    reviewableTotalError,
     recentRecordCount: history.length,
     hasOlderRecords
   };
@@ -68,6 +72,7 @@ export function CommissionOverview({
   ).length;
   const authorizedTotal = current?.reviewableTotal ?? null;
   const countLoading = current?.reviewableTotalLoading === true;
+  const countDenied = current?.reviewableTotalError === "access-denied";
   const hasUnavailable = documentsFailed || current === null
     || (authorizedTotal === null && !countLoading);
   const action =
@@ -129,7 +134,9 @@ export function CommissionOverview({
             <small>{authorizedTotal === null
               ? countLoading
                 ? "Consultando total autorizado de la comisión…"
-                : "Total de la comisión no disponible; no equivale a cero."
+                : countDenied
+                  ? "Acceso no concedido para consultar el total de la comisión."
+                  : "Total de la comisión no disponible; no equivale a cero."
               : "Total autorizado de la comisión."}</small>
             <small>Solo en los últimos {metric(current?.recentRecordCount)} registros visibles (máximo 25): {metric(current?.reviewableRecent)} elegibles.</small>
           </dd>
@@ -140,7 +147,9 @@ export function CommissionOverview({
         {authorizedTotal === null
           ? countLoading
             ? "No es un total de la comisión: la consulta del agregado está en curso y el historial se carga en páginas de hasta 25."
-            : "No es un total de la comisión: la página histórica se consulta por partes de hasta 25 y el total autorizado aún no está disponible."
+            : countDenied
+              ? "No es un total de la comisión: la consulta del agregado no está autorizada."
+              : "No es un total de la comisión: la página histórica se consulta por partes de hasta 25 y el total autorizado aún no está disponible."
           : "El total de revisiones corresponde a la comisión autorizada, no al lote abierto. La bandeja consulta páginas de hasta 25."}
         {current?.hasOlderRecords ? " Hay más registros anteriores por consultar." : ""}
         {" "}La validación interna no equivale a un acta oficial.
@@ -149,7 +158,11 @@ export function CommissionOverview({
         <p className="overview-unavailable" role="status">
           {documentsFailed ? "Datos no disponibles para documentos. " : ""}
           {current === null ? "Checklist e historial aún no disponibles. " : ""}
-          {authorizedTotal === null && !countLoading ? "Total autorizado de revisión no disponible. " : ""}
+          {authorizedTotal === null && !countLoading
+            ? countDenied
+              ? "Acceso al contador no concedido. "
+              : "Total autorizado de revisión no disponible. "
+            : ""}
           Los guiones indican información no confirmada, no cero.
         </p>
       )}

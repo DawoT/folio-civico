@@ -81,7 +81,9 @@ for(const [kind,status] of [["denied",404],["unavailable",503],["malformed",200]
     );
     await openLot(page);
     await expect(reviewMetric(page).locator("dd")).toHaveText(/^—/);
-    await expect(reviewMetric(page)).toContainText("Total de la comisión no disponible");
+    await expect(reviewMetric(page)).toContainText(status===404
+      ? "Acceso no concedido para consultar el total"
+      : "Total de la comisión no disponible");
     await expect(page.getByRole("region",{name:"Resumen de comisión"}))
       .toContainText("Los guiones indican información no confirmada, no cero");
     await expect(page.getByRole("heading",{name:"Historial de observaciones"})).toBeVisible();

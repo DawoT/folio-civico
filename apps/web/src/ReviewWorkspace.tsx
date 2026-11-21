@@ -10,7 +10,7 @@ import { ChecklistFilters, countChecklistByStatus, filterChecklistRows, isIntern
 import { ObservationInboxFilters, countLoadedObservations, filterLoadedObservations, inboxEmptyText, type InboxFilter } from "./ui/ObservationInbox";
 import { makeReviewSummary, type ReviewSummary } from "./layout/CommissionOverview";
 import {
-  loadChecklist, loadObservationHistory, loadReviewableCount, loadObservationDetail, loadVerifiedReviewReport, createCommissionChecklistItem, submitSearchScopeDraft,
+  ApiError, loadChecklist, loadObservationHistory, loadReviewableCount, loadObservationDetail, loadVerifiedReviewReport, createCommissionChecklistItem, submitSearchScopeDraft,
   transitionObservation as requestTransition,
   type ChecklistRow, type ObservationRow, type ObservationEvidence, type Scope
 } from "./api";
@@ -172,8 +172,11 @@ export function ReviewWorkspace({scope, canDraft, canManage=false, onSummaryChan
         void loadReviewableCount(scope.commissionId).then(result => {
           if(active) onSummaryChange?.({...summary,reviewableTotal:result.count,
             reviewableTotalLoading:false});
-        }).catch(() => {
-          if(active) onSummaryChange?.({...summary,reviewableTotalLoading:false});
+        }).catch((problem:unknown) => {
+          if (!active) return;
+          const denied = problem instanceof ApiError && [401,403,404].includes(problem.status);
+          onSummaryChange?.({...summary,reviewableTotalLoading:false,
+            reviewableTotalError:denied?"access-denied":"unavailable"});
         });
       }
     }).catch((problem: unknown) => {
