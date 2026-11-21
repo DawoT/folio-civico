@@ -4,6 +4,8 @@
 
 Este documento prepara la activación; **no ejecuta** la creación de recursos, un despliegue ni una configuración de Access. La cuenta Cloudflare contiene otros productos que no deben modificarse.
 
+**Release A manual-only:** `DOCUMENT_UPLOADS_ENABLED` está fijado a `"false"` en `apps/api/wrangler.jsonc` y el backend falla cerrado si falta la variable o su valor es distinto de `"true"`. No basta con que exista un bucket R2: el POST de ingreso PDF responde 503 antes de cargar bytes o escribir auditoría, pero el GET autorizado de documentos históricos sigue operativo. Las pruebas locales de pipeline y el servidor `demo-local.mjs` habilitan explícitamente `"true"` **solo con fixtures sintéticos**. Una eventual habilitación remota exige aprobación externa separada de G2 (imagen/inspector), G3 (Preview, identidad y gastos), política documental/retención y autorización explícita del operador; **poner `"true"` no acredita ninguno de esos gates**. No habilitarla para Release A. La interfaz debe presentar la desactivación de ingesta de forma comprensible antes de un piloto humano.
+
 ## Gate 0 · Aislamiento, permisos y costos
 
 Antes de iniciar, el titular de la cuenta debe autorizar explícitamente el entorno de pruebas, el tratamiento de datos exclusivamente ficticios, los posibles costos R2/D1/Workers/Access y el acceso del operador MCP a **recursos exclusivos de Folio Cívico**. Revisar cuotas, límites de consumo y presupuestos.

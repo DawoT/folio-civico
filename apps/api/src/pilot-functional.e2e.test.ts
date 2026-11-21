@@ -35,6 +35,7 @@ async function pilot() {
   const del = vi.fn(async (key: string) => { objects.delete(key); });
   const env: ApiEnv = {
     DB: sqlite.db, DOCUMENTS: { put, delete: del } as unknown as R2Bucket,
+    DOCUMENT_UPLOADS_ENABLED:"true", // Synthetic-only PDF quarantine fixture.
     ACCESS_TEAM_DOMAIN: issuer, ACCESS_AUD: audience,
     COMMISSION_BOOTSTRAP_OPERATOR_SUBJECT: "operator"
   };

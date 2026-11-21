@@ -8,6 +8,8 @@ import { PdfValidationError, readPdfUpload } from "@folio/documents";
 export interface DocumentRouteEnv {
   DB: D1Database;
   DOCUMENTS?: R2Bucket;
+  /** Manual-only Preview denies PDF ingestion unless explicitly enabled. */
+  DOCUMENT_UPLOADS_ENABLED?: string;
 }
 
 function json(body: unknown, status: number): Response {
@@ -74,6 +76,13 @@ export async function handleDocumentRequest(
       return denied ?? json(documents, 200);
     }
 
+    // S04 Release A uses the manual workflow without document ingestion.
+    // A configured R2 bucket is NOT evidence of G2 inspector approval. Deny
+    // all POSTs (including idempotent replays) until the operator explicitly
+    // enables the ingestion capability after separate release gates.
+    if (env.DOCUMENT_UPLOADS_ENABLED !== "true") {
+      return json({ error: "Document intake unavailable" }, 503);
+    }
     if (access.commissionStatus !== "active") return json({ error: "Commission is closed" }, 409);
     // Same-origin only: a browser authenticated by Access must not be able to upload via CSRF.
     const origin = request.headers.get("Origin");

@@ -100,6 +100,7 @@ async function main() {
       ACCESS_TEAM_DOMAIN: ISSUER,
       ACCESS_AUD: AUDIENCE,
       COMMISSION_BOOTSTRAP_OPERATOR_SUBJECT: "operator",
+      DOCUMENT_UPLOADS_ENABLED: "true", // Disposable local synthetic demo only.
       DB: sqlite.db,
       DOCUMENTS: {
         async put(key, bytes) { objects.set(key, new Uint8Array(bytes)); return { key }; },
