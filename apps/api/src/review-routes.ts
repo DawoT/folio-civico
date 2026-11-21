@@ -21,6 +21,27 @@ class RequestError extends Error {
 }
 
 const MAX_BODY = 16 * 1024;
+
+/**
+ * Capabilities are hints for the interface, never authorization for a write.
+ * A row might have been read before the subject was demoted or the commission
+ * was closed. The final membership can only REMOVE previously granted flags;
+ * a concurrent promotion requires a fresh list read to enable new actions.
+ */
+function fenceReviewCapabilities<T extends {canSubmit?:boolean;canReview?:boolean}>(
+  records:T[], final:{role:"president"|"member"|"advisor"|"observer";status:"active"|"closed"}
+):T[] {
+  const writable=final.status==="active";
+  const maySubmit=writable && (final.role==="president"
+    || final.role==="member" || final.role==="advisor");
+  const mayReview=writable && (final.role==="president" || final.role==="member");
+  return records.map(record=>({
+    ...record,
+    canSubmit:record.canSubmit===true && maySubmit,
+    canReview:record.canReview===true && mayReview
+  }));
+}
+
 type DraftInput={
   title:string;description:string;
   checklistItemId?:string;batchId?:string;
@@ -106,16 +127,20 @@ export async function handleReviewRequest(
   try {
     const membership = await getCommissionSummary(env.DB, subject, commissionId);
     if (!membership) return json({error:"Not found"},404);
-    if (action === "checklist" || action === "observations") {
-      const records = action === "checklist"
-        ? await listChecklist(env.DB,subject,commissionId)
-        : await listObservationDrafts(env.DB,subject,commissionId);
-      // A member can be revoked after the joined list query returns.
-      // Verify access after the final data await before disclosing the rows.
+    if (action === "checklist") {
+      const records=await listChecklist(env.DB,subject,commissionId);
       if (!await getCommissionSummary(env.DB,subject,commissionId)) {
         return json({error:"Not found"},404);
       }
       return json(records,200);
+    }
+    if (action === "observations") {
+      const records=await listObservationDrafts(env.DB,subject,commissionId);
+      // A final member check must also limit stale action flags after a role
+      // change or commission closure; read-only history remains accessible.
+      const current=await getCommissionSummary(env.DB,subject,commissionId);
+      if (!current) return json({error:"Not found"},404);
+      return json(fenceReviewCapabilities(records,current),200);
     }
     if (action === "history") {
       const params=new URL(request.url).searchParams;
@@ -134,11 +159,11 @@ export async function handleReviewRequest(
       const page=await listObservationPage(env.DB,subject,commissionId,{
         limit:rawLimit===null?25:Number(rawLimit),cursor:rawCursor
       });
-      // Keyset results can also become unauthorized after their D1 read.
-      if (!await getCommissionSummary(env.DB,subject,commissionId)) {
-        return json({error:"Not found"},404);
-      }
-      return json(page,200);
+      // Preserve the keyset cursor and rows, but intersect capability hints
+      // with the final authorization state after the D1 page read.
+      const current=await getCommissionSummary(env.DB,subject,commissionId);
+      if (!current) return json({error:"Not found"},404);
+      return json({...page,items:fenceReviewCapabilities(page.items,current)},200);
     }
     if (membership.status !== "active") return json({error:"Commission is closed"},409);
     if (membership.role === "observer") return json({error:"Forbidden"},403);
