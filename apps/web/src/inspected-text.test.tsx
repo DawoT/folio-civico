@@ -25,6 +25,16 @@ describe("inspected text client and passive rendering",()=>{
     expect(await loadDocumentText("c_a","ver_a",fetcher)).toEqual(payload);
   });
 
+  it("accepts the exact upper bounds admitted by the signed inspector contract",async()=>{
+    const pages=Array.from({length:100},(_,index)=>({
+      page:index+1,text:index===99?"x".repeat(8000):"Texto inspeccionado."
+    }));
+    const payload={versionId:"ver_a",sha256:"a".repeat(64),pageCount:100,pages};
+    const response=await loadDocumentText("c_a","ver_a",async()=>Response.json(payload));
+    expect(response.pages).toHaveLength(100);
+    expect(response.pages.at(-1)?.text).toHaveLength(8000);
+  });
+
   it.each([
     null,
     [],
