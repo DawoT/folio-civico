@@ -7,6 +7,9 @@ export interface ReviewSummary {
   internallyValidated: number;
   /** First keyset history page only; NEVER a commission-wide total. */
   reviewableRecent: number;
+  /** Verified via authorized endpoint, null when missing/denied/unavailable. */
+  reviewableTotal: number | null;
+  reviewableTotalLoading: boolean;
   recentRecordCount: number;
   hasOlderRecords: boolean;
 }
@@ -16,15 +19,17 @@ export function summaryScopeKey(scope: Scope): string {
 }
 
 /**
- * Reuses the authorized checklist and initial history page that ReviewWorkspace
- * already fetched. In particular, "reviewable" relies on server-supplied
- * canReview permissions and does NOT represent the complete paginated history.
+ * Reuses the authorized checklist and first history page. The optional
+ * commission-wide aggregate is obtained separately from the authorized API.
+ * reviewableRecent is always page-bound; reviewableTotal is never inferred.
  */
 export function makeReviewSummary(
   scope: Scope,
   checklist: ReadonlyArray<Pick<ChecklistRow, "status" | "statusSource">>,
   history: ReadonlyArray<Pick<ObservationRow, "status" | "canReview">>,
-  hasOlderRecords: boolean
+  hasOlderRecords: boolean,
+  reviewableTotal: number | null = null,
+  reviewableTotalLoading = false
 ): ReviewSummary {
   return {
     scopeKey: summaryScopeKey(scope),
@@ -34,6 +39,8 @@ export function makeReviewSummary(
     reviewableRecent: history.filter(item =>
       item.status === "in_review" && item.canReview === true
     ).length,
+    reviewableTotal,
+    reviewableTotalLoading,
     recentRecordCount: history.length,
     hasOlderRecords
   };
@@ -59,9 +66,13 @@ export function CommissionOverview({
   const pendingProcessing = readableDocuments?.filter(
     item => item.extractionStatus === "pending"
   ).length;
-  const hasUnavailable = documentsFailed || current === null;
+  const authorizedTotal = current?.reviewableTotal ?? null;
+  const countLoading = current?.reviewableTotalLoading === true;
+  const hasUnavailable = documentsFailed || current === null
+    || (authorizedTotal === null && !countLoading);
   const action =
-    canDraft && current && current.reviewableRecent > 0
+    canDraft && current && (authorizedTotal === null
+      ? current.reviewableRecent > 0 : authorizedTotal > 0)
       ? { href: "#observaciones", label: "Revisar solicitudes" }
       : !canDraft
         ? { href: "#checklist", label: "Consultar checklist" }
@@ -114,14 +125,23 @@ export function CommissionOverview({
         </div>
         <div className="overview-metric">
           <dt>Para tu revisión</dt>
-          <dd>{metric(current?.reviewableRecent)}
-            <small>Solo en los últimos {metric(current?.recentRecordCount)} registros visibles (máximo 25)</small>
+          <dd>{authorizedTotal === null ? "—" : metric(authorizedTotal)}
+            <small>{authorizedTotal === null
+              ? countLoading
+                ? "Consultando total autorizado de la comisión…"
+                : "Total de la comisión no disponible; no equivale a cero."
+              : "Total autorizado de la comisión."}</small>
+            <small>Solo en los últimos {metric(current?.recentRecordCount)} registros visibles (máximo 25): {metric(current?.reviewableRecent)} elegibles.</small>
           </dd>
         </div>
       </dl>
 
       <p className="overview-disclaimer">
-        No es un total de la comisión: las observaciones se consultan por páginas de hasta 25.
+        {authorizedTotal === null
+          ? countLoading
+            ? "No es un total de la comisión: la consulta del agregado está en curso y el historial se carga en páginas de hasta 25."
+            : "No es un total de la comisión: la página histórica se consulta por partes de hasta 25 y el total autorizado aún no está disponible."
+          : "El total de revisiones corresponde a la comisión autorizada, no al lote abierto. La bandeja consulta páginas de hasta 25."}
         {current?.hasOlderRecords ? " Hay más registros anteriores por consultar." : ""}
         {" "}La validación interna no equivale a un acta oficial.
       </p>
@@ -129,6 +149,7 @@ export function CommissionOverview({
         <p className="overview-unavailable" role="status">
           {documentsFailed ? "Datos no disponibles para documentos. " : ""}
           {current === null ? "Checklist e historial aún no disponibles. " : ""}
+          {authorizedTotal === null && !countLoading ? "Total autorizado de revisión no disponible. " : ""}
           Los guiones indican información no confirmada, no cero.
         </p>
       )}

@@ -226,6 +226,14 @@ export class SyntheticPilotApi {
     }
     if(routeParts[3]==="observations"){
       const action=routeParts[4]??"";
+      if(action==="reviewable-count" && routeParts.length===5 && method==="GET"){
+        const commission=this.commissions.find(item=>item.id===cid);
+        const count=(role==="president"||role==="member") && commission?.status==="active"
+          ? this.observations.filter(item=>item.commissionId===cid
+              && item.status==="in_review" && item.authorSubject!==actor).length
+          : 0;
+        return respond({commissionId:cid,count});
+      }
       if(action==="history" && method==="GET"){
         const limit=Number(url.searchParams.get("limit")??25);
         const cursor=url.searchParams.get("cursor");
