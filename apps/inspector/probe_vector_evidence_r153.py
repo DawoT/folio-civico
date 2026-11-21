@@ -14,6 +14,7 @@ import tempfile
 
 from fixtures import GLYPHS, _pdf, _stream, native_pdf
 from inspector import ReviewRequired, command, has_pdf_page_raster, inspect_pdf
+from qpdf_paint_triage_r154 import qpdf_page_has_uncovered_paint
 
 DIGITAL_TEXT = "EXPEDIENTE OBRA 2026"
 VECTOR_VALUE = "6002"
@@ -124,6 +125,22 @@ def probe() -> dict:
             raise ValueError("Poppler vector raster verification unsuccessful")
         ink = count_vector_ink(converted.stdout)
 
+        # Ask QPDF to resolve and decode the *content stream* syntax, not
+        # grep raw PDF bytes: paint operators can be inside Flate streams,
+        # and PDF string literals/comments can contain inert words like "f".
+        qpdf_args = [
+            "qpdf", "--json", "--json-key=pages", "--json-key=qpdf",
+            "--json-stream-data=inline", "--decode-level=all",
+        ]
+        vector_json = command([*qpdf_args, str(path)], directory)
+        if not qpdf_page_has_uncovered_paint(vector_json, page=1, count=1):
+            raise ValueError("Semantic vector evidence not found in decoded stream")
+        control_path = directory / "native.pdf"
+        control_path.write_bytes(clean)
+        control_json = command([*qpdf_args, str(control_path)], directory)
+        if qpdf_page_has_uncovered_paint(control_json, page=1, count=1):
+            raise ValueError("Native PDF falsely classified as vector evidence")
+
         def traced(argv: list[str], cwd: Path) -> str:
             trace.append(argv[0])
             return command(argv, cwd)
@@ -150,10 +167,14 @@ def probe() -> dict:
                     or len(result.get("pages", [])) != 1):
                 raise ValueError("Unexpected vector document scanner result")
             reviewed, scanned_text = False, result["pages"][0].get("text")
-        return classify_result(
+        observation = classify_result(
             digital_text=digital, image_present=images, ink=ink,
             drawn_rectangles=rectangles, scanned_text=scanned_text,
             reviewed=reviewed, inspected_commands=trace,
+        )
+        return dict(
+            observation, qpdf_decoded_paint_detected=True,
+            qpdf_native_text_control_drawing_detected=False,
         )
 
 
