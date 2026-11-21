@@ -158,8 +158,29 @@ export function App() {
   const canUpload = selectedCommission?.status === "active" && selectedCommission.role !== "observer";
   const canManage = selectedCommission?.status === "active" && selectedCommission.role === "president";
 
+  /** A draft selection is never an opened lot or a destination for document writes. */
+  function closeOpenedScope() {
+    setScope(null);
+    setReviewSummary(null);
+    setLoadedDocumentScopeKey(null);
+    setDocumentsFailed(false);
+    setDocuments([]);
+    setSelectedId(null);
+    setNotice("");
+    setError("");
+    pendingUpload.current = null;
+    if (fileInput.current) fileInput.current.value = "";
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("commission");
+      url.searchParams.delete("batch");
+      window.history.replaceState(null, "", url);
+    }
+  }
+
   function connect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (uploading || batchCreating) return;
     try {
       makeDocumentsPath(commissionId.trim(), batchId.trim());
       if (!commissions.some((item) => item.id === commissionId.trim())
@@ -187,7 +208,7 @@ export function App() {
 
   async function createBatch(event:FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if(!canManage||!commissionId||batchCreating||batchesLoading) return;
+    if(!canManage||!commissionId||batchCreating||batchesLoading||uploading) return;
     setBatchCreating(true);setError("");setNotice("");
     try {
       const fingerprint=JSON.stringify([commissionId,newBatchLabel.trim()]);
@@ -198,6 +219,7 @@ export function App() {
       pendingBatch.current=null;
       setBatches(rows=>[{id:created.id,label:created.label},...rows.filter(row=>row.id!==created.id)]);
       setBatchId(created.id);
+      closeOpenedScope();
       setNewBatchLabel("");
       setNotice(created.replayed?"Lote ya registrado; se recuperó el mismo ID.":"Lote creado y seleccionado. Pulsa «Abrir lote» para continuar.");
     } catch(problem) {
@@ -208,7 +230,7 @@ export function App() {
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const file = fileInput.current?.files?.[0];
-    if (!scope || !file || !canUpload) return;
+    if (!scope || !file || !canUpload || uploading || batchCreating) return;
     setUploading(true);
     setNotice("");
     setError("");
@@ -262,28 +284,27 @@ export function App() {
             onChange={(event) => {
               setCommissionId(event.target.value);
               setAdministrationOpen(false);
-              setReviewSummary(null);
-              setLoadedDocumentScopeKey(null);
-              setDocumentsFailed(false);
+              closeOpenedScope();
               setBatchId("");
               setBatches([]);
-              setScope(null);
-              setDocuments([]);
-              setSelectedId(null);
               setCatalogError("");
               setNewBatchLabel("");
               pendingBatch.current=null;
-            }} disabled={catalogLoading} required>
+            }} disabled={catalogLoading || uploading || batchCreating} required>
             <option value="">{catalogLoading ? "Consultando comisiones…" : "Selecciona una comisión"}</option>
             {commissions.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === "closed" ? " · Cerrada" : ""}</option>)}
           </SelectField>
           <SelectField id="scope-batch" label="Lote de expedientes"
             aria-label="Identificador de lote" value={batchId}
-            onChange={(event) => setBatchId(event.target.value)} disabled={!commissionId || batchesLoading} required>
+            onChange={(event) => {
+              const nextBatchId = event.target.value;
+              setBatchId(nextBatchId);
+              if (scope && nextBatchId !== scope.batchId) closeOpenedScope();
+            }} disabled={!commissionId || batchesLoading || uploading || batchCreating} required>
             <option value="">{batchesLoading ? "Consultando lotes…" : "Selecciona un lote"}</option>
             {batches.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </SelectField>
-          <Button variant="primary" type="submit" disabled={!commissionId || !batchId || catalogLoading || batchesLoading}>Abrir lote</Button>
+          <Button variant="primary" type="submit" disabled={!commissionId || !batchId || catalogLoading || batchesLoading || uploading || batchCreating}>Abrir lote</Button>
         </form>
 
         <TaskNavigation hasScope={Boolean(scope)} canDraft={Boolean(canUpload)}
@@ -317,9 +338,9 @@ export function App() {
                 <input id="new-batch-label" value={newBatchLabel} maxLength={120}
                   onChange={event=>setNewBatchLabel(event.target.value)}
                   placeholder="Obras y contrataciones · 2026" required
-                  disabled={batchCreating||batchesLoading}/>
+                  disabled={batchCreating||batchesLoading||uploading}/>
                 <button type="submit" className="button secondary"
-                  disabled={batchCreating||batchesLoading||newBatchLabel.trim().length<3}>
+                  disabled={batchCreating||batchesLoading||uploading||newBatchLabel.trim().length<3}>
                   {batchCreating?"Creando lote…":"Crear lote"}
                 </button>
               </form>
@@ -355,10 +376,10 @@ export function App() {
             <form className="upload-form" onSubmit={upload}>
               <label htmlFor="upload-pdf">Incorporar un expediente PDF</label>
               <input id="upload-pdf" ref={fileInput} type="file" accept=".pdf,application/pdf"
-                disabled={!scope || !canUpload || uploading} required/>
+                disabled={!scope || !canUpload || uploading || batchCreating} required/>
               <p>{scope && !canUpload ? "Solo las comisiones activas con rol de revisión pueden cargar archivos. " : ""}Máximo 8 MiB. Se conservará en cuarentena, sin lectura automática.</p>
               <Button variant="primary" className="upload-button" type="submit" busy={uploading}
-                disabled={!scope || !canUpload}>
+                disabled={!scope || !canUpload || batchCreating}>
                 {uploading ? "Registrando…" : "Registrar PDF"}
               </Button>
             </form>
