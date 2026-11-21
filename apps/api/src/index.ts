@@ -5,6 +5,7 @@ import { handleReviewRequest, type ReviewAction } from "./review-routes";
 import { handleTransitionRequest } from "./transition-routes";
 import { handleObservationDetailRequest } from "./observation-detail";
 import { handleReviewExportRequest } from "./review-export-routes";
+import { handleReviewableCountRequest } from "./reviewable-count-routes";
 import { handleProvisioningRequest } from "./provisioning-routes";
 import { handleMemberRequest } from "./member-routes";
 import { handleBootstrapRequest } from "./bootstrap-routes";
@@ -47,9 +48,10 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
   const review = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/(checklist|observations|observations\/history|observations\/drafts|observations\/page-drafts)$/.exec(url.pathname);
   const transition = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/([A-Za-z0-9_-]{1,64})\/actions$/.exec(url.pathname);
   const reviewExport = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/export$/.exec(url.pathname);
+  const reviewableCount = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/reviewable-count$/.exec(url.pathname);
   const observationDetail = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/observations\/([A-Za-z0-9_-]{1,64})$/.exec(url.pathname);
   const textPages = /^\/api\/commissions\/([A-Za-z0-9_-]{1,64})\/documents\/([A-Za-z0-9_-]{1,64})\/pages$/.exec(url.pathname);
-  if (!coreReadiness && !bootstrapCapability && !discovery && !batches && !members && !memberRevoke && !checklistProvision && !route && !documents && !review && !transition && !reviewExport && !observationDetail && !textPages) return json({ error: "Not found" }, 404);
+  if (!coreReadiness && !bootstrapCapability && !discovery && !batches && !members && !memberRevoke && !checklistProvision && !route && !documents && !review && !transition && !reviewExport && !reviewableCount && !observationDetail && !textPages) return json({ error: "Not found" }, 404);
   if (((bootstrapCapability || route || coreReadiness) && request.method !== "GET")
     || (discovery && request.method !== "GET" && request.method !== "POST")
     || (batches && request.method !== "GET" && request.method !== "POST")) return json({ error: "Method not allowed" }, 405);
@@ -130,6 +132,8 @@ export async function handleApiRequest(request: Request, env: ApiEnv): Promise<R
     return handleReviewRequest(request, {DB:env.DB},subject,review[1]!,action);
   }
   if (reviewExport) return handleReviewExportRequest(request,{DB:env.DB},subject,reviewExport[1]!);
+  // Named route precedes the generic observation/:id matcher.
+  if (reviewableCount) return handleReviewableCountRequest(request,{DB:env.DB},subject,reviewableCount[1]!);
   if (observationDetail) return handleObservationDetailRequest(request,{DB:env.DB},subject,observationDetail[1]!,observationDetail[2]!);
 
   if (!route) return json({ error: "Not found" }, 404);
