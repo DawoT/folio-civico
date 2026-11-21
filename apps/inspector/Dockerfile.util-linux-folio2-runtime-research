@@ -1,0 +1,70 @@
+# R1.47: UNSIGNED non-deployable util-linux folio2 integration experiment.
+# Never use as candidate/release; source remains 2.41.6 local quilt (not vendor).
+ARG RESEARCH_BASE=scratch
+FROM ${RESEARCH_BASE} AS installer
+USER root
+COPY --from=folio2_debs /util-linux_2.41.6-0+folio2~deb13u1_amd64.deb /tmp/folio2/
+COPY --from=folio2_debs /bsdutils_2.41.6-0+folio2~deb13u1_amd64.deb /tmp/folio2/
+COPY --from=folio2_debs /login_4.16.0-2+really2.41.6-0+folio2~deb13u1_amd64.deb /tmp/folio2/
+COPY --from=folio2_debs /libblkid1_2.41.6-0+folio2~deb13u1_amd64.deb /tmp/folio2/
+COPY --from=folio2_debs /liblastlog2-2_2.41.6-0+folio2~deb13u1_amd64.deb /tmp/folio2/
+COPY --from=folio2_debs /libmount1_2.41.6-0+folio2~deb13u1_amd64.deb /tmp/folio2/
+COPY --from=folio2_debs /libsmartcols1_2.41.6-0+folio2~deb13u1_amd64.deb /tmp/folio2/
+COPY --from=folio2_debs /libuuid1_2.41.6-0+folio2~deb13u1_amd64.deb /tmp/folio2/
+
+# Verify each local unsigned binary against two independent matching builds.
+# No dynamic apt repositories, APT fallback, or arbitrary dependency overrides.
+RUN set -eu; cd /tmp/folio2; \
+    printf '%s  %s\n' \
+      '99c9a623b957ef85bec89547ef437dc9b0a885b0a513d55b22aa3f8dd41f4210' 'util-linux_2.41.6-0+folio2~deb13u1_amd64.deb' \
+      '87cc66547957259a411b5a48fbf1a77c105c982f853ff1181f194c553a290d21' 'bsdutils_2.41.6-0+folio2~deb13u1_amd64.deb' \
+      'a002b50c773b7d131b997a6cf455e13f04fe9df186ebfee06ecdbde2cee8be53' 'login_4.16.0-2+really2.41.6-0+folio2~deb13u1_amd64.deb' \
+      'c9a66ba4240baf50d0b861817c9efc940facbd9dc8d35b762723a73a760177a1' 'libblkid1_2.41.6-0+folio2~deb13u1_amd64.deb' \
+      'ff8b2db5217bbf61ee3a6345e627a15a4767743adcb47fa6b390a5a6615905d7' 'liblastlog2-2_2.41.6-0+folio2~deb13u1_amd64.deb' \
+      '12b47b934c0561dd120879b4b7f8a849558ec4c23b0ab546d4a3b7ff5f7e8c59' 'libmount1_2.41.6-0+folio2~deb13u1_amd64.deb' \
+      '0a1f7ac40f3f6a7d783f43883e8259a1d12b0e72ed1d76718bde42615d235513' 'libsmartcols1_2.41.6-0+folio2~deb13u1_amd64.deb' \
+      '811ebda0609b334ca359e39dc9dc1c3f366e6b69f584ec2c69045b2cf8d2a155' 'libuuid1_2.41.6-0+folio2~deb13u1_amd64.deb' \
+      | sha256sum --check -; \
+    # util-linux has a strict Pre-Depends on the already-configured libblkid1; \
+    # configure local libraries first, then the dependent utilities. \
+    dpkg --install --force-confold /tmp/folio2/lib*.deb; \
+    dpkg --install --force-confold /tmp/folio2/bsdutils*.deb /tmp/folio2/login*.deb /tmp/folio2/util-linux*.deb; \
+    dpkg --audit; \
+    test "$(dpkg --print-architecture)" = amd64; \
+    for p in util-linux libblkid1 liblastlog2-2 libmount1 libsmartcols1 libuuid1; do \
+      test "$(dpkg-query -W -f='${Version}' "$p")" = '2.41.6-0+folio2~deb13u1'; \
+      test "$(dpkg-query -W -f='${Status}' "$p")" = 'install ok installed'; \
+    done; \
+    test "$(dpkg-query -W -f='${Version}' bsdutils)" = '1:2.41.6-0+folio2~deb13u1'; \
+    test "$(dpkg-query -W -f='${Version}' login)" = '1:4.16.0-2+really2.41.6-0+folio2~deb13u1'; \
+    test "$(dpkg-query -W -f='${Status}' bsdutils)" = 'install ok installed'; \
+    test "$(dpkg-query -W -f='${Status}' login)" = 'install ok installed'; \
+    test ! -e /usr/bin/mount; \
+    test -x /opt/folio-ocr/bin/tesseract; \
+    test -x /opt/folio-poppler/bin/pdfinfo; \
+    test -x /usr/bin/qpdf; \
+    for p in clamav libexpat1 libfontconfig1 libtiff6 libopenjp2-7 libsqlite3-0; do \
+      test "$(dpkg-query -W -f='${Status}' "$p")" = 'install ok installed'; \
+    done; \
+    for path in /opt/folio-poppler/bin/pdfinfo /opt/folio-poppler/bin/pdftoppm /opt/folio-ocr/bin/tesseract /usr/bin/qpdf; do \
+      ! ldd "$path" | grep -q 'not found'; \
+    done; \
+    rm -rf /tmp/folio2; \
+    clamscan --version | grep -F 'ClamAV 1.5.5'
+
+# Flatten all pre-patch OCI layers. Source metadata is still unsigned.
+FROM scratch
+COPY --from=installer / /
+ENV PATH=/opt/folio-poppler/bin:/opt/folio-ocr/bin:/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    LANG=C.UTF-8 \
+    PYTHON_VERSION=3.12.16 \
+    PYTHON_SHA256=b5796915dc45ff745cfb4e990a7e7c93d6f546328a102ce31448d69ebc37575c \
+    TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    CLAMAV_DB_DIR=/opt/clamdb \
+    FOLIO_INSPECTOR_BIND=0.0.0.0
+WORKDIR /srv/folio-inspector
+USER 65534:65534
+EXPOSE 8789
+CMD ["python3","-I","/srv/folio-inspector/inspector.py"]
